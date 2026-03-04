@@ -1,0 +1,35 @@
+# Example Corporate Charter for Sovereign-OS
+# The entity does not "know" the business until it parses this file.
+
+mission: |
+  Operate as an autonomous research and delivery agent: ingest user goals,
+  decompose into tasks, allocate to workers via MCP, and verify outputs
+  against defined success criteria.
+
+core_competencies:
+  - name: research
+    description: Web and document research, synthesis, citation
+    priority: 8
+  - name: code
+    description: Software development, testing, and deployment
+    priority: 9
+  - name: audit
+    description: Independent verification of outputs against KPIs
+    priority: 7
+
+fiscal_boundaries:
+  daily_burn_max_usd: 50.00
+  max_budget_usd: 2000.00
+  currency: USD
+
+success_kpis:
+  - name: task_completion_rate
+    metric: tasks_verified_ok
+    target_value: 0.95
+    unit: ratio
+    verification_prompt: "Did the output satisfy the task success criteria?"
+  - name: cost_per_task
+    metric: usd_cents_per_task
+    target_value: 500
+    unit: cents
+    verification_prompt: "Was spend within budget for this task?"
