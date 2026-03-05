@@ -4,12 +4,13 @@ Optional get_bid(RFP) for auction participation.
 """
 
 from abc import ABC, abstractmethod
-from typing import Annotated, TYPE_CHECKING
+from typing import Annotated, TYPE_CHECKING, Any
 
 from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from sovereign_os.governance.auction import Bid, RequestForProposal
+    from sovereign_os.llm.providers import ChatLLM
 
 
 # ---------------------------------------------------------------------------
@@ -47,9 +48,17 @@ class BaseWorker(ABC):
     Override get_bid() to participate in RFP auctions with custom bids.
     """
 
-    def __init__(self, agent_id: str, system_prompt: str = "") -> None:
+    def __init__(
+        self,
+        agent_id: str,
+        system_prompt: str = "",
+        *,
+        llm: "ChatLLM | None" = None,
+    ) -> None:
         self.agent_id = agent_id
         self.system_prompt = system_prompt
+        # Optional shared LLM client for this worker (may be None for pure-tool workers).
+        self.llm: Any | None = llm
 
     @abstractmethod
     async def execute(self, task: TaskInput) -> TaskResult:

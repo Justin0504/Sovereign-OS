@@ -24,9 +24,11 @@ dependencies = [
 dev = [
     "pytest>=8.0.0",
     "pytest-asyncio>=0.24.0",
+    "httpx>=0.24,<0.28",
 ]
 llm = [
     "openai>=1.0.0",
+    "anthropic>=0.34.0",
 ]
 memory = [
     "chromadb>=0.4.0",
@@ -39,7 +41,18 @@ telemetry = [
 deploy = [
     "redis>=5.0.0",
 ]
+payments = [
+    "stripe>=10.0.0",
+]
+
+[project.scripts]
+sovereign = "sovereign_os.cli:main"
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["sovereign_os*"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+pythonpath = ["."]

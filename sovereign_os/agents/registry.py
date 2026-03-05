@@ -110,4 +110,15 @@ class WorkerRegistry:
         if memory_manager and task_description:
             lessons = memory_manager.get_similar_lessons(task_description, k=3)
             system_prompt = _inject_lessons(system_prompt, lessons)
-        return worker_class(agent_id=agent_id, system_prompt=system_prompt)
+
+        # Optional: attach an LLM client to the worker, resolved per skill.
+        llm_client = None
+        try:  # pragma: no cover - optional LLM path
+            from sovereign_os.llm.providers import create_llm_client
+
+            llm_client = create_llm_client(f"worker_{key}")
+        except Exception:
+            # It is fine if no LLM is configured for this worker; many workers are tool-only.
+            llm_client = None
+
+        return worker_class(agent_id=agent_id, system_prompt=system_prompt, llm=llm_client)

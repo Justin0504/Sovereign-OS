@@ -32,8 +32,20 @@
   <a href="#architecture-">Architecture</a> •
   <a href="#features-">Features</a> •
   <a href="#templates-">Templates</a> •
-  <a href="#roadmap-">Roadmap</a>
+  <a href="#roadmap-">Roadmap</a> •
+  <a href="#documentation">Docs</a>
 </p>
+
+---
+
+## What's new
+
+- **Health & deployment:** `GET /health` (ledger + Redis), Docker Compose for TUI + Web UI, persistence via `SOVEREIGN_JOB_DB` and `SOVEREIGN_LEDGER_PATH`.
+- **CLI:** `sovereign run --charter path "goal"` for one-shot missions.
+- **24/7 ingestion:** Set `SOVEREIGN_INGEST_URL` to poll a JSON endpoint; optional `SOVEREIGN_API_KEY` for `POST /api/jobs`.
+- **Stripe:** Idempotency, retries, and `POST /api/webhooks/stripe`; see README for env vars.
+- **Tests & CI:** pytest for Ledger, Auditor, GovernanceEngine, JobStore; GitHub Actions on push/PR.
+- **Docs:** [E2E example](docs/E2E.md), [how to write a Charter](docs/CHARTER.md), [how to add a Worker](docs/WORKER.md).
 
 ---
 
@@ -273,15 +285,28 @@ sovereign_os/
 ├── governance/      # CEO (Strategist) + CFO (Treasury) + Engine + Auction (RFP/Bid)
 ├── agents/          # BaseWorker, WorkerRegistry, SovereignAuth
 ├── auditor/         # ReviewEngine, KPIValidator, AuditReport
+├── jobs/            # JobStore (SQLite persistence for job queue)
+├── ingest/          # Poll SOVEREIGN_INGEST_URL → enqueue jobs (24/7)
 ├── memory/          # MemoryManager (ChromaDB), lessons + reflections
 ├── mcp/             # MCP client, tool mapping
 ├── telemetry/       # OpenTelemetry spans, Prometheus metrics
 ├── health/          # SovereignHealthCheck, /health server
-└── ui/              # Textual Command Center (TaskTree, DecisionStream, FinancePanel)
+├── ui/              # Textual Command Center (TaskTree, DecisionStream, FinancePanel)
+├── web/             # FastAPI Web UI (dashboard, /health, /api/jobs, /api/webhooks/stripe)
+└── cli.py           # sovereign run --charter path "goal"
 charters/            # The_Freelancer, The_Influencer, The_Analyst
+docs/                # E2E.md, CHARTER.md, WORKER.md
+tests/               # pytest: Ledger, Auditor, GovernanceEngine, Job flow, JobStore
 Dockerfile           # Multi-stage Python 3.12
-docker-compose.yml   # TUI + Redis + volumes
+docker-compose.yml   # TUI + Web UI + Redis + volumes
 ```
+
+---
+
+## Testing & CI
+
+- **Run tests:** `pip install -e ".[dev]"` then `pytest tests/ -v`
+- **CI:** GitHub Actions runs pytest on push/PR to `main` or `master`; **PRs must pass tests before merge.**
 
 ---
 
@@ -295,12 +320,41 @@ docker-compose.yml   # TUI + Redis + volumes
 
 ### Run with Docker
 
+**TUI (Command Center):**
 ```bash
 docker compose up -d redis
 docker compose run --rm -it app
 ```
 
-Prometheus: `http://localhost:9464/metrics`. Health: set `SOVEREIGN_HEALTH_PORT=8080` and hit `http://localhost:8080/health`.
+**Web UI (dashboard + job queue, 24/7):**
+```bash
+docker compose up -d redis web
+# Open http://localhost:8000
+```
+
+**Persistence (survives restarts):** Set `SOVEREIGN_JOB_DB` and `SOVEREIGN_LEDGER_PATH` (e.g. in compose: `/app/data/jobs.db` and `/app/data/ledger.jsonl`). Jobs and ledger are then stored on the mounted volume.
+
+**Health:** Web UI exposes `GET /health` (checks ledger + optional Redis). Returns 200 when ledger is readable; 503 on failure. Use for load balancers and orchestrators. Prometheus: `http://localhost:9464/metrics`. **Recommended:** wire `/health` and metrics into alerting (e.g. Prometheus Alertmanager, PagerDuty).
+
+**CLI (one-shot mission):**
+```bash
+pip install -e .
+sovereign run --charter charter.example.yaml "Summarize the market in one paragraph."
+```
+
+**External job ingestion (24/7):** Set `SOVEREIGN_INGEST_URL` to a JSON URL returning a list of `{ "goal", "charter?", "amount_cents?", "currency?" }`. Optional: `SOVEREIGN_INGEST_INTERVAL_SEC` (default 60). Set `SOVEREIGN_API_KEY` to require `X-API-Key` or `Authorization: Bearer <key>` on `POST /api/jobs`.
+
+**Stripe (payments):** Set `STRIPE_API_KEY` for live charges. Optionally set `STRIPE_WEBHOOK_SECRET` and point Stripe to `POST /api/webhooks/stripe` for signature verification. Charges use idempotency (by `job_id`) and 3 retries with backoff. See [Stripe docs](https://stripe.com/docs) for test mode and webhook setup.
+
+---
+
+## Documentation
+
+| Doc | Description |
+|-----|-------------|
+| [E2E Example](docs/E2E.md) | One end-to-end run: Charter → mission → result. |
+| [How to write a Charter](docs/CHARTER.md) | Schema, competencies, KPIs, fiscal bounds. |
+| [How to add a Worker](docs/WORKER.md) | Register a custom agent with the Registry. |
 
 ---
 
@@ -310,7 +364,7 @@ Prometheus: `http://localhost:9464/metrics`. Health: set `SOVEREIGN_HEALTH_PORT=
 |-------|-----|
 | **Unable to upload artifact … S3 Bucket not specified** | Add `--resolve-s3` or `--s3-bucket YOUR_BUCKET` to `sam deploy`. |
 | **Requires capabilities : [CAPABILITY_IAM]** | Add `--capabilities CAPABILITY_IAM` to `sam deploy`. |
-| **Unit tests: No module named pytest** | Activate the project venv (`source .venv/bin/activate` or `.venv\Scripts\activate`) and run `pip install -r requirements-dev.txt` or `pip install -e ".[dev]"`. |
+| **Unit tests: No module named pytest** | Run `pip install -e ".[dev]"` (adds pytest, pytest-asyncio). Then `pytest tests/ -v`. |
 
 ---
 

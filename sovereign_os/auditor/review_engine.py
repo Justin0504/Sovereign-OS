@@ -14,18 +14,14 @@ from sovereign_os.agents.base import TaskResult
 from sovereign_os.auditor.base import AuditReport, BaseAuditor
 from sovereign_os.auditor.kpi_validator import KPIValidator
 from sovereign_os.governance.strategist import PlannedTask
+from sovereign_os.llm.providers import ChatLLM, create_llm_client
 from sovereign_os.memory.schema import ReflectionObject
 from sovereign_os.models.charter import Charter
 
 logger = logging.getLogger(__name__)
 
-try:
-    from openai import AsyncOpenAI
-except ImportError:
-    AsyncOpenAI = None  # type: ignore[misc, assignment]
-
-# Reasoning-heavy default for high-precision judgment
-DEFAULT_JUDGE_MODEL = "gpt-4o"  # or "o1-mini" / "claude-3-5-sonnet" when available
+# Reasoning-heavy default for high-precision judgment (used as logical role only)
+DEFAULT_JUDGE_MODEL = "gpt-4o"
 
 
 class JudgeLLMProtocol(Protocol):
@@ -47,11 +43,9 @@ class JudgeLLM(BaseAuditor):
     { "passed": bool, "score": float, "reason": str, "suggested_fix": str }.
     """
 
-    def __init__(self, *, api_key: str | None = None, model: str = DEFAULT_JUDGE_MODEL) -> None:
-        if AsyncOpenAI is None:
-            raise ImportError("openai package required for JudgeLLM; pip install openai")
-        self._client = AsyncOpenAI(api_key=api_key)
-        self._model = model
+    def __init__(self, *, client: ChatLLM | None = None) -> None:
+        self._client = client or create_llm_client("judge")
+        self._model = getattr(self._client, "model_name", DEFAULT_JUDGE_MODEL)
 
     async def evaluate(
         self,
@@ -69,26 +63,17 @@ class JudgeLLM(BaseAuditor):
             f"KPI: {kpi_name}\nVerification: {verification_prompt}\n\nTask output:\n{task_output[:4000]}\n\nJSON:"
         )
         try:
-            from sovereign_os.telemetry.tracer import span_llm, record_llm_tokens
+            from sovereign_os.telemetry.tracer import span_llm
         except ImportError:
             span_llm = lambda *a, **kw: __import__("contextlib").contextmanager(lambda: (yield))()
-            record_llm_tokens = lambda *a, **k: None
         with span_llm("judge.evaluate", model=self._model, task_id=task_id, kpi_name=kpi_name):
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
+            content = await self._client.chat(
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
-                ],
+                ]
             )
-        usage = getattr(response, "usage", None)
-        if usage:
-            record_llm_tokens(
-                self._model,
-                getattr(usage, "prompt_tokens", 0) or 0,
-                getattr(usage, "completion_tokens", 0) or 0,
-            )
-        content = (response.choices[0].message.content or "{}").strip()
+        content = (content or "{}").strip()
         content = content.removeprefix("```json").removeprefix("```").strip().removesuffix("```").strip()
         data = json.loads(content)
         return AuditReport(
@@ -137,7 +122,18 @@ class ReviewEngine:
     ) -> None:
         self._charter = charter
         self._kpi = KPIValidator(charter)
-        self._judge = judge or StubAuditor()
+        if judge is not None:
+            self._judge = judge
+        else:
+            try:
+                self._judge = JudgeLLM()
+            except Exception as e:  # pragma: no cover - optional LLM path
+                logger.warning(
+                    "GOVERNANCE AUDITOR: No Judge LLM configured; "
+                    "falling back to StubAuditor. (%s)",
+                    e,
+                )
+                self._judge = StubAuditor()
         self._memory = memory_manager
 
     @property

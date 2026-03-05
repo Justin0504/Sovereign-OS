@@ -11,14 +11,10 @@ from typing import Annotated
 
 from pydantic import BaseModel, Field
 
+from sovereign_os.llm.providers import ChatLLM, create_llm_client
 from sovereign_os.models.charter import Charter
 
 logger = logging.getLogger(__name__)
-
-try:
-    from openai import AsyncOpenAI
-except ImportError:
-    AsyncOpenAI = None  # type: ignore[misc, assignment]
 
 
 # ---------------------------------------------------------------------------
@@ -61,14 +57,16 @@ class OpenAIStrategistLLM(StrategistLLMProtocol):
     """
     Concrete LLM client using OpenAI API (GPT-4o / o1-preview).
 
-    Requires: pip install openai
+    Default Strategist LLM client; actual provider/model are resolved
+    via sovereign_os.llm.providers.create_llm_client(role="strategist").
     """
 
-    def __init__(self, *, api_key: str | None = None, model: str = "gpt-4o") -> None:
-        if AsyncOpenAI is None:
-            raise ImportError("openai package is required; install with: pip install openai")
-        self._client = AsyncOpenAI(api_key=api_key)
-        self._model = model
+    def __init__(self, *, client: ChatLLM | None = None) -> None:
+        self._client = client or create_llm_client("strategist")
+
+    @property
+    def model_name(self) -> str:
+        return self._client.model_name
 
     async def plan_from_goal(self, goal: str, charter: Charter) -> TaskPlan:
         competencies_text = "\n".join(
@@ -86,26 +84,17 @@ class OpenAIStrategistLLM(StrategistLLMProtocol):
             "Return only the JSON object for the task plan."
         )
         try:
-            from sovereign_os.telemetry.tracer import span_llm, record_llm_tokens
+            from sovereign_os.telemetry.tracer import span_llm
         except ImportError:
             span_llm = lambda *a, **kw: __import__("contextlib").contextmanager(lambda: (yield))()
-            record_llm_tokens = lambda *a, **k: None
-        with span_llm("strategist.create_plan", model=self._model):
-            response = await self._client.chat.completions.create(
-                model=self._model,
-                messages=[
+        with span_llm("strategist.create_plan", model=self.model_name):
+            content = await self._client.chat(
+                [
                     {"role": "system", "content": system},
                     {"role": "user", "content": user},
-                ],
+                ]
             )
-        usage = getattr(response, "usage", None)
-        if usage:
-            record_llm_tokens(
-                self._model,
-                getattr(usage, "prompt_tokens", 0) or 0,
-                getattr(usage, "completion_tokens", 0) or 0,
-            )
-        content = response.choices[0].message.content or "{}"
+        content = content or "{}"
         content = content.strip().removeprefix("```json").removeprefix("```").strip().removesuffix("```").strip()
         data = json.loads(content)
         return TaskPlan.model_validate(data)
@@ -125,7 +114,19 @@ class Strategist:
 
     def __init__(self, charter: Charter, *, llm_client: StrategistLLMProtocol | None = None) -> None:
         self._charter = charter
-        self._llm = llm_client
+        if llm_client is not None:
+            self._llm = llm_client
+        else:
+            # Try to create a default LLM-backed Strategist; if that fails, fall back to stub plan.
+            try:
+                self._llm = OpenAIStrategistLLM()
+            except Exception as e:  # pragma: no cover - optional LLM path
+                logger.warning(
+                    "GOVERNANCE CEO: No LLM configured for Strategist; "
+                    "falling back to single-task plan. (%s)",
+                    e,
+                )
+                self._llm = None
 
     async def create_plan(self, goal_text: str) -> TaskPlan:
         """
