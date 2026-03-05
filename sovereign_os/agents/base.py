@@ -1,11 +1,15 @@
 """
 BaseWorker: Abstract base for all agents. Async execution and Pydantic message passing.
+Optional get_bid(RFP) for auction participation.
 """
 
 from abc import ABC, abstractmethod
-from typing import Annotated
+from typing import Annotated, TYPE_CHECKING
 
 from pydantic import BaseModel, Field
+
+if TYPE_CHECKING:
+    from sovereign_os.governance.auction import Bid, RequestForProposal
 
 
 # ---------------------------------------------------------------------------
@@ -40,6 +44,7 @@ class BaseWorker(ABC):
     """
     Abstract worker. All agents support async execution and receive
     a system prompt derived from the Charter for mission alignment.
+    Override get_bid() to participate in RFP auctions with custom bids.
     """
 
     def __init__(self, agent_id: str, system_prompt: str = "") -> None:
@@ -51,9 +56,29 @@ class BaseWorker(ABC):
         """Run the task asynchronously and return a result for the Auditor."""
         ...
 
+    async def get_bid(self, rfp: "RequestForProposal") -> "Bid | None":
+        """
+        Optional: return a Bid for the RFP (used by BiddingEngine).
+        Default returns None; subclasses or registry default bid logic will be used.
+        """
+        return None
+
 
 class StubWorker(BaseWorker):
     """Default worker when no implementation is registered; returns placeholder result for Auditor."""
+
+    _model_id: str = "stub"
+
+    async def get_bid(self, rfp: "RequestForProposal") -> "Bid":
+        from sovereign_os.governance.auction import Bid
+        cents = max(1, (rfp.estimated_token_budget * 10) // 1000)
+        return Bid(
+            agent_id=self.agent_id,
+            estimated_cost_cents=cents,
+            estimated_time_seconds=30.0,
+            confidence_score=0.6,
+            model_id=self._model_id,
+        )
 
     async def execute(self, task: TaskInput) -> TaskResult:
         return TaskResult(

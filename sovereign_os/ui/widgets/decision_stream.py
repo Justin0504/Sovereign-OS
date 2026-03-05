@@ -2,8 +2,6 @@
 DecisionStream: Rich-text log with CEO (blue), CFO (gold), Auditor (purple/red).
 """
 
-from rich.console import Group
-from rich.panel import Panel
 from rich.text import Text
 from textual.widgets import RichLog
 
@@ -25,21 +23,21 @@ class DecisionStream(RichLog):
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
-        self._max_lines = 500
+        self._max_lines = 600
 
     def push_ceo(self, message: str) -> None:
-        self.write(Text.from_markup(f"[bold blue]CEO:[/] [blue]{message}[/]"))
+        self.write(Text.from_markup(f"[bold blue]▸ CEO[/] [blue]{message}[/]"))
         self._trim()
 
     def push_cfo(self, message: str) -> None:
-        self.write(Text.from_markup(f"[bold gold1]CFO:[/] [gold1]{message}[/]"))
+        self.write(Text.from_markup(f"[bold gold1]▸ CFO[/] [gold1]{message}[/]"))
         self._trim()
 
     def push_auditor(self, message: str, passed: bool = True) -> None:
         if passed:
-            self.write(Text.from_markup(f"[bold medium_purple1]AUDIT:[/] [medium_purple1]{message}[/]"))
+            self.write(Text.from_markup(f"[bold medium_purple1]▸ AUDIT[/] [medium_purple1]{message}[/]"))
         else:
-            self.write(Text.from_markup(f"[bold red1]AUDIT CRITICAL:[/] [red1]{message}[/]"))
+            self.write(Text.from_markup(f"[bold red1]▸ AUDIT FAIL[/] [red1]{message}[/]"))
         self._trim()
 
     def push_log(self, source: str, message: str) -> None:

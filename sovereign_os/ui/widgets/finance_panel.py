@@ -15,6 +15,7 @@ class FinancePanel(Widget):
     total_tokens = reactive("0")
     trust_score = reactive("—")
     agent_id = reactive("—")
+    daily_burn = reactive("—")
 
     def __init__(self, *args, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -35,6 +36,13 @@ class FinancePanel(Widget):
             by_model = getattr(self._ledger, "total_tokens_by_model", lambda: {})()
             total = sum(by_model.values()) if isinstance(by_model, dict) else 0
             self.total_tokens = f"{total:,}"
+            if hasattr(self._ledger, "usd_debits_since"):
+                from datetime import datetime, timezone
+                start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+                daily = self._ledger.usd_debits_since(start)
+                self.daily_burn = f"${daily / 100:.2f}"
+            else:
+                self.daily_burn = "—"
         if self._auth is not None and getattr(self._auth, "_scores", None):
             scores = self._auth._scores
             if scores:
@@ -46,14 +54,20 @@ class FinancePanel(Widget):
                 self.trust_score = str(getattr(self._auth, "_base", 50))
 
     def render(self) -> Panel:
+        body = Text.from_markup(
+            f"[bold #00ff41]Balance[/]\n"
+            f"[white]{self.balance_usd}[/]\n\n"
+            f"[bold #00ff41]Tokens Burned[/]\n"
+            f"[white]{self.total_tokens}[/]\n\n"
+            f"[bold #00ff41]Daily Burn[/]\n"
+            f"[white]{self.daily_burn}[/]\n\n"
+            f"[bold #00aaff]Agent[/] [dim]{self.agent_id}[/]\n"
+            f"[bold #00aaff]TrustScore[/] [white]{self.trust_score}[/]"
+        )
         return Panel(
-            Text.from_markup(
-                f"[bold cyan]Balance[/]\n{self.balance_usd}\n\n"
-                f"[bold cyan]Tokens Burned[/]\n{self.total_tokens}\n\n"
-                f"[bold cyan]Active Agent[/]\n{self.agent_id}\n"
-                f"[bold cyan]TrustScore[/]\n{self.trust_score}"
-            ),
-            title="[bold green]Finance[/]",
-            border_style="green",
+            body,
+            title="[bold #00ff41] Finance [/]",
+            border_style="#00ff41",
             padding=(1, 2),
+            title_align="left",
         )

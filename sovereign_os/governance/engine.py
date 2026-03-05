@@ -20,7 +20,10 @@ from sovereign_os.governance.exceptions import AuditFailureError, FiscalInsolven
 
 if TYPE_CHECKING:
     from sovereign_os.auditor.review_engine import ReviewEngine
+    from sovereign_os.governance.auction import BiddingEngine
+    from sovereign_os.memory.manager import MemoryManager
 from sovereign_os.governance.lifecycle import TaskLifecycleManager, TaskState
+from sovereign_os.governance.auction import RequestForProposal
 from sovereign_os.governance.rate_limit import get_global_rate_limiter
 from sovereign_os.governance.strategist import PlannedTask, Strategist, StrategistLLMProtocol, TaskPlan
 from sovereign_os.mcp.tool_mapping import get_tools_for_skill
@@ -68,10 +71,13 @@ class GovernanceEngine:
         auth: SovereignAuth | None = None,
         registry: WorkerRegistry | None = None,
         review_engine: "ReviewEngine | None" = None,
+        memory_manager: "MemoryManager | None" = None,
+        bidding_engine: "BiddingEngine | None" = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
+        self._memory_manager = memory_manager
         self._on_event = on_event
         self._strategist = Strategist(charter, llm_client=strategist_llm)
         self._treasury = Treasury(charter, ledger)
@@ -81,6 +87,7 @@ class GovernanceEngine:
         self._auth = auth or SovereignAuth()
         self._registry = registry or self._default_registry()
         self._review_engine = review_engine
+        self._bidding_engine = bidding_engine
 
     def _default_registry(self) -> WorkerRegistry:
         r = WorkerRegistry(self._charter)
@@ -95,32 +102,37 @@ class GovernanceEngine:
         2. For each task, CFO (Treasury) approves budget; on first denial, aborts with FiscalInsolvencyError.
         3. If all cleared, log Strategic Intent and return the plan for Agent Dispatch (Phase 3).
         """
-        logger.info("GOVERNANCE: Mission started. Goal: %s", (goal_text[:200] + "..." if len(goal_text) > 200 else goal_text))
-        plan = await self._strategist.create_plan(goal_text)
+        try:
+            from sovereign_os.telemetry.tracer import span_governance
+        except ImportError:
+            span_governance = lambda **kw: __import__("contextlib").contextmanager(lambda: (yield))()
+        with span_governance("run_mission", goal_preview=(goal_text[:80] + "..." if len(goal_text) > 80 else goal_text)):
+            logger.info("GOVERNANCE: Mission started. Goal: %s", (goal_text[:200] + "..." if len(goal_text) > 200 else goal_text))
+            plan = await self._strategist.create_plan(goal_text)
 
-        for task in plan.tasks:
-            estimated_cents = self._cost_converter(task)
-            try:
-                self._treasury.approve_task(
-                    estimated_cents,
-                    task_id=task.task_id,
-                    purpose=task.description[:100] or "task",
-                )
-            except FiscalInsolvencyError as e:
-                logger.error(
-                    "GOVERNANCE: Mission aborted — CFO denied budget for task %s. %s",
-                    task.task_id,
-                    str(e),
-                )
-                raise
+            for task in plan.tasks:
+                estimated_cents = self._cost_converter(task)
+                try:
+                    self._treasury.approve_task(
+                        estimated_cents,
+                        task_id=task.task_id,
+                        purpose=task.description[:100] or "task",
+                    )
+                except FiscalInsolvencyError as e:
+                    logger.error(
+                        "GOVERNANCE: Mission aborted — CFO denied budget for task %s. %s",
+                        task.task_id,
+                        str(e),
+                    )
+                    raise
 
-        logger.info(
-            "GOVERNANCE: Strategic Intent logged. %d tasks approved; ready for Agent Dispatch (Phase 3).",
-            len(plan.tasks),
-        )
-        if self._on_event:
-            self._on_event("plan_created", {"goal": goal_text, "tasks": [{"task_id": t.task_id, "required_skill": t.required_skill} for t in plan.tasks]})
-        return plan
+            logger.info(
+                "GOVERNANCE: Strategic Intent logged. %d tasks approved; ready for Agent Dispatch (Phase 3).",
+                len(plan.tasks),
+            )
+            if self._on_event:
+                self._on_event("plan_created", {"goal": goal_text, "tasks": [{"task_id": t.task_id, "required_skill": t.required_skill} for t in plan.tasks]})
+            return plan
 
     def _required_capability_for_skill(self, required_skill: str) -> Capability:
         """Map task skill to the capability checked before execution."""
@@ -132,6 +144,32 @@ class GovernanceEngine:
         if s in ("spend", "pay"):
             return Capability.SPEND_USD
         return Capability.READ_FILES
+
+    async def _run_auction(self, plan: TaskPlan) -> dict[str, str]:
+        """Run RFP auction for each task; return task_id -> winner_agent_id. Skips when no bidding engine."""
+        if self._bidding_engine is None:
+            return {}
+        winner_by_task: dict[str, str] = {}
+        runway_cents = self._ledger.total_usd_cents()
+        for task in plan.tasks:
+            rfp = RequestForProposal(
+                task_id=task.task_id,
+                description=task.description,
+                required_skill=task.required_skill,
+                estimated_token_budget=task.estimated_token_budget,
+                priority=task.priority,
+            )
+            bids = await self._bidding_engine.broadcast_rfp(rfp)
+            winner = self._treasury.select_winner(bids, task_priority=task.priority, auth=self._auth)
+            if winner is not None:
+                winner = self._treasury.negotiate(winner, runway_cents)
+                winner_by_task[task.task_id] = winner.agent_id
+                runway_cents -= winner.estimated_cost_cents
+            else:
+                winner_by_task[task.task_id] = f"{task.required_skill}-{task.task_id}"
+            if self._on_event:
+                self._on_event("auction_winner", {"task_id": task.task_id, "winner_agent_id": winner_by_task[task.task_id]})
+        return winner_by_task
 
     def _ready_task_ids(self, task_plan: TaskPlan, completed_ids: set[str]) -> list[str]:
         """Task IDs that have all dependencies satisfied and are not yet completed."""
@@ -150,9 +188,10 @@ class GovernanceEngine:
         task_plan: TaskPlan,
         lifecycle: TaskLifecycleManager,
         result_by_id: dict[str, TaskResult],
+        winner_by_task_id: dict[str, str] | None = None,
     ) -> None:
         """Execute a single task: auth check, rate limit, worker.execute, then record result and lifecycle."""
-        agent_id = f"{task.required_skill}-{task.task_id}"
+        agent_id = (winner_by_task_id or {}).get(task.task_id) or f"{task.required_skill}-{task.task_id}"
         capability = self._required_capability_for_skill(task.required_skill)
         if not self._auth.check_permission(agent_id, capability):
             lifecycle.set_failed(task.task_id, agent_id=agent_id, error="permission_denied")
@@ -168,14 +207,20 @@ class GovernanceEngine:
         lifecycle.set_running(task.task_id, agent_id=agent_id)
         if self._on_event:
             self._on_event("task_started", {"task_id": task.task_id, "agent_id": agent_id})
-        worker = self._registry.get_worker(task.required_skill, agent_id)
+        worker = self._registry.get_worker(
+            task.required_skill,
+            agent_id,
+            task_description=task.description,
+            memory_manager=self._memory_manager,
+        )
+        tool_names = get_tools_for_skill(task.required_skill)
         task_input = TaskInput(
             task_id=task.task_id,
             description=task.description,
             required_skill=task.required_skill,
             context={
                 "goal_summary": task_plan.goal_summary,
-                "mcp_tool_names": get_tools_for_skill(task.required_skill),
+                "mcp_tool_names": ",".join(tool_names) if isinstance(tool_names, list) else str(tool_names),
             },
         )
         try:
@@ -196,44 +241,51 @@ class GovernanceEngine:
             if self._on_event:
                 self._on_event("task_finished", {"task_id": task.task_id, "agent_id": agent_id, "success": False})
 
-    async def dispatch(self, task_plan: TaskPlan) -> list[TaskResult]:
+    async def dispatch(self, task_plan: TaskPlan, winner_by_task_id: dict[str, str] | None = None) -> list[TaskResult]:
         """
         DAG-aware dispatch: tasks with no remaining dependencies run concurrently via asyncio.gather.
+        When winner_by_task_id is provided (from auction), each task is assigned to the winning agent.
         TaskLifecycleManager tracks PENDING -> RUNNING -> COMPLETED | FAILED; structured JSON logging.
         """
-        task_by_id = {t.task_id: t for t in task_plan.tasks}
-        lifecycle = TaskLifecycleManager([t.task_id for t in task_plan.tasks])
-        result_by_id: dict[str, TaskResult] = {}
+        try:
+            from sovereign_os.telemetry.tracer import span_governance
+        except ImportError:
+            span_governance = lambda **kw: __import__("contextlib").contextmanager(lambda: (yield))()
+        with span_governance("dispatch", task_count=len(task_plan.tasks)):
+            task_by_id = {t.task_id: t for t in task_plan.tasks}
+            lifecycle = TaskLifecycleManager([t.task_id for t in task_plan.tasks])
+            result_by_id: dict[str, TaskResult] = {}
+            wbt = winner_by_task_id or {}
 
-        while not lifecycle.all_done():
-            completed = lifecycle.completed_ids()
-            ready_ids = self._ready_task_ids(task_plan, completed)
-            if not ready_ids:
-                if not lifecycle.all_done():
-                    _log_task_transition("_dag", "stall", completed=list(completed), snapshot=lifecycle.snapshot())
-                break
-            tasks_to_run = [task_by_id[tid] for tid in ready_ids]
-            coros = [
-                self._run_one_task(task, task_plan, lifecycle, result_by_id)
-                for task in tasks_to_run
-            ]
-            await asyncio.gather(*coros, return_exceptions=False)
+            while not lifecycle.all_done():
+                completed = lifecycle.completed_ids()
+                ready_ids = self._ready_task_ids(task_plan, completed)
+                if not ready_ids:
+                    if not lifecycle.all_done():
+                        _log_task_transition("_dag", "stall", completed=list(completed), snapshot=lifecycle.snapshot())
+                    break
+                tasks_to_run = [task_by_id[tid] for tid in ready_ids]
+                coros = [
+                    self._run_one_task(task, task_plan, lifecycle, result_by_id, winner_by_task_id=wbt)
+                    for task in tasks_to_run
+                ]
+                await asyncio.gather(*coros, return_exceptions=False)
 
-        # Return results in plan order for Auditor (include failed/never-run placeholders)
-        ordered: list[TaskResult] = []
-        for t in task_plan.tasks:
-            if t.task_id in result_by_id:
-                ordered.append(result_by_id[t.task_id])
-            else:
-                ordered.append(
-                    TaskResult(
-                        task_id=t.task_id,
-                        success=False,
-                        output="",
-                        metadata={"error": "not_run", "state": lifecycle.get_state(t.task_id).value},
+            # Return results in plan order for Auditor (include failed/never-run placeholders)
+            ordered: list[TaskResult] = []
+            for t in task_plan.tasks:
+                if t.task_id in result_by_id:
+                    ordered.append(result_by_id[t.task_id])
+                else:
+                    ordered.append(
+                        TaskResult(
+                            task_id=t.task_id,
+                            success=False,
+                            output="",
+                            metadata={"error": "not_run", "state": lifecycle.get_state(t.task_id).value},
+                        )
                     )
-                )
-        return ordered
+            return ordered
 
     async def run_mission_with_audit(
         self,
@@ -247,20 +299,35 @@ class GovernanceEngine:
         On audit fail: SovereignAuth.record_audit_failure(agent_id); optionally abort (raise AuditFailureError).
         """
         plan = await self.run_mission(goal_text)
-        results = await self.dispatch(plan)
+        winner_by_task_id = await self._run_auction(plan)
+        results = await self.dispatch(plan, winner_by_task_id=winner_by_task_id)
         reports: list[AuditReport] = []
 
         if self._review_engine is None:
             logger.warning("GOVERNANCE: No ReviewEngine configured; skipping audit.")
             return plan, results, reports
 
+        try:
+            from sovereign_os.telemetry.tracer import record_mission_success
+        except ImportError:
+            record_mission_success = lambda *a, **k: None
         for task, result in zip(plan.tasks, results, strict=True):
             report = await self._review_engine.audit_task(task, result)
             reports.append(report)
-            agent_id = f"{task.required_skill}-{task.task_id}"
-
+            agent_id = winner_by_task_id.get(task.task_id) or f"{task.required_skill}-{task.task_id}"
+            judge_model = getattr(self._review_engine, "judge_model", "audit")
             if report.passed:
+                record_mission_success(judge_model, True)
                 self._auth.record_audit_success(agent_id)
+                if self._memory_manager is not None:
+                    self._memory_manager.add_success(
+                        task_id=task.task_id,
+                        agent_id=agent_id,
+                        audit_score=report.score,
+                        kpi_target=report.kpi_name,
+                        raw_output=result.output,
+                        lessons_learned="Task verified against KPI.",
+                    )
                 logger.info(
                     "AUDIT: Task [%s] verified against KPI [%s]. Quality Score: %.2f.",
                     task.task_id,
@@ -268,6 +335,7 @@ class GovernanceEngine:
                     report.score,
                 )
             else:
+                record_mission_success(judge_model, False)
                 self._auth.record_audit_failure(agent_id)
                 logger.critical(
                     "AUDIT CRITICAL: Task [%s] failed verification. Reason: %s",

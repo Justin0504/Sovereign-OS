@@ -1,7 +1,9 @@
 """
 Governance layer: CEO (Strategist) and CFO (Treasury) orchestrated by GovernanceEngine.
+Auction: RFP broadcast and Bid collection; Treasury selects winner by utility.
 """
 
+from sovereign_os.governance.auction import Bid, BiddingEngine, RequestForProposal
 from sovereign_os.governance.engine import GovernanceEngine
 from sovereign_os.governance.exceptions import AuditFailureError, FiscalInsolvencyError
 from sovereign_os.governance.lifecycle import TaskLifecycleManager, TaskState
@@ -16,6 +18,9 @@ from sovereign_os.governance.strategist import (
 from sovereign_os.governance.treasury import Treasury
 
 __all__ = [
+    "Bid",
+    "BiddingEngine",
+    "RequestForProposal",
     "AsyncRateLimiter",
     "AuditFailureError",
     "FiscalInsolvencyError",

@@ -85,13 +85,26 @@ class OpenAIStrategistLLM(StrategistLLMProtocol):
             f"Goal: {goal}\n\nCore competencies:\n{competencies_text}\n\n"
             "Return only the JSON object for the task plan."
         )
-        response = await self._client.chat.completions.create(
-            model=self._model,
-            messages=[
-                {"role": "system", "content": system},
-                {"role": "user", "content": user},
-            ],
-        )
+        try:
+            from sovereign_os.telemetry.tracer import span_llm, record_llm_tokens
+        except ImportError:
+            span_llm = lambda *a, **kw: __import__("contextlib").contextmanager(lambda: (yield))()
+            record_llm_tokens = lambda *a, **k: None
+        with span_llm("strategist.create_plan", model=self._model):
+            response = await self._client.chat.completions.create(
+                model=self._model,
+                messages=[
+                    {"role": "system", "content": system},
+                    {"role": "user", "content": user},
+                ],
+            )
+        usage = getattr(response, "usage", None)
+        if usage:
+            record_llm_tokens(
+                self._model,
+                getattr(usage, "prompt_tokens", 0) or 0,
+                getattr(usage, "completion_tokens", 0) or 0,
+            )
         content = response.choices[0].message.content or "{}"
         content = content.strip().removeprefix("```json").removeprefix("```").strip().removesuffix("```").strip()
         data = json.loads(content)

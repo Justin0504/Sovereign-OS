@@ -129,6 +129,9 @@ flowchart TB
 - **🔐 SovereignAuth** — Dynamic RBAC for agents. READ_FILES, WRITE_FILES, EXECUTE_SHELL, SPEND_USD, CALL_EXTERNAL_API gated by TrustScore. Agents earn capabilities.
 - **🖥️ Cyberpunk TUI** — Real-time Command Center with Textual: task tree, CEO/CFO/Auditor decision stream, balance + token burn + TrustScore. Matrix-style theme. **F12 = panic exit.**
 - **🔌 MCP native** — Universal tool connectivity via Model Context Protocol. Your corporation plugs into the same tool graph as the rest of the ecosystem.
+- **📊 Telemetry & observability** — OpenTelemetry spans for governance and LLM calls; Prometheus metrics (`sovereign_tokens_total`, `sovereign_audit_success_total` / `audit_fail_total`) on `:9464/metrics`. Optional health API on `:8080/health`.
+- **🐳 Docker & health checks** — Multi-stage Dockerfile (Python 3.12); `docker-compose` for TUI + Redis + ChromaDB volume. `SovereignHealthCheck` verifies ledger integrity, Redis latency, and API connectivity at startup.
+- **🏷️ Task bidding & auction** — CEO broadcasts RFP per task; workers submit Bids (cost, time, confidence). CFO selects winner by Utility = (Confidence / Cost) × Priority × (TrustScore/100). Agents that win but fail audit get TrustScore drop; CFO can negotiate (e.g. `suggested_max_tokens`) to fit runway.
 
 ---
 
@@ -252,9 +255,12 @@ fiscal_boundaries:
 
 | Phase | Status | Description |
 |-------|--------|--------------|
-| **Phase 1** | ✅ **Current** | Core governance, ledger, registry, auditor, Command Center TUI. Charter-driven missions with CFO gate and KPI audit. |
-| **Phase 2** | 🔜 **Upcoming** | Multi-agent self-hiring: CEO dynamically instantiates workers from MCP tool graph; more Charters and adapters. |
-| **Phase 3** | 🔮 **Future** | On-chain financial settlements; verifiable audit trail; sovereign identity and compliance hooks. |
+| **Phase 1** | ✅ **Done** | Core governance, ledger, registry, auditor, Command Center TUI. Charter-driven missions with CFO gate and KPI audit. |
+| **Phase 2** | ✅ **Done** | Corporate memory (ChromaDB), post-audit reflection, MCP client, async DAG dispatch, rate limiting. |
+| **Phase 3** | ✅ **Done** | Telemetry (OpenTelemetry + Prometheus), Docker + docker-compose, SovereignHealthCheck. |
+| **Phase 4** | ✅ **Done** | Task bidding & auction: RFP → Bids → CFO winner selection (utility + TrustScore), negotiate to fit runway. |
+| **Phase 5** | 🔜 **Next** | Multi-agent self-hiring from MCP tool graph; more Charters and adapters. |
+| **Phase 6** | 🔮 **Future** | On-chain financial settlements; verifiable audit trail; sovereign identity and compliance hooks. |
 
 ---
 
@@ -264,11 +270,17 @@ fiscal_boundaries:
 sovereign_os/
 ├── models/          # Charter (Pydantic)
 ├── ledger/          # UnifiedLedger (cents + tokens)
-├── governance/      # CEO (Strategist) + CFO (Treasury) + Engine
+├── governance/      # CEO (Strategist) + CFO (Treasury) + Engine + Auction (RFP/Bid)
 ├── agents/          # BaseWorker, WorkerRegistry, SovereignAuth
 ├── auditor/         # ReviewEngine, KPIValidator, AuditReport
+├── memory/          # MemoryManager (ChromaDB), lessons + reflections
+├── mcp/             # MCP client, tool mapping
+├── telemetry/       # OpenTelemetry spans, Prometheus metrics
+├── health/          # SovereignHealthCheck, /health server
 └── ui/              # Textual Command Center (TaskTree, DecisionStream, FinancePanel)
 charters/            # The_Freelancer, The_Influencer, The_Analyst
+Dockerfile           # Multi-stage Python 3.12
+docker-compose.yml   # TUI + Redis + volumes
 ```
 
 ---
@@ -276,8 +288,29 @@ charters/            # The_Freelancer, The_Influencer, The_Analyst
 ## Requirements
 
 - **Python 3.12+**
-- Dependencies: see `pyproject.toml` (FastAPI, Pydantic v2, PyYAML, Textual, Rich).  
-- Optional LLM: `pip install -e ".[llm]"` for OpenAI-based Strategist and Judge.
+- Dependencies: see `pyproject.toml` (FastAPI, Pydantic v2, PyYAML, Textual, Rich).
+- **Optional:** `pip install -e ".[llm]"` — OpenAI Strategist/Judge.  
+- **Optional:** `pip install -e ".[memory]"` — ChromaDB for corporate memory.  
+- **Optional:** `pip install -e ".[telemetry,deploy]"` — Prometheus metrics, OpenTelemetry, Redis (health check).
+
+### Run with Docker
+
+```bash
+docker compose up -d redis
+docker compose run --rm -it app
+```
+
+Prometheus: `http://localhost:9464/metrics`. Health: set `SOVEREIGN_HEALTH_PORT=8080` and hit `http://localhost:8080/health`.
+
+---
+
+## Troubleshooting
+
+| Error | Fix |
+|-------|-----|
+| **Unable to upload artifact … S3 Bucket not specified** | Add `--resolve-s3` or `--s3-bucket YOUR_BUCKET` to `sam deploy`. |
+| **Requires capabilities : [CAPABILITY_IAM]** | Add `--capabilities CAPABILITY_IAM` to `sam deploy`. |
+| **Unit tests: No module named pytest** | Activate the project venv (`source .venv/bin/activate` or `.venv\Scripts\activate`) and run `pip install -r requirements-dev.txt` or `pip install -e ".[dev]"`. |
 
 ---
 

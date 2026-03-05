@@ -30,58 +30,96 @@ class DashboardApp(App):
 
     CSS = """
     Screen {
-        background: #0d0d0d;
+        background: #0a0a0a;
+    }
+    Header {
+        background: #050505;
+        color: #00ff41;
+        border-bottom: heavy #00ff41;
+        height: 3;
     }
     #header-area {
-        height: 3;
-        background: #0a0a0a;
+        height: 4;
+        background: #050505;
         color: #00ff41;
-        border-bottom: solid #00ff41;
-        padding: 0 1;
+        border-bottom: solid #003300;
+        padding: 0 2;
+        margin: 0 1;
+    }
+    #title-static {
+        width: 1fr;
+        content-align: left middle;
     }
     #main-grid {
         height: 1fr;
         width: 1fr;
         layout: horizontal;
+        margin: 1 0;
     }
     #left-panel {
         width: 30%;
         height: 1fr;
+        min-width: 18;
         border-right: solid #00ff41;
         padding: 0 1;
-        background: #0a0a0a;
+        background: #080808;
+    }
+    #panel-title-left {
+        color: #00ff41;
+        text-style: bold;
+        padding: 0 0 1 0;
+        height: 1;
     }
     #center-panel {
         width: 50%;
         height: 1fr;
+        min-width: 28;
         padding: 0 1;
-        background: #0d0d0d;
+        background: #0a0a0a;
         border-right: solid #ff6600;
+    }
+    #panel-title-center {
+        color: #ff6600;
+        text-style: bold;
+        padding: 0 0 1 0;
+        height: 1;
     }
     #right-panel {
         width: 20%;
         height: 1fr;
+        min-width: 14;
         padding: 0 1;
-        background: #0a0a0a;
+        background: #080808;
+    }
+    #panel-title-right {
+        color: #00aaff;
+        text-style: bold;
+        padding: 0 0 1 0;
+        height: 1;
     }
     TaskTreeWidget {
         height: 1fr;
-        border: solid #00ff41;
-        padding: 0 1;
+        border: solid #004400;
+        padding: 1;
+        scrollbar-background: #0d0d0d;
+        scrollbar-color: #00ff41;
     }
     DecisionStream {
         height: 1fr;
-        scrollbar-background: #1a1a1a;
-        scrollbar-color: #00ff41;
-        padding: 0 1;
-        border: solid #ff6600;
+        scrollbar-background: #0d0d0d;
+        scrollbar-color: #ff6600;
+        padding: 1;
+        border: solid #552200;
     }
     FinancePanel {
         height: auto;
+        min-height: 10;
     }
     Footer {
-        background: #0a0a0a;
+        background: #050505;
         color: #00ff41;
+        border-top: solid #003300;
+        height: 1;
     }
     """
 
@@ -112,15 +150,21 @@ class DashboardApp(App):
         yield Header(show_clock=True)
         with Container(id="header-area"):
             yield Static(
-                Text.from_markup(f"[bold green]SOVEREIGN-OS[/]  │  Charter: [cyan]{self._charter_name}[/]"),
+                Text.from_markup(
+                    f"[bold #00ff41]▸ SOVEREIGN-OS[/] [dim]Command Center[/]\n"
+                    f"[dim]Charter:[/] [cyan]{self._charter_name}[/]  [dim]│[/]  [dim]Press [/][bold]R[/][dim] Run demo  [/][bold]F12[/][dim] Panic[/]"
+                ),
                 id="title-static",
             )
         with Horizontal(id="main-grid"):
             with Vertical(id="left-panel"):
-                yield TaskTreeWidget("Tasks", id="task-tree")
+                yield Static("📋 TASKS", id="panel-title-left")
+                yield TaskTreeWidget("Mission", id="task-tree")
             with Vertical(id="center-panel"):
+                yield Static("📜 DECISION STREAM", id="panel-title-center")
                 yield DecisionStream(id="decision-stream")
             with Vertical(id="right-panel"):
+                yield Static("💰 FINANCE", id="panel-title-right")
                 yield FinancePanel(id="finance-panel")
         yield Footer()
 
@@ -135,7 +179,8 @@ class DashboardApp(App):
         self.set_interval(2.0, self._refresh_finance)
         self.set_interval(0.5, self._drain_events)
         ds = self.query_one(DecisionStream)
-        ds.push_generic("Command Center ready. Run a mission to see CEO/CFO/Auditor stream.")
+        ds.push_generic("[dim]Command Center ready.[/]")
+        ds.push_generic("[bold green]Press R[/] to run a demo mission (CEO → CFO → Workers → Auditor).")
 
     def _refresh_finance(self) -> None:
         fp = self.query_one(FinancePanel)
@@ -239,6 +284,24 @@ def run_dashboard(
     engine: Any = None,
 ) -> None:
     """Run the Command Center. If engine is provided, set its on_event to enqueue to app."""
+    import os
+    port_str = os.environ.get("SOVEREIGN_HEALTH_PORT", "").strip()
+    if port_str and port_str.isdigit():
+        try:
+            from sovereign_os.health.server import run_health_server
+            redis_url = os.environ.get("REDIS_URL")
+            t = Thread(
+                target=lambda: run_health_server(
+                    host="0.0.0.0",
+                    port=int(port_str),
+                    ledger=ledger,
+                    redis_url=redis_url,
+                ),
+                daemon=True,
+            )
+            t.start()
+        except Exception as e:
+            logging.getLogger(__name__).warning("Health server not started: %s", e)
     app = DashboardApp(charter_name=charter_name, ledger=ledger, auth=auth, engine=engine)
     if engine is not None:
         engine._on_event = app.enqueue_engine_event
@@ -248,16 +311,24 @@ def run_dashboard(
 if __name__ == "__main__":
     import os
     logging.basicConfig(level=logging.INFO)
+    if os.environ.get("SOVEREIGN_PROMETHEUS_PORT", "").strip():
+        try:
+            from sovereign_os.telemetry.tracer import init_telemetry
+            init_telemetry(prometheus_port=int(os.environ["SOVEREIGN_PROMETHEUS_PORT"]))
+        except Exception:
+            pass
     from sovereign_os import load_charter, UnifiedLedger
     from sovereign_os.agents import SovereignAuth
     from sovereign_os.auditor import ReviewEngine
     from sovereign_os.governance import GovernanceEngine
+    from sovereign_os.health.checker import run_health_check
 
     root = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
     charter_path = os.path.join(root, "charter.example.yaml")
     charter = load_charter(charter_path)
     ledger = UnifiedLedger()
     ledger.record_usd(1000)
+    run_health_check(ledger=ledger, redis_url=os.environ.get("REDIS_URL"))
     auth = SovereignAuth()
     review = ReviewEngine(charter)
     engine = GovernanceEngine(charter, ledger, auth=auth, review_engine=review, on_event=lambda e, d: None)
