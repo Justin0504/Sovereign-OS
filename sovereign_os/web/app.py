@@ -823,10 +823,13 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
           const label = 'job-' + j.job_id;
           const amount = j.amount_cents ? ' · ' + (j.amount_cents/100).toFixed(2) + ' ' + (j.currency || 'USD') : '';
           const status = ' [' + j.status + ']';
+          let meta = '';
+          if (j.priority && j.priority > 0) meta += ' P' + j.priority;
+          if (j.run_after_ts) { const d = new Date(j.run_after_ts * 1000); meta += ' after ' + d.toISOString().slice(0,16).replace('T',' '); }
           const approveBtn = j.status === 'pending'
             ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="approveJob(' + j.job_id + ')">Approve</button>'
             : '';
-          return '<div class=\"' + cls + '\"><span class=\"id\">' + label + '</span><span>' + amount + status + '</span>' + approveBtn + '</div>';
+          return '<div class=\"' + cls + '\"><span class=\"id\">' + label + '</span><span>' + amount + status + (meta ? '<span style="color:var(--text-muted);font-size:0.85em">' + meta + '</span>' : '') + '</span>' + approveBtn + '</div>';
         }).join('');
       }).catch(() => {});
     }
@@ -917,6 +920,26 @@ JOB_AMOUNT_CENTS_MIN = 0
 JOB_AMOUNT_CENTS_MAX = 1_000_000
 
 
+def _callback_url_ssrf_safe(callback_url: str) -> None:
+    """Raise ValueError if callback_url host is private/local (SSRF protection)."""
+    from urllib.parse import urlparse
+    parsed = urlparse(callback_url)
+    host = (parsed.hostname or "").strip().lower()
+    if not host:
+        return
+    if host in ("localhost", "localhost.", "::1"):
+        raise ValueError("callback_url must not point to localhost (SSRF protection)")
+    try:
+        import ipaddress
+        addr = ipaddress.ip_address(host)
+        if addr.is_private or addr.is_loopback or addr.is_link_local:
+            raise ValueError("callback_url must not point to private or loopback IP (SSRF protection)")
+    except ValueError as e:
+        if "must not" in str(e):
+            raise
+        pass  # host is a hostname (e.g. example.com), not an IP — allow
+
+
 def validate_job_input(
     goal: str,
     amount_cents: int,
@@ -925,6 +948,7 @@ def validate_job_input(
     goal_max_len: int = JOB_GOAL_MAX_LEN,
     amount_min: int = JOB_AMOUNT_CENTS_MIN,
     amount_max: int = JOB_AMOUNT_CENTS_MAX,
+    ssrf_check: bool = True,
 ) -> None:
     """Validate job fields. Raises ValueError with a message if invalid. Used by API and tests."""
     from urllib.parse import urlparse
@@ -937,6 +961,8 @@ def validate_job_input(
             parsed = urlparse(callback_url)
             if parsed.scheme not in ("http", "https") or not parsed.netloc:
                 raise ValueError("callback_url must be a valid http(s) URL")
+            if ssrf_check:
+                _callback_url_ssrf_safe(callback_url)
         except ValueError:
             raise
         except Exception as e:
@@ -1169,12 +1195,13 @@ def create_app(
         return {"audit_trail": entries}
 
     @app.get("/api/jobs")
-    def api_jobs():
+    def api_jobs(limit: int = 100):
+        """List jobs, most recent first. Query param limit (default 100, max 500) caps the number returned."""
+        cap = min(500, max(1, int(limit)))
+        sorted_jobs = sorted(_jobs, key=lambda x: -x.job_id)
         return {
-            "jobs": [
-                asdict(j)
-                for j in sorted(_jobs, key=lambda x: x.job_id)
-            ]
+            "jobs": [asdict(j) for j in sorted_jobs[:cap]],
+            "total": len(_jobs),
         }
 
     @app.post(

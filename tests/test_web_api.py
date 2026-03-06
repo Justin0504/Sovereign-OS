@@ -19,11 +19,13 @@ def app():
 
 @pytest.fixture
 def client(app):
-    """TestClient for app. Skips if httpx incompatible."""
+    """TestClient for app. In CI (GITHUB_ACTIONS) fail if unavailable; locally skip."""
     try:
         from fastapi.testclient import TestClient
         return TestClient(app)
     except (ImportError, AttributeError) as e:
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise RuntimeError(f"TestClient required in CI: {e}") from e
         pytest.skip(f"TestClient not available: {e}")
 
 
@@ -97,3 +99,14 @@ def test_jobs_create_rate_limit_returns_429(client):
     assert r2.status_code == 200
     assert r3.status_code == 429
     assert "rate limit" in (r3.json().get("detail") or "").lower()
+
+
+def test_jobs_list_returns_limit_and_total(client):
+    """GET /api/jobs?limit=N returns at most N jobs and a total count."""
+    r = client.get("/api/jobs?limit=2")
+    assert r.status_code == 200
+    data = r.json()
+    assert "jobs" in data
+    assert "total" in data
+    assert len(data["jobs"]) <= 2
+    assert data["total"] >= len(data["jobs"])

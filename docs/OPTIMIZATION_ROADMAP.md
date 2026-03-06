@@ -95,4 +95,40 @@
 2. ~~**Dashboard 模式提示** + **Job 入参校验**~~ ✅ 已完成。
 3. ~~**失败 Job 重试** + **E2E 含 Webhook mock**~~ ✅ 已完成。
 
-下一步可做：优雅退出、/health 增强（pending/running 数量）、限流/边界单测、生产环境检查等（见上表）。
+下一步可做：优雅退出、/health 增强（pending/running 数量）、限流/边界单测、生产环境检查等（见上表）。**其中多数已在 Wave 1–4 与近期提交中完成**（优雅退出、/health、request_id、Prometheus job 指标、Redis 队列、Job 优先级/定时、校验单测、API key 常数时间比较等）。下面为**仍可优先推进**的项。
+
+---
+
+## 下一步优化建议（按优先级）
+
+### 高价值、可快速落地
+
+| 方向 | 说明 | 产出 |
+|------|------|------|
+| **README 首屏截图** | 运行 Dashboard 后截一张图保存为 `docs/dashboard.png`，README 中占位已预留，补图即可提升首屏吸引力。 | 1 张图 |
+| **test_web_api 在 CI 跑通** ✅ | CI 中安装 `httpx>=0.24,<0.28`；GITHUB_ACTIONS 下 TestClient 不可用时直接报错不 skip，保证 CI 绿。 | 已完成 |
+| **Dashboard 展示 priority / run_after_ts** ✅ | Job 列表显示 P{priority}、计划执行时间 `after YYYY-MM-DD HH:MM`。 | 已完成 |
+
+### 体验与可观测
+
+| 方向 | 说明 | 产出 |
+|------|------|------|
+| **Job 列表分页或上限** ✅ | `GET /api/jobs?limit=N`（默认 100，最大 500），返回 `jobs` 与 `total`。 | 已完成 |
+| **callback_url SSRF 防护** ✅ | `validate_job_input` 拒绝 localhost 与内网/loopback IP；单测 `test_validate_job_input_callback_url_ssrf_rejected`。 | 已完成 |
+| **Prometheus 在 TUI 模式** | 若用 CLI/TUI 启动（非 Web），可选启动独立 Prometheus HTTP（如 9464），与现有 tracer 一致。 | 文档或代码可选 |
+
+### 功能与规模
+
+| 方向 | 说明 | 产出 |
+|------|------|------|
+| **Charter 热加载或缓存** | 当前启动时读一次；若支持「不重启换 Charter」可做热加载或 `POST /admin/reload_charter`（需鉴权）。 | 低优先级 |
+| **更多 E2E** | 为 Redis 队列、`POST /api/jobs/batch`、priority/run_after 各加一条 E2E 或集成测试，防止回归。 | 3～5 个用例 |
+
+### 社区与传播
+
+| 方向 | 说明 | 产出 |
+|------|------|------|
+| **GitHub good-first-issue 标签** | 在仓库 Issue 模板或 README 中引导「Good First Issue」到 [GOOD_FIRST_ISSUES.md](GOOD_FIRST_ISSUES.md)，并在若干 Issue 上打标签。 | 标签 + 说明 |
+| **Release 与 Tag** | 按 [RELEASE.md](RELEASE.md) 打 v0.4.0（或当前版本），在 GitHub Releases 写简短说明并引用 CHANGELOG。 | 1 个 Release |
+
+**建议实施顺序（短期）**：① 补 `docs/dashboard.png` 并确认 README 显示；~~② 在 CI 中锁定 httpx 并让 test_web_api 通过~~ ✅；~~③ Dashboard 显示 priority/run_after~~ ✅；~~④ callback_url SSRF 防护与 Job 列表分页~~ ✅。

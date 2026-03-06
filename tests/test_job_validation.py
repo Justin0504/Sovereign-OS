@@ -36,6 +36,20 @@ def test_validate_job_input_callback_url_invalid():
         validate_job_input("ok", 0, "ftp://host/path")
 
 
+def test_validate_job_input_callback_url_ssrf_rejected():
+    """callback_url to localhost or private IP is rejected (SSRF protection)."""
+    with pytest.raises(ValueError, match="localhost|SSRF|private"):
+        validate_job_input("ok", 0, "http://localhost/cb")
+    with pytest.raises(ValueError, match="localhost|SSRF|private"):
+        validate_job_input("ok", 0, "https://127.0.0.1/hook")
+    with pytest.raises(ValueError, match="SSRF|private"):
+        validate_job_input("ok", 0, "http://192.168.1.1/cb")
+    with pytest.raises(ValueError, match="SSRF|private"):
+        validate_job_input("ok", 0, "http://10.0.0.1/cb")
+    validate_job_input("ok", 0, "https://example.com/cb", ssrf_check=True)
+    validate_job_input("ok", 0, "http://localhost/cb", ssrf_check=False)  # opt-out for tests
+
+
 def test_validate_job_input_custom_bounds():
     validate_job_input("ab", 5, None, goal_max_len=2, amount_min=0, amount_max=10)
     with pytest.raises(ValueError, match="goal length"):
