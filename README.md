@@ -1,6 +1,7 @@
 <p align="center">
-  <!-- Replace with your dashboard GIF -->
-  <img src="https://via.placeholder.com/800x400/0d0d0d/00ff41?text=Sovereign-OS+Command+Center" alt="Sovereign-OS Command Center" width="800"/>
+  <a href="https://github.com/YourUsername/Sovereign-OS/actions"><img src="https://github.com/YourUsername/Sovereign-OS/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"/></a>
+  <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-green.svg" alt="Python 3.12+"/></a>
 </p>
 
 <pre align="center">
@@ -18,362 +19,169 @@
       ╚═════╝ ╚══════╝
 </pre>
 
-<h1 align="center">Sovereign-OS</h1>
-<p align="center"><strong>Stop building bots. Launch a digital corporation.</strong></p>
+# Sovereign-OS
+
+**One command. One Charter. A digital corporation that thinks, spends, and answers for every token.**
+
+Not another chatbot. Not another “AI agent framework.” Sovereign-OS is the **constitution-first substrate**: one YAML defines who the entity is, what it may spend, and how success is measured. The CEO plans. The CFO gates. The Auditor judges. **The Ledger never lies.**
 
 <p align="center">
-  The first autonomous substrate that <em>thinks like a CEO</em>, <em>audits like a CFO</em>, and <em>executes like a Silicon Valley unicorn</em>.
-</p>
-
-<p align="center">
-  <a href="#quick-start-">Quick Start</a> •
-  <a href="#manifesto-">Manifesto</a> •
-  <a href="#why-sovereign-os-">Why</a> •
-  <a href="#architecture-">Architecture</a> •
-  <a href="#features-">Features</a> •
-  <a href="#templates-">Templates</a> •
-  <a href="#roadmap-">Roadmap</a> •
-  <a href="#documentation">Docs</a>
+  <a href="#-quick-start">Quick Start</a> •
+  <a href="#-why-sovereign-os">Why</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-docs">Docs</a>
 </p>
 
 ---
 
-## What's new
+## ⚡ Quick Start
 
-- **Health & deployment:** `GET /health` (ledger + Redis), Docker Compose for TUI + Web UI, persistence via `SOVEREIGN_JOB_DB` and `SOVEREIGN_LEDGER_PATH`.
-- **CLI:** `sovereign run --charter path "goal"` for one-shot missions.
-- **24/7 ingestion:** Set `SOVEREIGN_INGEST_URL` to poll a JSON endpoint; optional `SOVEREIGN_API_KEY` for `POST /api/jobs`.
-- **Stripe:** Idempotency, retries, and `POST /api/webhooks/stripe`; see README for env vars.
-- **Tests & CI:** pytest for Ledger, Auditor, GovernanceEngine, JobStore; GitHub Actions on push/PR.
-- **Docs:** [E2E example](docs/E2E.md), [how to write a Charter](docs/CHARTER.md), [how to add a Worker](docs/WORKER.md).
-
----
-
-## Manifesto 📜
-
-**We believe** that autonomous systems must be *governed*, not merely *prompted*.  
-**We believe** that every token and every dollar must be accounted for before an agent acts.  
-**We believe** that quality is not optional—it is audited, scored, and enforced.  
-**We believe** that permissions are earned, not granted by default.
-
-Sovereign-OS is the **constitution-first** substrate: one Charter defines who the entity is, what it may spend, and how success is measured. The CEO plans. The CFO gates. The Auditor judges. The Ledger never lies. This is not a chatbot. This is **a digital corporation that thinks, spends, and answers for its work.**
-
----
-
-## Why Sovereign-OS? 🧠
-
-| | **AutoGPT / CrewAI** | **Sovereign-OS** |
-|---|---|---|
-| **💰 Fiscal governance** | API key = unlimited burn. Hope you have a big wallet. | **Real-time Token + USD ledger.** Daily caps, runway, CFO approval before every task. No more bankrupting your key. |
-| **🛡️ Proof of work** | Agents ship output; you pray it’s right. | **Recursive audit layer.** Every task is verified against Charter KPIs. Hallucinating agents get penalized; TrustScore drops. |
-| **⚖️ Permissions** | All or nothing. | **Dynamic sovereignty.** Agents start in a sandbox. They *earn* the right to spend money, write code, and call APIs via TrustScore. |
-
-Sovereign-OS isn’t “another agent framework.” It’s a **charter-driven corporation in a box**: one YAML defines the mission, the budget, and the rules. The rest is governance, ledger, and audit.
-
----
-
-## Architecture 🏛️
-
-**Five layers. No shortcuts.** Each layer has one job. Data flows down; trust and accountability flow back.
-
-```mermaid
-flowchart TB
-    subgraph L1["1. Charter (Constitution)"]
-        direction TB
-        M[Mission]
-        FB[Fiscal Boundaries]
-        KP[Success KPIs]
-        CC[Core Competencies]
-    end
-
-    subgraph L2["2. Governance (The Brain)"]
-        direction TB
-        CEO[CEO · Strategist]
-        CFO[CFO · Treasury]
-        CEO --> Plan[Task Plan]
-        CFO --> Approve[Budget Approval]
-    end
-
-    subgraph L3["3. Registry (The Workforce)"]
-        direction TB
-        REG[Worker Registry]
-        REG --> W1[Research]
-        REG --> W2[Code]
-        REG --> W3[Audit]
-    end
-
-    subgraph L4["4. Ledger (The Blood)"]
-        direction TB
-        LED[Unified Ledger]
-        LED --> USD[USD · cents]
-        LED --> TOK[Tokens · burn]
-    end
-
-    subgraph L5["5. Auditor (The Law)"]
-        direction TB
-        REV[Review Engine]
-        REV --> Pass[Pass → TrustScore ↑]
-        REV --> Fail[Fail → TrustScore ↓]
-    end
-
-    L1 --> L2
-    L2 --> L3
-    L3 --> L4
-    L3 --> L5
-    L5 --> L2
-```
-
-*Flow: Charter configures Governance → CEO/CFO drive Registry → workers consume Ledger → results go to Auditor → Auditor updates trust and feeds back to Governance.*
-
-| Layer | Role | Responsibility |
-|-------|------|----------------|
-| **1. Charter** | Constitution | Mission, competencies, fiscal bounds, success KPIs. One file, one source of truth. |
-| **2. Governance** | The Brain | CEO decomposes goals → task plan. CFO approves or denies budget per task. |
-| **3. Registry** | The Workforce | Maps skills to workers. Instantiates agents with Charter-derived prompts. MCP-native. |
-| **4. Ledger** | The Blood | Every cent and every token. Append-only. Runway, burn rate, P&L. |
-| **5. Auditor** | The Law | KPI-driven verification. Pass → TrustScore up. Fail → TrustScore down; retry or abort. |
-
----
-
-## Features 🚀
-
-- **🔄 Multi-model arbitrage** — Automatically switch between GPT-4o, o1, and cost-effective backends for strategy vs. execution. High-reasoning where it matters; cheap models where it doesn’t.
-- **🔐 SovereignAuth** — Dynamic RBAC for agents. READ_FILES, WRITE_FILES, EXECUTE_SHELL, SPEND_USD, CALL_EXTERNAL_API gated by TrustScore. Agents earn capabilities.
-- **🖥️ Cyberpunk TUI** — Real-time Command Center with Textual: task tree, CEO/CFO/Auditor decision stream, balance + token burn + TrustScore. Matrix-style theme. **F12 = panic exit.**
-- **🔌 MCP native** — Universal tool connectivity via Model Context Protocol. Your corporation plugs into the same tool graph as the rest of the ecosystem.
-- **📊 Telemetry & observability** — OpenTelemetry spans for governance and LLM calls; Prometheus metrics (`sovereign_tokens_total`, `sovereign_audit_success_total` / `audit_fail_total`) on `:9464/metrics`. Optional health API on `:8080/health`.
-- **🐳 Docker & health checks** — Multi-stage Dockerfile (Python 3.12); `docker-compose` for TUI + Redis + ChromaDB volume. `SovereignHealthCheck` verifies ledger integrity, Redis latency, and API connectivity at startup.
-- **🏷️ Task bidding & auction** — CEO broadcasts RFP per task; workers submit Bids (cost, time, confidence). CFO selects winner by Utility = (Confidence / Cost) × Priority × (TrustScore/100). Agents that win but fail audit get TrustScore drop; CFO can negotiate (e.g. `suggested_max_tokens`) to fit runway.
-
----
-
-## Quick Start ⚡
-
-**30 seconds to a running corporation.**
+**CLI — 30 seconds:**
 
 ```bash
-git clone https://github.com/YourUsername/Sovereign-OS.git
-cd Sovereign-OS
-pip install -e .
-```
-
-Fire up the Command Center (from project root):
-
-```bash
-python -m sovereign_os.ui.app
-```
-
----
-
-### ⌨️ Try the demo right now
-
-| Key | Action |
-|-----|--------|
-| **<kbd>R</kbd>** | **Run a demo mission** — CEO plans, CFO approves, workers execute, Auditor verifies. Watch the task tree and decision stream live. |
-| **<kbd>F12</kbd>** | **Panic** — Immediate exit. Your kill switch. |
-
-> **Tip:** Press **R** as soon as the dashboard loads to see a full mission (plan → dispatch → audit) without writing code.
-
----
-
-Or drive it from code:
-
-```python
-import asyncio
-from sovereign_os import load_charter, UnifiedLedger
-from sovereign_os.auditor import ReviewEngine
-from sovereign_os.governance import GovernanceEngine
-from sovereign_os.agents import SovereignAuth
-
-async def main():
-    charter = load_charter("charter.example.yaml")
-    ledger = UnifiedLedger()
-    ledger.record_usd(10_00)  # $10.00
-    engine = GovernanceEngine(
-        charter, ledger,
-        auth=SovereignAuth(),
-        review_engine=ReviewEngine(charter),
-    )
-    plan, results, reports = await engine.run_mission_with_audit("Summarize the market.")
-    print(f"Tasks: {len(plan.tasks)}, Passed: {sum(1 for r in reports if r.passed)}")
-
-asyncio.run(main())
-```
-
----
-
-## Templates 📋
-
-Three ready-to-use Charters. Drop one in and run.
-
-### 🎯 The Freelancer — Auto bounty hunter on GitHub
-
-Hunt bounties, ship PRs, pass review. Tuned for open-source contribution workflows.
-
-```yaml
-# charters/The_Freelancer.yaml (excerpt)
-mission: |
-  Operate as an autonomous open-source freelancer: discover GitHub issues labeled
-  bounty/good-first-issue, decompose into implementation tasks, submit PRs via MCP...
-fiscal_boundaries:
-  daily_burn_max_usd: 25.00
-  max_budget_usd: 500.00
-```
-
-**Use it:** `load_charter("charters/The_Freelancer.yaml")`
-
----
-
-### 📱 The Influencer — Social growth engine
-
-Content calendar, drafting, scheduling, engagement and reach KPIs. Stays within ad/API budget.
-
-```yaml
-# charters/The_Influencer.yaml (excerpt)
-mission: |
-  Operate as an autonomous social growth engine: plan content calendars, draft posts,
-  schedule and publish via connected platforms (MCP), measure engagement and reach...
-success_kpis:
-  - name: engagement_rate
-    target_value: 0.04
-  - name: cost_per_acquisition
-    metric: cost_per_follower
-    target_value: 0.50
-```
-
-**Use it:** `load_charter("charters/The_Influencer.yaml")`
-
----
-
-### 📊 The Analyst — Financial risk auditor
-
-Data ingestion, risk scoring, compliance-ready reports. Audit-trail and budget controls.
-
-```yaml
-# charters/The_Analyst.yaml (excerpt)
-mission: |
-  Operate as an autonomous financial risk auditor: ingest regulatory and market data,
-  run risk models and scenario analysis, produce compliance-ready reports and alerts...
-fiscal_boundaries:
-  daily_burn_max_usd: 100.00
-  max_budget_usd: 5000.00
-```
-
-**Use it:** `load_charter("charters/The_Analyst.yaml")`
-
----
-
-## Vision & Roadmap 🗺️
-
-| Phase | Status | Description |
-|-------|--------|--------------|
-| **Phase 1** | ✅ **Done** | Core governance, ledger, registry, auditor, Command Center TUI. Charter-driven missions with CFO gate and KPI audit. |
-| **Phase 2** | ✅ **Done** | Corporate memory (ChromaDB), post-audit reflection, MCP client, async DAG dispatch, rate limiting. |
-| **Phase 3** | ✅ **Done** | Telemetry (OpenTelemetry + Prometheus), Docker + docker-compose, SovereignHealthCheck. |
-| **Phase 4** | ✅ **Done** | Task bidding & auction: RFP → Bids → CFO winner selection (utility + TrustScore), negotiate to fit runway. |
-| **Phase 5** | 🔜 **Next** | Multi-agent self-hiring from MCP tool graph; more Charters and adapters. |
-| **Phase 6** | 🔮 **Future** | On-chain financial settlements; verifiable audit trail; sovereign identity and compliance hooks. |
-
----
-
-## Project layout 📁
-
-```
-sovereign_os/
-├── models/          # Charter (Pydantic)
-├── ledger/          # UnifiedLedger (cents + tokens)
-├── governance/      # CEO (Strategist) + CFO (Treasury) + Engine + Auction (RFP/Bid)
-├── agents/          # BaseWorker, WorkerRegistry, SovereignAuth
-├── auditor/         # ReviewEngine, KPIValidator, AuditReport
-├── jobs/            # JobStore (SQLite persistence for job queue)
-├── ingest/          # Poll SOVEREIGN_INGEST_URL → enqueue jobs (24/7)
-├── memory/          # MemoryManager (ChromaDB), lessons + reflections
-├── mcp/             # MCP client, tool mapping
-├── telemetry/       # OpenTelemetry spans, Prometheus metrics
-├── health/          # SovereignHealthCheck, /health server
-├── ui/              # Textual Command Center (TaskTree, DecisionStream, FinancePanel)
-├── web/             # FastAPI Web UI (dashboard, /health, /api/jobs, /api/webhooks/stripe)
-└── cli.py           # sovereign run --charter path "goal"
-charters/            # The_Freelancer, The_Influencer, The_Analyst
-docs/                # E2E.md, CHARTER.md, WORKER.md
-tests/               # pytest: Ledger, Auditor, GovernanceEngine, Job flow, JobStore
-Dockerfile           # Multi-stage Python 3.12
-docker-compose.yml   # TUI + Web UI + Redis + volumes
-```
-
----
-
-## Testing & CI
-
-- **Run tests:** `pip install -e ".[dev]"` then `pytest tests/ -v`
-- **CI:** GitHub Actions runs pytest on push/PR to `main` or `master`; **PRs must pass tests before merge.**
-
----
-
-## Requirements
-
-- **Python 3.12+**
-- Dependencies: see `pyproject.toml` (FastAPI, Pydantic v2, PyYAML, Textual, Rich).
-- **Optional:** `pip install -e ".[llm]"` — OpenAI Strategist/Judge.  
-- **Optional:** `pip install -e ".[memory]"` — ChromaDB for corporate memory.  
-- **Optional:** `pip install -e ".[telemetry,deploy]"` — Prometheus metrics, OpenTelemetry, Redis (health check).
-
-### Run with Docker
-
-**TUI (Command Center):**
-```bash
-docker compose up -d redis
-docker compose run --rm -it app
-```
-
-**Web UI (dashboard + job queue, 24/7):**
-```bash
-docker compose up -d redis web
-# Open http://localhost:8000
-```
-
-**Persistence (survives restarts):** Set `SOVEREIGN_JOB_DB` and `SOVEREIGN_LEDGER_PATH` (e.g. in compose: `/app/data/jobs.db` and `/app/data/ledger.jsonl`). Jobs and ledger are then stored on the mounted volume.
-
-**Health:** Web UI exposes `GET /health` (checks ledger + optional Redis). Returns 200 when ledger is readable; 503 on failure. Use for load balancers and orchestrators. Prometheus: `http://localhost:9464/metrics`. **Recommended:** wire `/health` and metrics into alerting (e.g. Prometheus Alertmanager, PagerDuty).
-
-**CLI (one-shot mission):**
-```bash
+git clone https://github.com/YourUsername/Sovereign-OS.git && cd Sovereign-OS
 pip install -e .
 sovereign run --charter charter.example.yaml "Summarize the market in one paragraph."
 ```
 
-**External job ingestion (24/7):** Set `SOVEREIGN_INGEST_URL` to a JSON URL returning a list of `{ "goal", "charter?", "amount_cents?", "currency?" }`. Optional: `SOVEREIGN_INGEST_INTERVAL_SEC` (default 60). Set `SOVEREIGN_API_KEY` to require `X-API-Key` or `Authorization: Bearer <key>` on `POST /api/jobs`.
+You get: task plan → CFO approval → execution → audit report. Done.
 
-**Stripe (payments):** Set `STRIPE_API_KEY` for live charges. Optionally set `STRIPE_WEBHOOK_SECRET` and point Stripe to `POST /api/webhooks/stripe` for signature verification. Charges use idempotency (by `job_id`) and 3 retries with backoff. See [Stripe docs](https://stripe.com/docs) for test mode and webhook setup.
+**Web Dashboard — paid jobs, 24/7:**
 
----
+```bash
+pip install -e ".[llm]"
+# Set STRIPE_API_KEY + OPENAI_API_KEY or ANTHROPIC_API_KEY in .env
+python -m sovereign_os.web.app
+# Open http://localhost:8000 — run missions, approve jobs, watch balance & token usage.
+```
 
-## Documentation
-
-| Doc | Description |
-|-----|-------------|
-| [E2E Example](docs/E2E.md) | One end-to-end run: Charter → mission → result. |
-| [How to write a Charter](docs/CHARTER.md) | Schema, competencies, KPIs, fiscal bounds. |
-| [How to add a Worker](docs/WORKER.md) | Register a custom agent with the Registry. |
-
----
-
-## Troubleshooting
-
-| Error | Fix |
-|-------|-----|
-| **Unable to upload artifact … S3 Bucket not specified** | Add `--resolve-s3` or `--s3-bucket YOUR_BUCKET` to `sam deploy`. |
-| **Requires capabilities : [CAPABILITY_IAM]** | Add `--capabilities CAPABILITY_IAM` to `sam deploy`. |
-| **Unit tests: No module named pytest** | Run `pip install -e ".[dev]"` (adds pytest, pytest-asyncio). Then `pytest tests/ -v`. |
+**Want to charge for work?** [3-step guide →](docs/QUICKSTART.md) (Stripe + one LLM key; 13 built-in workers out of the box.)
 
 ---
 
-## License
+## 🧠 Why Sovereign-OS?
+
+| | **Typical agent frameworks** | **Sovereign-OS** |
+|---|---|---|
+| **💰 Money** | API key = burn until empty. | **Real ledger.** Every cent and token tracked. CFO approves before every task. Daily caps, runway, P&L. |
+| **🛡️ Quality** | Hope the output is right. | **Audited.** Every task verified against Charter KPIs. Fail audit → TrustScore drops. Proof hash on every report. |
+| **⚖️ Control** | All or nothing. | **Earned.** Agents start in a sandbox. They *earn* spend and capabilities via TrustScore. |
+
+One YAML = mission, budget, and rules. The rest is governance.
+
+---
+
+## 🏛️ Architecture
+
+Five layers. Data flows down; accountability flows back.
+
+```
+Charter (who we are) → Governance (CEO + CFO) → Registry (workers) → Ledger (every $ & token) → Auditor (pass/fail → TrustScore)
+```
+
+- **Charter** — Mission, competencies, fiscal bounds, KPIs. One file.
+- **Governance** — CEO decomposes goals into tasks; CFO approves or denies budget per task.
+- **Registry** — Maps skills to workers (13 built-in: summarize, research, reply, write_article, translate, …).
+- **Ledger** — Append-only. Runway, burn rate, income. Never lies.
+- **Auditor** — KPI verification. Pass → TrustScore ↑. Fail → TrustScore ↓.
+
+<details>
+<summary><b>Diagram & roadmap</b></summary>
+
+```mermaid
+flowchart LR
+  Charter --> CEO[CEO · Plan]
+  CEO --> CFO[CFO · Approve]
+  CFO --> Registry[Workers]
+  Registry --> Ledger[Ledger]
+  Registry --> Auditor[Auditor]
+  Auditor --> CFO
+```
+
+Phases 1–6a done (governance, ledger, MCP, audit trail, Stripe, webhook). Phase 6b: on-chain/compliance stubs. See [PHASE6](docs/PHASE6.md) and [OPTIMIZATION_ROADMAP](docs/OPTIMIZATION_ROADMAP.md).
+
+</details>
+
+---
+
+## 🚀 Features
+
+- **📦 13 built-in workers** — summarize, research, reply, write_article, solve_problem, write_email, write_post, meeting_minutes, translate, rewrite_polish, collect_info, extract_structured, spec_writer. No code; configure Stripe + one LLM key and run paid jobs. [QUICKSTART](docs/QUICKSTART.md)
+- **🔄 Multi-model** — Strategist and workers can use different backends (e.g. GPT-4o for planning, cheaper models for execution).
+- **🔐 SovereignAuth** — RBAC by TrustScore. READ_FILES, WRITE_FILES, SPEND_USD, CALL_API gated; agents earn capabilities.
+- **🌐 Web Dashboard (24/7)** — Run missions, job queue, approve/retry, health, token usage, audit trail. Optional ingest from URL; Stripe charges; webhook on completion.
+- **🔌 MCP native** — Plug into the same tool graph as the rest of the ecosystem.
+- **📊 Observability** — OpenTelemetry, Prometheus metrics, verifiable audit trail with `proof_hash`.
+
+---
+
+## 📁 Project layout
+
+```
+sovereign_os/
+├── models/       # Charter (Pydantic)
+├── ledger/       # UnifiedLedger (cents + tokens)
+├── governance/   # CEO (Strategist) + CFO (Treasury) + Engine
+├── agents/       # Workers, Registry, SovereignAuth
+├── auditor/      # ReviewEngine, AuditReport (proof_hash)
+├── jobs/         # JobStore (SQLite queue)
+├── ingest/       # Poll URL → enqueue jobs
+├── web/          # FastAPI dashboard, /api/jobs, /health, Stripe webhook
+└── ui/           # Textual TUI (optional)
+docs/             # QUICKSTART, CONFIG, CHARTER, WORKER, MONETIZATION, …
+tests/            # pytest
+```
+
+---
+
+## 📖 Docs
+
+| Doc | What’s inside |
+|-----|----------------|
+| [**Quick Start (上手即用)**](docs/QUICKSTART.md) | Stripe + LLM key, first paid job, curl examples, troubleshooting. |
+| [Config & env](docs/CONFIG.md) | All `SOVEREIGN_*`, Stripe, Redis, webhook, rate limit, retry. |
+| [Charter](docs/CHARTER.md) | How to write mission, competencies, KPIs, fiscal bounds. |
+| [Worker](docs/WORKER.md) | How to add and register custom workers. |
+| [Monetization](docs/MONETIZATION.md) | Job queue, Stripe, approval, compliance, human-out-of-loop. |
+| [Audit proof](docs/AUDIT_PROOF.md) | Verifiable trail, `proof_hash`, integrity check. |
+| [Optimization roadmap](docs/OPTIMIZATION_ROADMAP.md) | Next steps: reliability, observability, security, scale. |
+
+---
+
+## 🧪 Test & run
+
+```bash
+pip install -e ".[dev]"
+pytest tests/ -v
+```
+
+**Docker (Web UI + Redis):**
+
+```bash
+docker compose up -d redis web
+# http://localhost:8000
+```
+
+**Troubleshooting:** Payments still “Dummy” or no real LLM? Set `STRIPE_API_KEY` and `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.env`; restart. Check `GET /health` for `config_warnings`. [QUICKSTART](docs/QUICKSTART.md).
+
+---
+
+## 🔒 Security & contributing
+
+- **Secrets:** Use env vars only (e.g. `STRIPE_API_KEY`, `OPENAI_API_KEY`). [CONFIG](docs/CONFIG.md).
+- **Vulnerabilities:** [SECURITY.md](SECURITY.md).
+- **Contribute:** [CONTRIBUTING.md](CONTRIBUTING.md). Run tests before PR.
+
+## 📜 License
 
 **MIT**
 
 ---
 
 <p align="center">
-  <strong>Sovereign-OS</strong> — Think. Audit. Execute. 🚀
+  <strong>Sovereign-OS</strong> — Think. Audit. Execute.
+</p>
+<p align="center">
+  <sub>If you run a digital corp, run it on a ledger.</sub>
 </p>
