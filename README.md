@@ -139,7 +139,7 @@ tests/            # pytest
 
 | Doc | What’s inside |
 |-----|----------------|
-| [**Quick Start (上手即用)**](docs/QUICKSTART.md) | Stripe + LLM key, first paid job, curl examples, troubleshooting. |
+| [**Quick Start**](docs/QUICKSTART.md) | Stripe + LLM key, first paid job, curl examples, troubleshooting. |
 | [Config & env](docs/CONFIG.md) | All `SOVEREIGN_*`, Stripe, Redis, webhook, rate limit, retry. |
 | [Charter](docs/CHARTER.md) | How to write mission, competencies, KPIs, fiscal bounds. |
 | [Worker](docs/WORKER.md) | How to add and register custom workers. |

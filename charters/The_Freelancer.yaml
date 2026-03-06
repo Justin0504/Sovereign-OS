@@ -1,5 +1,6 @@
 # The Freelancer — Auto bounty hunter on GitHub
 # Sovereign-OS Charter: Hunt bounties, ship PRs, pass audits.
+# Usage: sovereign run --charter charters/The_Freelancer.yaml "goal"
 
 mission: |
   Operate as an autonomous open-source freelancer: discover GitHub issues labeled
