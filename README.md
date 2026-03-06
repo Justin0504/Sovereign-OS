@@ -1,5 +1,5 @@
 <p align="center">
-  <a href="https://github.com/YourUsername/Sovereign-OS/actions"><img src="https://github.com/YourUsername/Sovereign-OS/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
+  <a href="https://github.com/Justin0504/Sovereign-OS/actions"><img src="https://github.com/Justin0504/Sovereign-OS/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-green.svg" alt="Python 3.12+"/></a>
 </p>
@@ -40,7 +40,7 @@ Not another chatbot. Not another “AI agent framework.” Sovereign-OS is the *
 **CLI — 30 seconds:**
 
 ```bash
-git clone https://github.com/YourUsername/Sovereign-OS.git && cd Sovereign-OS
+git clone https://github.com/Justin0504/Sovereign-OS.git && cd Sovereign-OS
 pip install -e .
 sovereign run --charter charter.example.yaml "Summarize the market in one paragraph."
 ```
