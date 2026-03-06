@@ -1,0 +1,466 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sovereign-OS · Command Center</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f5f4f1;
+      --bg-card: #ffffff;
+      --text: #0f0f0f;
+      --text-soft: #525252;
+      --text-muted: #737373;
+      --border: rgba(0,0,0,0.06);
+      --black: #0f0f0f;
+      --success: #15803d;
+      --warn: #a16207;
+      --danger: #b91c1c;
+      --radius: 14px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-hover: 0 8px 24px rgba(0,0,0,0.08);
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      font-size: 15px;
+      line-height: 1.55;
+      -webkit-font-smoothing: antialiased;
+      text-align: left;
+    }
+    .topbar {
+      background: var(--bg-card);
+      border-bottom: 1px solid var(--border);
+      padding: 16px 28px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      box-shadow: var(--shadow);
+    }
+    .topbar-brand {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--black);
+      letter-spacing: -0.02em;
+    }
+    .logo-mark {
+      width: 18px;
+      height: 18px;
+      border-radius: 999px;
+      border: 1px solid var(--black);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .logo-mark::before {
+      content: "";
+      width: 6px;
+      height: 6px;
+      border-radius: 999px;
+      background: var(--black);
+    }
+    .topbar-meta {
+      font-size: 0.9375rem;
+      color: var(--text-muted);
+    }
+    .topbar-meta strong { color: var(--black); font-weight: 600; margin-left: 4px; }
+    .wrap {
+      max-width: 1180px;
+      margin: 0 auto;
+      padding: 32px 24px 48px;
+      text-align: left;
+    }
+    .hero {
+      margin-bottom: 28px;
+      text-align: left;
+    }
+    .hero h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      letter-spacing: -0.03em;
+      color: var(--black);
+      line-height: 1.25;
+      margin-bottom: 6px;
+    }
+    .hero p {
+      font-size: 0.9375rem;
+      color: var(--text-soft);
+      font-weight: 400;
+    }
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+      align-items: start;
+    }
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.2s;
+    }
+    .card:hover { box-shadow: var(--shadow-hover); }
+    .card-title {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .card-heading {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--black);
+      margin-bottom: 4px;
+    }
+    .card-desc {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .prompt-row {
+      display: flex;
+      gap: 10px;
+      align-items: stretch;
+    }
+    .prompt-row input {
+      flex: 1;
+      padding: 14px 18px;
+      font-size: 0.9375rem;
+      font-family: inherit;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--black);
+      transition: border-color 0.15s, box-shadow 0.15s;
+    }
+    .prompt-row input::placeholder { color: var(--text-muted); }
+    .prompt-row input:focus {
+      outline: none;
+      border-color: var(--black);
+      box-shadow: 0 0 0 2px rgba(0,0,0,0.06);
+    }
+    .btn {
+      padding: 14px 24px;
+      font-size: 0.9375rem;
+      font-weight: 600;
+      font-family: inherit;
+      background: var(--black);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      cursor: pointer;
+      transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
+    }
+    .btn:hover {
+      background: #262626;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+      transform: translateY(-1px);
+    }
+    .section-title {
+      font-size: 1.0625rem;
+      font-weight: 700;
+      color: var(--black);
+      margin-bottom: 2px;
+      letter-spacing: -0.01em;
+    }
+    .section-subtitle {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
+    }
+    .feed {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 4px 0;
+      max-height: 320px;
+      overflow-y: auto;
+    }
+    .feed-item {
+      padding: 12px 18px;
+      font-size: 0.875rem;
+      line-height: 1.5;
+      border-bottom: 1px solid var(--border);
+      color: var(--text-soft);
+    }
+    .feed-item:last-child { border-bottom: none; }
+    .feed-item.ceo { color: var(--black); font-weight: 500; }
+    .feed-item.cfo { color: var(--black); opacity: 0.9; }
+    .feed-item.auditor_pass { color: var(--success); }
+    .feed-item.auditor_fail { color: var(--danger); }
+    .tasks-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      margin-top: 12px;
+    }
+    .task-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 14px;
+      font-size: 0.875rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      color: var(--text-soft);
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .task-pill:hover {
+      background: #ebeae6;
+      border-color: rgba(0,0,0,0.1);
+    }
+    .task-pill .dot {
+      width: 8px; height: 8px; border-radius: 50%;
+    }
+    .task-pill.pending .dot { background: var(--text-muted); }
+    .task-pill.running .dot { background: var(--black); }
+    .task-pill.passed .dot { background: var(--success); }
+    .task-pill.failed .dot { background: var(--danger); }
+    .task-pill .id { font-weight: 600; color: var(--black); }
+    .task-pill.job-completed { border-color: rgba(22, 101, 52, 0.4); color: var(--success); }
+    .task-pill.job-failed, .task-pill.job-payment_failed { border-color: rgba(153, 27, 27, 0.4); color: var(--danger); }
+    .task-pill.job-running { border-color: rgba(10, 10, 10, 0.3); }
+    .stats {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 20px;
+      margin-top: 28px;
+      padding-top: 24px;
+      border-top: 1px solid var(--border);
+    }
+    @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+    .stat .label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .stat .value { font-size: 1.25rem; font-weight: 700; color: var(--black); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .empty-feed { padding: 24px 20px; color: var(--text-muted); font-size: 0.875rem; }
+    .health-box {
+      display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 12px 16px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; font-size: 0.875rem;
+    }
+    .health-box .status { font-weight: 600; }
+    .health-box .status.ok { color: var(--success); }
+    .health-box .status.degraded, .health-box .status.error { color: var(--danger); }
+    .health-box span + span { margin-left: 8px; }
+    .token-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; background: var(--bg); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .token-table th, .token-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+    .token-table th { background: rgba(0,0,0,0.04); font-weight: 600; color: var(--black); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .token-table tr:last-child td { border-bottom: none; }
+    .footer-strip {
+      margin-top: 32px;
+      padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+    }
+    .sidebar .card { margin-bottom: 20px; }
+    .sidebar .card:last-child { margin-bottom: 0; }
+    .audit-trail-feed { max-height: 180px; overflow-y: auto; font-size: 0.8125rem; }
+    .audit-trail-item { padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text-soft); }
+    .audit-trail-item:last-child { border-bottom: none; }
+    .audit-trail-item .task-id { font-weight: 600; color: var(--black); }
+    .audit-trail-item .verified { color: var(--success); }
+    .audit-trail-item .unverified { color: var(--danger); }
+  </style>
+</head>
+<body>
+  <header class="topbar">
+    <span class="topbar-brand"><span class="logo-mark"></span>Sovereign-OS</span>
+    <span class="topbar-meta">Charter <strong id="charter">—</strong> · Balance <strong id="balance">—</strong> · Tokens <strong id="tokens">—</strong> · Trust <strong id="trust">—</strong> · <a href="/health" target="_blank" style="color:var(--text-muted);text-decoration:none">Health</a></span>
+  </header>
+  <div class="wrap">
+    <header class="hero">
+      <h1>Command Center</h1>
+      <p>Run missions, approve jobs, and monitor the audit stream. Ledger · CEO/CFO · 24/7 jobs · <a href="/health" target="_blank" style="color:var(--text-soft);text-decoration:none">/health</a></p>
+    </header>
+    <div class="grid-2">
+      <div class="main">
+        <section class="card" style="margin-bottom: 24px;">
+          <div class="card-title">Mission</div>
+          <div class="card-heading">Run a mission</div>
+          <p class="card-desc">Describe the goal; the entity will plan, get CFO approval, dispatch agents, and audit.</p>
+          <div class="prompt-row">
+            <input type="text" id="goal" placeholder="e.g. Summarize the market in one paragraph" value="Summarize the market in one paragraph." />
+            <button class="btn" onclick="runMission()">Run</button>
+          </div>
+        </section>
+        <section class="card" style="margin-bottom: 24px;">
+          <div class="card-title">Task DAG</div>
+          <div class="card-heading">Tasks</div>
+          <p class="card-desc">Current or last mission task status (pending → running → passed/failed).</p>
+          <div class="tasks-row" id="tasks"></div>
+        </section>
+        <section class="card" style="margin-bottom: 24px;">
+          <div class="card-title">Audit trail</div>
+          <div class="card-heading">Activity</div>
+          <p class="card-desc">Plans, approvals, execution, and audit results in real time.</p>
+          <div class="feed" id="logs"></div>
+        </section>
+      </div>
+      <aside class="sidebar">
+        <section class="card">
+          <div class="card-title">System</div>
+          <div class="card-heading">Health check</div>
+          <p class="card-desc">Ledger and Redis. Refreshed every 10s.</p>
+          <div class="health-box" id="health">
+            <span class="status">—</span><span>Ledger: —</span><span>Redis: —</span>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-title">Cost</div>
+          <div class="card-heading">Token usage</div>
+          <p class="card-desc">Per task and per agent from the ledger.</p>
+          <div id="tokenUsage"><span class="empty-feed">No token records yet.</span></div>
+        </section>
+        <section class="card">
+          <div class="card-title">Operations</div>
+          <div class="card-heading">Job queue</div>
+          <p class="card-desc">External jobs; approve to run 24/7.</p>
+          <div class="tasks-row" id="jobs"></div>
+        </section>
+        <section class="card">
+          <div class="card-title">Phase 6a</div>
+          <div class="card-heading">Audit trail</div>
+          <p class="card-desc">Recent audits (proof_hash). Set SOVEREIGN_AUDIT_TRAIL_PATH to enable.</p>
+          <div id="auditTrail" class="audit-trail-feed"><span class="empty-feed">No audit trail. Run missions and set SOVEREIGN_AUDIT_TRAIL_PATH.</span></div>
+        </section>
+      </aside>
+    </div>
+    <div class="stats">
+      <div class="stat"><div class="label">Balance</div><div class="value" id="finBalance">$0.00</div></div>
+      <div class="stat"><div class="label">Tokens burned</div><div class="value" id="finTokens">0</div></div>
+      <div class="stat"><div class="label">Agent</div><div class="value" id="finAgent">—</div></div>
+      <div class="stat"><div class="label">Trust score</div><div class="value" id="finTrust">—</div></div>
+    </div>
+    <div class="footer-strip">
+      Sovereign‑OS is experimental. Keep a human in the loop for financial and production decisions.
+    </div>
+  </div>
+  <script>
+    function r(id) { return document.getElementById(id); }
+    function fetchStatus() {
+      fetch('/api/status').then(x => x.json()).then(d => {
+        const charter = d.charter || '—', balance = d.balance || '—', tokens = d.tokens || '—', trust = d.trust_score || '—';
+        r('charter').textContent = charter;
+        r('balance').textContent = balance;
+        r('tokens').textContent = tokens;
+        r('trust').textContent = trust;
+        r('finBalance').textContent = balance === '—' ? '$0.00' : balance;
+        r('finTokens').textContent = tokens === '—' ? '0' : tokens;
+        r('finAgent').textContent = (d.agent_id || '—').slice(0, 20);
+        r('finTrust').textContent = trust;
+      }).catch(() => {});
+    }
+    function fetchTasks() {
+      fetch('/api/tasks').then(x => x.json()).then(d => {
+        const el = r('tasks');
+        const tasks = d.tasks || [];
+        el.innerHTML = tasks.length ? tasks.map(t =>
+          '<div class="task-pill ' + t.status + '"><span class="dot"></span><span class="id">' + escapeHtml(t.task_id) + '</span><span>· ' + escapeHtml(t.skill || '') + '</span></div>'
+        ).join('') : '<span class="task-pill" style="color:var(--text-muted)">No tasks yet. Launch a mission to see your DAG.</span>';
+      }).catch(() => {});
+    }
+    function fetchJobs() {
+      fetch('/api/jobs').then(x => x.json()).then(d => {
+        const el = r('jobs');
+        const jobs = d.jobs || [];
+        if (!jobs.length) {
+          el.innerHTML = '<span class="task-pill" style="color:var(--text-muted)">No external jobs. POST to /api/jobs to ingest work.</span>';
+          return;
+        }
+        el.innerHTML = jobs.map(j => {
+          const cls = 'task-pill job-' + j.status;
+          const label = 'job-' + j.job_id;
+          const amount = j.amount_cents ? ' · ' + (j.amount_cents/100).toFixed(2) + ' ' + (j.currency || 'USD') : '';
+          const status = ' [' + j.status + ']';
+          const approveBtn = j.status === 'pending'
+            ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="approveJob(' + j.job_id + ')">Approve</button>'
+            : '';
+          return '<div class=\"' + cls + '\"><span class=\"id\">' + label + '</span><span>' + amount + status + '</span>' + approveBtn + '</div>';
+        }).join('');
+      }).catch(() => {});
+    }
+    function fetchLogs() {
+      fetch('/api/logs').then(x => x.json()).then(d => {
+        const div = r('logs');
+        const logs = (d.logs || []).slice(-50);
+        div.innerHTML = logs.length ? logs.map(l => '<div class="feed-item ' + l.source + '">' + escapeHtml(l.message) + '</div>').join('') : '<div class="empty-feed">When your company thinks, this stream becomes your audit trail.</div>';
+        div.scrollTop = div.scrollHeight;
+      }).catch(() => {});
+    }
+    function fetchHealth() {
+      fetch('/health').then(x => x.json()).then(d => {
+        const el = r('health');
+        if (!el) return;
+        const status = (d.status || 'error').toLowerCase();
+        const ledger = d.ledger === true ? '✓' : (d.ledger === false ? '✗' : '—');
+        const redis = d.redis === true ? '✓' : (d.redis === false ? '✗' : '—');
+        el.innerHTML = '<span class="status ' + status + '">' + escapeHtml(status.toUpperCase()) + '</span><span>Ledger: ' + ledger + '</span><span>Redis: ' + redis + '</span>';
+      }).catch(() => {
+        const el = r('health');
+        if (el) el.innerHTML = '<span class="status error">ERROR</span><span>Failed to fetch /health</span>';
+      });
+    }
+    function fetchTokenUsage() {
+      fetch('/api/token_usage').then(x => x.json()).then(d => {
+        const el = r('tokenUsage');
+        if (!el) return;
+        const rows = d.token_usage || [];
+        if (!rows.length) {
+          el.innerHTML = '<span class="empty-feed">No token records yet. Run a mission to see usage.</span>';
+          return;
+        }
+        el.innerHTML = '<table class="token-table"><thead><tr><th>Task</th><th>Agent</th><th>Model</th><th>Input</th><th>Output</th><th>Total</th></tr></thead><tbody>' +
+          rows.map(u => '<tr><td>' + escapeHtml(u.task_id) + '</td><td>' + escapeHtml(u.agent_id) + '</td><td>' + escapeHtml(u.model_id) + '</td><td>' + (u.input_tokens || 0) + '</td><td>' + (u.output_tokens || 0) + '</td><td>' + (u.total_tokens || 0) + '</td></tr>').join('') +
+          '</tbody></table>';
+      }).catch(() => {});
+    }
+    function fetchAuditTrail() {
+      fetch('/api/audit_trail?limit=10').then(x => x.json()).then(d => {
+        const el = r('auditTrail');
+        if (!el) return;
+        const list = d.audit_trail || [];
+        if (!list.length) {
+          el.innerHTML = '<span class="empty-feed">' + escapeHtml(d.message || 'No audit trail. Set SOVEREIGN_AUDIT_TRAIL_PATH.') + '</span>';
+          return;
+        }
+        el.innerHTML = list.slice(0, 10).map(e => {
+          const cls = e.verified ? 'verified' : 'unverified';
+          const hash = (e.proof_hash || '').slice(0, 8);
+          return '<div class="audit-trail-item"><span class="task-id">' + escapeHtml(e.task_id) + '</span> ' + (e.passed ? 'PASS' : 'FAIL') + ' · ' + (e.score != null ? e.score : '') + ' <span class="' + cls + '">' + (e.verified ? '✓' : '✗') + '</span> ' + hash + '</div>';
+        }).join('');
+      }).catch(() => {});
+    }
+    function escapeHtml(s) { const e = document.createElement('div'); e.textContent = s; return e.innerHTML; }
+    function runMission() {
+      const goal = r('goal').value || 'Summarize the market in one paragraph.';
+      fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: goal }) }).then(x => x.json()).then(d => { if (d.status === 'started') fetchLogs(); }).catch(() => {});
+    }
+    function approveJob(id) {
+      fetch('/api/jobs/' + id + '/approve', { method: 'POST' }).then(() => { fetchJobs(); fetchLogs(); }).catch(() => {});
+    }
+    setInterval(fetchStatus, 2000);
+    setInterval(fetchTasks, 1500);
+    setInterval(fetchLogs, 1000);
+    setInterval(fetchJobs, 5000);
+    setInterval(fetchHealth, 10000);
+    setInterval(fetchTokenUsage, 3000);
+    setInterval(fetchAuditTrail, 8000);
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchAuditTrail();
+  </script>
+</body>
+</html>

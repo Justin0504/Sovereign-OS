@@ -5,7 +5,8 @@ import pytest
 from sovereign_os.agents.auth import SovereignAuth
 from sovereign_os.auditor import ReviewEngine
 from sovereign_os.governance.engine import GovernanceEngine
-from sovereign_os.governance.exceptions import FiscalInsolvencyError
+from sovereign_os.compliance import ThresholdComplianceHook
+from sovereign_os.governance.exceptions import FiscalInsolvencyError, HumanApprovalRequiredError
 from sovereign_os.ledger.unified_ledger import UnifiedLedger
 
 
@@ -54,3 +55,24 @@ async def test_run_mission_with_audit_full_pipeline(charter, ledger, auth, revie
     assert len(results) == len(plan.tasks)
     assert len(reports) == len(plan.tasks)
     assert all(r.passed for r in reports)
+
+
+@pytest.mark.asyncio
+async def test_run_mission_raises_human_approval_when_above_compliance_threshold(charter, ledger, auth, review_engine):
+    """When compliance hook threshold is set and task cost exceeds it, run_mission raises HumanApprovalRequiredError."""
+    ledger.record_usd(5000)  # enough balance so fiscal check passes; compliance hook runs next
+    hook = ThresholdComplianceHook(spend_threshold_cents=1000)
+    cost_converter = lambda t: 2000
+    engine = GovernanceEngine(
+        charter,
+        ledger,
+        auth=auth,
+        review_engine=review_engine,
+        compliance_hook=hook,
+        spend_threshold_cents=1000,
+        cost_converter=cost_converter,
+    )
+    with pytest.raises(HumanApprovalRequiredError) as exc_info:
+        await engine.run_mission("One task.")
+    assert exc_info.value.amount_cents == 2000
+    assert "1000" in str(exc_info.value)

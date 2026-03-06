@@ -13,6 +13,7 @@ if TYPE_CHECKING:
 from sovereign_os.agents.base import TaskResult
 from sovereign_os.auditor.base import AuditReport, BaseAuditor
 from sovereign_os.auditor.kpi_validator import KPIValidator
+from sovereign_os.auditor.trail import append_audit_report
 from sovereign_os.governance.strategist import PlannedTask
 from sovereign_os.llm.providers import ChatLLM, create_llm_client
 from sovereign_os.memory.schema import ReflectionObject
@@ -119,8 +120,10 @@ class ReviewEngine:
         *,
         judge: BaseAuditor | None = None,
         memory_manager: "MemoryManager | None" = None,
+        audit_trail_path: str | None = None,
     ) -> None:
         self._charter = charter
+        self._audit_trail_path = audit_trail_path
         self._kpi = KPIValidator(charter)
         if judge is not None:
             self._judge = judge
@@ -179,4 +182,9 @@ class ReviewEngine:
                 raw_output=task_result.output,
             )
             self._memory.add_reflection(reflection)
+        if self._audit_trail_path:
+            try:
+                append_audit_report(self._audit_trail_path, report)
+            except Exception as e:
+                logger.warning("AUDIT TRAIL: append failed: %s", e)
         return report

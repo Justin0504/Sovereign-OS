@@ -15,6 +15,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sovereign_os.memory.manager import MemoryManager
+    from sovereign_os.mcp.tool_graph import MCPToolGraph
 
 
 def _system_prompt_from_charter(charter: Charter, skill_name: str) -> str:
@@ -49,10 +50,13 @@ class WorkerRegistry:
     """
     HR layer: maps required_skill to Worker class. Instantiates workers
     with a Charter-derived system prompt. Supports multiple bidders per skill for auction.
+    Phase 5: when mcp_tool_graph is set, skills with no registered worker can be fulfilled
+    by MCPWorker using tools discovered from the graph (self-hiring).
     """
 
-    def __init__(self, charter: Charter) -> None:
+    def __init__(self, charter: Charter, *, mcp_tool_graph: "MCPToolGraph | None" = None) -> None:
         self._charter = charter
+        self._mcp_tool_graph = mcp_tool_graph
         self._skill_to_worker_class: dict[str, type[BaseWorker]] = {}
         self._skill_to_bidders: dict[str, list[tuple[str, type[BaseWorker]]]] = {}  # skill -> [(agent_id, class), ...]
         self._default_worker_class: type[BaseWorker] | None = None
@@ -69,14 +73,20 @@ class WorkerRegistry:
 
     def get_bidders(self, required_skill: str) -> list[tuple[str, type[BaseWorker]]]:
         """Return all (agent_id, worker_class) that can bid for this skill (for RFP auction)."""
+        from sovereign_os.agents.mcp_worker import MCPWorker
+
         key = required_skill.strip().lower()
+        bidders: list[tuple[str, type[BaseWorker]]] = []
         if key in self._skill_to_bidders and self._skill_to_bidders[key]:
-            return list(self._skill_to_bidders[key])
-        # Fallback: single worker from main registry
-        worker_class = self._skill_to_worker_class.get(key) or self._default_worker_class
-        if worker_class is None:
-            return []
-        return [(f"{key}-{worker_class.__name__}", worker_class)]
+            bidders = list(self._skill_to_bidders[key])
+        else:
+            worker_class = self._skill_to_worker_class.get(key) or self._default_worker_class
+            if worker_class is not None:
+                bidders = [(f"{key}-{worker_class.__name__}", worker_class)]
+        # Phase 5 self-hiring: add MCP bidder when graph has tools for this skill
+        if self._mcp_tool_graph and self._mcp_tool_graph.has_tools_for_skill(key):
+            bidders = bidders + [(f"mcp-{key}", MCPWorker)]
+        return bidders
 
     def set_default(self, worker_class: type[BaseWorker]) -> None:
         """Set fallback Worker when skill is not registered."""
@@ -91,11 +101,28 @@ class WorkerRegistry:
     ) -> BaseWorker:
         """
         Return an instantiated Worker for the given skill and agent_id.
-        When multiple bidders exist, resolves worker class by agent_id; otherwise uses single registered class.
-        Uses Charter to build system prompt; if memory_manager and task_description
-        are provided, injects top-3 similar past lessons (Corporate Memory).
+        When agent_id starts with "mcp-" and mcp_tool_graph is set, returns MCPWorker
+        (Phase 5 self-hiring). Otherwise uses registered or default worker class.
         """
+        from sovereign_os.agents.mcp_worker import MCPWorker
+
         key = required_skill.strip().lower()
+        # Phase 5: MCP-backed worker when agent is mcp-{skill} and graph has tools
+        if agent_id.startswith("mcp-") and self._mcp_tool_graph:
+            tools = self._mcp_tool_graph.get_tools_for_skill(key)
+            if tools:
+                system_prompt = _system_prompt_from_charter(self._charter, required_skill)
+                if memory_manager and task_description:
+                    lessons = memory_manager.get_similar_lessons(task_description, k=3)
+                    system_prompt = _inject_lessons(system_prompt, lessons)
+                return MCPWorker(
+                    agent_id=agent_id,
+                    system_prompt=system_prompt,
+                    skill=key,
+                    tools=tools,
+                    get_client=self._mcp_tool_graph.get_client,
+                )
+
         worker_class: type[BaseWorker] | None = None
         if key in self._skill_to_bidders:
             for bidder_agent_id, clazz in self._skill_to_bidders[key]:
@@ -111,14 +138,12 @@ class WorkerRegistry:
             lessons = memory_manager.get_similar_lessons(task_description, k=3)
             system_prompt = _inject_lessons(system_prompt, lessons)
 
-        # Optional: attach an LLM client to the worker, resolved per skill.
         llm_client = None
         try:  # pragma: no cover - optional LLM path
             from sovereign_os.llm.providers import create_llm_client
 
             llm_client = create_llm_client(f"worker_{key}")
         except Exception:
-            # It is fine if no LLM is configured for this worker; many workers are tool-only.
             llm_client = None
 
         return worker_class(agent_id=agent_id, system_prompt=system_prompt, llm=llm_client)

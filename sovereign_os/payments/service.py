@@ -70,25 +70,37 @@ class StripePaymentService:
 
     def __post_init__(self) -> None:
         try:
-            import stripe  # type: ignore[import]
+            import stripe as _stripe  # type: ignore[import]
         except ImportError as e:  # pragma: no cover - optional dependency
             raise ImportError(
                 "stripe package is required for StripePaymentService; "
                 "install with: pip install 'stripe'"
             ) from e
-        import stripe as _stripe  # type: ignore[import]
-
         _stripe.api_key = self.api_key
         self._stripe = _stripe
 
     async def charge(self, amount_cents: int, currency: str, *, metadata: dict | None = None) -> str:  # type: ignore[override]
         import asyncio
 
-        currency = currency or self.default_currency
+        currency = (currency or self.default_currency).lower()
         metadata = dict(metadata or {})
-        idempotency_key = metadata.pop("idempotency_key", None) or metadata.get("job_id") and f"job-{metadata['job_id']}"
+        idempotency_key = metadata.pop("idempotency_key", None) or (metadata.get("job_id") and f"job-{metadata['job_id']}")
 
-        def _create_intent() -> str:
+        def _create_charge() -> str:
+            # Test mode: use Charge API with test token so the charge appears in Stripe Dashboard.
+            # Production would use PaymentIntent + customer payment method.
+            if self.api_key.startswith("sk_test_"):
+                kwargs = {
+                    "amount": amount_cents,
+                    "currency": currency,
+                    "source": "tok_visa",
+                    "description": metadata.get("goal", "Sovereign-OS job")[:500],
+                }
+                if idempotency_key:
+                    kwargs["idempotency_key"] = str(idempotency_key)[:255]
+                charge = self._stripe.Charge.create(**kwargs)
+                return charge.id
+            # Live key: PaymentIntent (caller must attach payment_method separately in production).
             kwargs = {
                 "amount": amount_cents,
                 "currency": currency,
@@ -104,9 +116,9 @@ class StripePaymentService:
         last_error = None
         for attempt in range(3):
             try:
-                pid = await loop.run_in_executor(None, _create_intent)
+                pid = await loop.run_in_executor(None, _create_charge)
                 logger.info(
-                    "PAYMENTS: Stripe charge succeeded: %s %.2f (payment_intent=%s)",
+                    "PAYMENTS: Stripe charge succeeded: %s %.2f (id=%s)",
                     currency, amount_cents / 100.0, pid,
                 )
                 return pid
@@ -126,11 +138,20 @@ def create_payment_service() -> PaymentService:
     Otherwise -> DummyPaymentService (for demos and tests).
     """
     key = os.getenv("STRIPE_API_KEY")
+    logger.warning("PAYMENTS: create_payment_service called. STRIPE_API_KEY set=%s", bool(key))
     if key:
         try:
-            return StripePaymentService(api_key=key)
+            svc = StripePaymentService(api_key=key)
+            mode = "test" if key.startswith("sk_test_") else "live"
+            logger.warning(
+                "PAYMENTS: Using StripePaymentService (%s mode). Charges will appear in Stripe Dashboard.", mode
+            )
+            return svc
         except Exception as e:  # pragma: no cover - optional
-            logger.warning("PAYMENTS: Failed to init StripePaymentService (%s); falling back to Dummy.", e)
-    logger.info("PAYMENTS: Using DummyPaymentService (no real charges will be made).")
+            logger.warning("PAYMENTS: StripePaymentService init FAILED: %s. Falling back to Dummy.", e)
+    logger.warning(
+        "PAYMENTS: Using DummyPaymentService (Balance will change but Stripe will not). "
+        "Set STRIPE_API_KEY and run: pip install stripe"
+    )
     return DummyPaymentService()
 

@@ -1,0 +1,13 @@
+[
+  {
+    "goal": "Summarize the current state of AI agents in one paragraph.",
+    "charter": "Default",
+    "amount_cents": 100,
+    "currency": "USD"
+  },
+  {
+    "goal": "Draft a short email thanking a customer for their feedback.",
+    "amount_cents": 0,
+    "currency": "USD"
+  }
+]

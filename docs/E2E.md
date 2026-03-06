@@ -78,3 +78,18 @@ python -m sovereign_os.web.app
 - **Tasks:** each `TaskResult` has `task_id`, `success`, `output`
 
 That’s one full cycle: Charter → plan → CFO approval → dispatch → audit → result.
+
+## 6. Reproducible E2E (no real API)
+
+To verify the full pipeline without calling any LLM API, run the integration test (mock CEO, stub workers, no network):
+
+```bash
+pytest tests/test_e2e_pipeline.py -v
+```
+
+This runs: plan → CFO approval → dispatch → audit; asserts `AuditReport.proof_hash` is present and audit trail is written when `audit_trail_path` is set. For a one-shot mission with audit trail persistence:
+
+```bash
+sovereign run --charter charter.example.yaml --ledger ./data/ledger.jsonl --audit-trail ./data/audit.jsonl "Summarize the market."
+# Then inspect: cat ./data/audit.jsonl
+```

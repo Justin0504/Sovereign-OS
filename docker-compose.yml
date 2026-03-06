@@ -36,6 +36,8 @@ services:
       - REDIS_URL=redis://redis:6379/0
     volumes:
       - sovereign_data:/app/data
+      # Mount source so code changes apply without rebuild (use same path as in Dockerfile context)
+      - ./sovereign_os:/app/sovereign_os:ro
     ports:
       - "8000:8000"
     depends_on:

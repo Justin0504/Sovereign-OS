@@ -41,6 +41,22 @@ def _env(key: str, default: str | None = None) -> str | None:
     return value if value is not None and value.strip() else default
 
 
+def _default_provider() -> str:
+    """If SOVEREIGN_LLM_PROVIDER not set: use anthropic when only ANTHROPIC_API_KEY is set."""
+    if _env("SOVEREIGN_LLM_PROVIDER"):
+        return _env("SOVEREIGN_LLM_PROVIDER", "openai") or "openai"
+    if _env("ANTHROPIC_API_KEY") and not _env("OPENAI_API_KEY"):
+        return "anthropic"
+    return "openai"
+
+
+def _default_model(provider: str) -> str:
+    """Default model per provider when SOVEREIGN_LLM_MODEL not set."""
+    if provider in ("anthropic", "claude"):
+        return "claude-3-5-sonnet-20241022"
+    return "gpt-4o"
+
+
 def _get_llm_config(role: str) -> LLMConfig | None:
     """
     Resolve provider/model for a logical role.
@@ -49,17 +65,12 @@ def _get_llm_config(role: str) -> LLMConfig | None:
     - SOVEREIGN_LLM_PROVIDER_<ROLE>, SOVEREIGN_LLM_MODEL_<ROLE>
     - SOVEREIGN_LLM_PROVIDER, SOVEREIGN_LLM_MODEL
 
+    If SOVEREIGN_LLM_PROVIDER is unset and only ANTHROPIC_API_KEY is set, provider defaults to anthropic.
     If nothing is set, returns None (callers should fall back to stub logic).
     """
     role_key = role.upper().replace(":", "_")
-    provider = _env(f"SOVEREIGN_LLM_PROVIDER_{role_key}") or _env(
-        "SOVEREIGN_LLM_PROVIDER",
-        "openai",
-    )
-    model = _env(f"SOVEREIGN_LLM_MODEL_{role_key}") or _env(
-        "SOVEREIGN_LLM_MODEL",
-        "gpt-4o",
-    )
+    provider = _env(f"SOVEREIGN_LLM_PROVIDER_{role_key}") or _env("SOVEREIGN_LLM_PROVIDER") or _default_provider()
+    model = _env(f"SOVEREIGN_LLM_MODEL_{role_key}") or _env("SOVEREIGN_LLM_MODEL") or _default_model(provider)
     if not provider or not model:
         return None
     return LLMConfig(provider=provider.lower(), model=model)

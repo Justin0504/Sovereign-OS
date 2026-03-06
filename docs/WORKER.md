@@ -4,23 +4,37 @@ Workers are agents that execute tasks. The CEO’s plan specifies a `required_sk
 
 ## 1. Implement a Worker
 
-Subclass `BaseWorker` and implement `run` (and optionally `get_bid` for auctions):
+Subclass `BaseWorker` and implement `execute` (and optionally `get_bid` for auctions):
 
 ```python
 from sovereign_os.agents.base import BaseWorker, TaskInput, TaskResult
 
 class MyWorker(BaseWorker):
-    async def run(self, task_input: TaskInput) -> TaskResult:
-        # Use task_input.task_id, .description, .context, etc.
-        output = f"Done: {task_input.description[:50]}"
+    async def execute(self, task: TaskInput) -> TaskResult:
+        # Use task.task_id, task.description, task.context, etc.
+        output = f"Done: {task.description[:50]}"
         return TaskResult(
-            task_id=task_input.task_id,
+            task_id=task.task_id,
             success=True,
             output=output,
         )
 ```
 
 If you use the bidding/auction flow, implement `get_bid` to return estimated cost, time, and confidence.
+
+### Real example: SummarizerWorker
+
+`sovereign_os.agents.summarizer_worker.SummarizerWorker` uses an LLM to summarize the task description. The registry injects `llm` when available; without it, the worker returns a short echo. Register it for a skill (e.g. `"research"` or `"summary"`) and ensure your Charter lists that competency:
+
+```python
+from sovereign_os.agents import WorkerRegistry
+from sovereign_os.agents.summarizer_worker import SummarizerWorker
+
+registry = WorkerRegistry(charter)
+registry.set_default(StubWorker)
+registry.register("research", SummarizerWorker)
+# Now tasks requiring "research" use SummarizerWorker (LLM) instead of StubWorker.
+```
 
 ## 2. Register the Worker
 
@@ -51,6 +65,30 @@ Now any task with `required_skill="research"` will be dispatched to `MyWorker`.
 
 Workers can receive an optional `llm` (ChatLLM) and MCP tools. The registry can inject an LLM client per skill via `create_llm_client("worker_<skill>")`. See `sovereign_os.agents.registry` and `sovereign_os.llm.providers` for wiring.
 
-## 5. StubWorker
+## 5. StubWorker and SummarizerWorker
 
-For demos or when no real implementation exists, `StubWorker` returns a fixed success and short output. Use it as the default so unknown skills don’t crash the engine.
+- **StubWorker** — For demos or when no real implementation exists; returns a fixed success and short output. Use it as the default so unknown skills don’t crash the engine.
+- **SummarizerWorker** — Example of a real worker that calls the LLM to summarize the task. See `sovereign_os.agents.summarizer_worker`.
+
+## 6. Built-in Workers (out of the box)
+
+When using `charter.default.yaml` (Web UI default), the engine’s default registry includes common, general-purpose workers:
+
+- **summarize** → `SummarizerWorker`
+- **research** → `ResearchWorker`
+- **reply** → `ReplyWorker`
+- **write_article** → `ArticleWriterWorker`
+- **solve_problem** → `ProblemSolverWorker`
+- **write_email** → `EmailWriterWorker`
+- **write_post** → `SocialPostWorker`
+- **meeting_minutes** → `MeetingMinutesWorker`
+- **translate** → `TranslateWorker`
+- **rewrite_polish** → `RewritePolishWorker`
+- **collect_info** → `InfoCollectorWorker`
+- **extract_structured** → `ExtractStructuredWorker`
+- **spec_writer** → `SpecWriterWorker`
+- **assistant_chat** → `AssistantChatWorker` (generic Q&A when goal doesn’t match a specific skill)
+- **code_assistant** → `CodeAssistantWorker` (understand code, suggest changes; analysis only)
+- **code_review** → `CodeReviewWorker` (review code for issues and style; output only)
+
+Each built-in worker reads `task.description` and optional `task.context` keys (tone, language, platform, schema, etc.) and returns a deliverable in Markdown or JSON-friendly text.

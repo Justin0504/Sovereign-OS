@@ -1,0 +1,35 @@
+# Freelancer-style Charter: bounty research and delivery
+# Use: sovereign run --charter examples/freelancer.yaml "Your goal"
+
+mission: |
+  Operate as a freelance research and delivery agent: take client goals, break them
+  into tasks, execute via workers (research, summarization, light code), and verify
+  outputs against success criteria. Stay within per-task and daily budget.
+
+core_competencies:
+  - name: research
+    description: Web and document research, synthesis, citations
+    priority: 8
+  - name: summarization
+    description: Summarize long content into reports or one-pagers
+    priority: 7
+  - name: delivery
+    description: Format and deliver outputs (markdown, briefs)
+    priority: 6
+
+fiscal_boundaries:
+  daily_burn_max_usd: 25.00
+  max_budget_usd: 500.00
+  currency: USD
+
+success_kpis:
+  - name: task_ok
+    metric: tasks_verified_ok
+    target_value: 1.0
+    unit: ratio
+    verification_prompt: "Did the output satisfy the task and meet the client brief?"
+  - name: cost_per_task
+    metric: usd_cents_per_task
+    target_value: 300
+    unit: cents
+    verification_prompt: "Was spend within budget for this task?"

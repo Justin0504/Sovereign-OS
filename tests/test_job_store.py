@@ -36,3 +36,18 @@ def test_job_store_update():
 def test_job_store_get_missing():
     store = JobStore(":memory:")
     assert store.get_job(999) is None
+
+
+def test_job_store_persists_across_restart(tmp_path):
+    """Simulate restart: write job to DB, reopen store, assert job still present (recovery test)."""
+    db = tmp_path / "jobs.db"
+    store1 = JobStore(str(db))
+    row = store1.add_job("Survive restart", "Default", amount_cents=50)
+    store1.update_job(row.job_id, status="approved")
+    store1 = None  # close
+    store2 = JobStore(str(db))
+    jobs = store2.list_jobs()
+    assert len(jobs) == 1
+    assert jobs[0].job_id == row.job_id
+    assert jobs[0].goal == "Survive restart"
+    assert jobs[0].status == "approved"

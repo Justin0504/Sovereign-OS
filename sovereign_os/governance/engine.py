@@ -15,13 +15,34 @@ from typing import TYPE_CHECKING, Any, Callable
 from sovereign_os.agents.auth import Capability, PermissionDeniedError, SovereignAuth
 from sovereign_os.agents.base import StubWorker, TaskInput, TaskResult
 from sovereign_os.agents.registry import WorkerRegistry
+from sovereign_os.agents.content_workers import (
+    ArticleWriterWorker,
+    AssistantChatWorker,
+    EmailWriterWorker,
+    MeetingMinutesWorker,
+    ProblemSolverWorker,
+    RewritePolishWorker,
+    SocialPostWorker,
+    TranslateWorker,
+)
+from sovereign_os.agents.code_workers import CodeAssistantWorker, CodeReviewWorker
+from sovereign_os.agents.ops_workers import (
+    ExtractStructuredWorker,
+    InfoCollectorWorker,
+    SpecWriterWorker,
+)
+from sovereign_os.agents.reply_worker import ReplyWorker
+from sovereign_os.agents.research_worker import ResearchWorker
+from sovereign_os.agents.summarizer_worker import SummarizerWorker
 from sovereign_os.auditor.base import AuditReport
 from sovereign_os.governance.exceptions import AuditFailureError, FiscalInsolvencyError
 
 if TYPE_CHECKING:
     from sovereign_os.auditor.review_engine import ReviewEngine
+    from sovereign_os.compliance.hooks import ComplianceHook
     from sovereign_os.governance.auction import BiddingEngine
     from sovereign_os.memory.manager import MemoryManager
+    from sovereign_os.mcp.tool_graph import MCPToolGraph
 from sovereign_os.governance.lifecycle import TaskLifecycleManager, TaskState
 from sovereign_os.governance.auction import RequestForProposal
 from sovereign_os.governance.rate_limit import get_global_rate_limiter
@@ -73,14 +94,25 @@ class GovernanceEngine:
         review_engine: "ReviewEngine | None" = None,
         memory_manager: "MemoryManager | None" = None,
         bidding_engine: "BiddingEngine | None" = None,
+        mcp_tool_graph: "MCPToolGraph | None" = None,
         on_event: Callable[[str, dict[str, Any]], None] | None = None,
+        compliance_hook: "ComplianceHook | None" = None,
+        spend_threshold_cents: int = 0,
+        compliance_auto_proceed: bool = False,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
         self._memory_manager = memory_manager
+        self._mcp_tool_graph = mcp_tool_graph
         self._on_event = on_event
         self._strategist = Strategist(charter, llm_client=strategist_llm)
-        self._treasury = Treasury(charter, ledger)
+        self._treasury = Treasury(
+            charter,
+            ledger,
+            compliance_hook=compliance_hook,
+            spend_threshold_cents=spend_threshold_cents,
+            compliance_auto_proceed=compliance_auto_proceed,
+        )
         self._cost_converter = cost_converter or (
             lambda t: _task_estimated_cost_cents(t, DEFAULT_CENTS_PER_THOUSAND_TOKENS)
         )
@@ -90,7 +122,25 @@ class GovernanceEngine:
         self._bidding_engine = bidding_engine
 
     def _default_registry(self) -> WorkerRegistry:
-        r = WorkerRegistry(self._charter)
+        r = WorkerRegistry(self._charter, mcp_tool_graph=self._mcp_tool_graph)
+        r.register("summarize", SummarizerWorker)
+        r.register("research", ResearchWorker)
+        r.register("reply", ReplyWorker)
+        # Content / common freelance jobs
+        r.register("write_article", ArticleWriterWorker)
+        r.register("solve_problem", ProblemSolverWorker)
+        r.register("write_email", EmailWriterWorker)
+        r.register("write_post", SocialPostWorker)
+        r.register("meeting_minutes", MeetingMinutesWorker)
+        r.register("translate", TranslateWorker)
+        r.register("rewrite_polish", RewritePolishWorker)
+        # Ops / structured deliverables
+        r.register("collect_info", InfoCollectorWorker)
+        r.register("extract_structured", ExtractStructuredWorker)
+        r.register("spec_writer", SpecWriterWorker)
+        r.register("assistant_chat", AssistantChatWorker)
+        r.register("code_assistant", CodeAssistantWorker)
+        r.register("code_review", CodeReviewWorker)
         r.set_default(StubWorker)
         return r
 

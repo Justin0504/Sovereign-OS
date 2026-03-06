@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sovereign_os.governance.exceptions import FiscalInsolvencyError
+from sovereign_os.governance.exceptions import FiscalInsolvencyError, HumanApprovalRequiredError
 from sovereign_os.ledger.unified_ledger import UnifiedLedger
 from sovereign_os.models.charter import Charter
 
@@ -19,6 +19,7 @@ logger = logging.getLogger(__name__)
 
 if TYPE_CHECKING:
     from sovereign_os.agents.auth import SovereignAuth
+    from sovereign_os.compliance.hooks import ComplianceHook, ComplianceResult
     from sovereign_os.governance.auction import Bid
 
 
@@ -45,10 +46,16 @@ class Treasury:
         ledger: UnifiedLedger,
         *,
         min_reserve_cents: int = DEFAULT_MIN_RESERVE_CENTS,
+        compliance_hook: "ComplianceHook | None" = None,
+        spend_threshold_cents: int = 0,
+        compliance_auto_proceed: bool = False,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
         self._min_reserve_cents = min_reserve_cents
+        self._compliance_hook = compliance_hook
+        self._spend_threshold_cents = spend_threshold_cents
+        self._compliance_auto_proceed = compliance_auto_proceed
 
     @property
     def _daily_burn_max_cents(self) -> int:
@@ -86,6 +93,28 @@ class Treasury:
                 balance_cents=balance_cents,
                 requested_cents=estimated_cost_cents,
             )
+
+        if self._compliance_hook and estimated_cost_cents >= self._spend_threshold_cents and self._spend_threshold_cents > 0:
+            from sovereign_os.compliance.hooks import ComplianceResult
+
+            result = self._compliance_hook.check(
+                "SPEND_USD",
+                {"amount_cents": estimated_cost_cents, "task_id": task_id, "purpose": purpose},
+            )
+            if result == ComplianceResult.DENY:
+                msg = f"Compliance hook denied spend of {estimated_cost_cents} cents (task_id={task_id})."
+                logger.warning("GOVERNANCE CFO: %s", msg)
+                raise FiscalInsolvencyError(msg, balance_cents=balance_cents, requested_cents=estimated_cost_cents)
+            if result == ComplianceResult.REQUEST_HUMAN_APPROVAL:
+                if self._compliance_auto_proceed:
+                    logger.info(
+                        "GOVERNANCE CFO: compliance_auto_proceed=True — allowing spend of %s cents (above threshold) without human approval.",
+                        estimated_cost_cents,
+                    )
+                else:
+                    msg = f"Human approval required for spend of {estimated_cost_cents} cents (above threshold {self._spend_threshold_cents})."
+                    logger.warning("GOVERNANCE CFO: %s", msg)
+                    raise HumanApprovalRequiredError(msg, amount_cents=estimated_cost_cents, task_id=task_id)
 
         usd = estimated_cost_cents / 100.0
         logger.info(

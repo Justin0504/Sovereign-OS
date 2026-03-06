@@ -1,0 +1,74 @@
+# Default Charter for Sovereign-OS (built-in workers: summarize, research, reply)
+# Use this for "out of the box" runs with minimal config (Stripe + LLM API key).
+
+mission: |
+  Operate as a ready-to-use autonomous agent: accept user goals, break them into
+  tasks (summarize, research, reply, content writing, email, posts), execute with built-in
+  workers, and deliver verified results. Suitable for common freelance/agent jobs.
+
+core_competencies:
+  - name: summarize
+    description: Summarize text or topics in 1–3 concise sentences
+    priority: 8
+  - name: research
+    description: Short research on a topic; output bullet points and a brief conclusion
+    priority: 8
+  - name: reply
+    description: Format a reply from a template with placeholders or variables
+    priority: 7
+  - name: write_article
+    description: Write a structured article draft (title options, outline, draft, takeaways)
+    priority: 7
+  - name: solve_problem
+    description: Solve a question/problem with steps and a final answer (with assumptions when needed)
+    priority: 7
+  - name: write_email
+    description: Draft professional emails (subjects + body) for support/sales/follow-ups
+    priority: 7
+  - name: write_post
+    description: Draft social posts for platforms (X/LinkedIn/etc.) with variations and CTA
+    priority: 6
+  - name: meeting_minutes
+    description: Turn transcripts into meeting minutes: decisions, action items, risks, open questions
+    priority: 6
+  - name: translate
+    description: Translate text while preserving formatting (lists, code blocks)
+    priority: 6
+  - name: rewrite_polish
+    description: Rewrite and polish text for clarity while preserving meaning and facts
+    priority: 6
+  - name: collect_info
+    description: Collect and organize information (without tools): research plan, provisional summary, verification checklist
+    priority: 6
+  - name: extract_structured
+    description: Extract structured JSON from text according to a schema; fill missing fields with null
+    priority: 6
+  - name: spec_writer
+    description: Write a concise SOW/spec: scope, deliverables, acceptance criteria, risks, open questions
+    priority: 6
+  - name: assistant_chat
+    description: Generic Q&A and conversational assistance when the goal does not match a specific skill
+    priority: 6
+  - name: code_assistant
+    description: Understand code, suggest changes, explain behavior; analysis only, no execution
+    priority: 6
+  - name: code_review
+    description: Review code for issues, style, and best practices; output only, no execution
+    priority: 6
+
+fiscal_boundaries:
+  daily_burn_max_usd: 50.00
+  max_budget_usd: 2000.00
+  currency: USD
+
+success_kpis:
+  - name: task_completion_rate
+    metric: tasks_verified_ok
+    target_value: 0.95
+    unit: ratio
+    verification_prompt: "Did the output satisfy the task success criteria?"
+  - name: cost_per_task
+    metric: usd_cents_per_task
+    target_value: 500
+    unit: cents
+    verification_prompt: "Was spend within budget for this task?"
