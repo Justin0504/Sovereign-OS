@@ -56,7 +56,8 @@ def test_get_jobs_list(client):
     assert r.status_code == 200
     jobs = r.json()["jobs"]
     assert len(jobs) >= 1
-    assert jobs[-1]["goal"] == "G1"
+    # API returns most recent first (sorted by -job_id)
+    assert jobs[0]["goal"] == "G1"
 
 
 def test_approve_job(client):
