@@ -29,6 +29,7 @@ _engine: Any = None
 _ledger: Any = None
 _auth: Any = None
 _charter_name: str = "Default"
+_charter_path: str | None = None  # path to charter YAML (for GET/PUT /api/charter)
 _payment_service: Any = None
 _job_store: Any = None  # sovereign_os.jobs.store.JobStore when SOVEREIGN_JOB_DB set
 
@@ -69,7 +70,12 @@ def _on_event(event_type: str, data: dict[str, Any]) -> None:
             {"task_id": t.get("task_id", ""), "skill": t.get("required_skill", ""), "status": "pending"}
             for t in data.get("tasks", [])
         ]
-        _logs.append(("ceo", f"Plan created: {len(_tasks)} tasks. Goal: {(data.get('goal') or '')[:80]}..."))
+        _logs.append(("ceo", f"CEO: Plan created — {len(_tasks)} tasks. Goal: {(data.get('goal') or '')[:80]}..."))
+    elif event_type == "cfo_approved":
+        n = data.get("task_count", 0)
+        est = data.get("estimated_cents", 0)
+        bal = data.get("balance_cents", 0)
+        _logs.append(("cfo", f"CFO: Approved {n} task(s), est. ${est/100:.2f}. Balance: ${bal/100:.2f}."))
     elif event_type == "task_started":
         task_id = data.get("task_id", "")
         agent_id = data.get("agent_id", "")
@@ -77,7 +83,7 @@ def _on_event(event_type: str, data: dict[str, Any]) -> None:
             if t.get("task_id") == task_id:
                 t["status"] = "running"
                 break
-        _logs.append(("cfo", f"Task {task_id} started by {agent_id}"))
+        _logs.append(("cfo", f"CFO dispatch: Task {task_id} → {agent_id} (permission OK)."))
     elif event_type == "task_finished":
         task_id = data.get("task_id", "")
         success = data.get("success", False)
@@ -458,8 +464,29 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       --radius: 14px;
       --shadow: 0 1px 3px rgba(0,0,0,0.06);
       --shadow-hover: 0 8px 24px rgba(0,0,0,0.08);
+      --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+      --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
+      --dur: 0.35s;
+      --dur-fast: 0.2s;
+    }
+    @keyframes fadeInUp {
+      from { opacity: 0; transform: translateY(12px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    @keyframes fadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes pulse-soft {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.85; transform: scale(1.08); }
+    }
+    @keyframes slideDown {
+      from { opacity: 0; transform: translateY(-8px); }
+      to { opacity: 1; transform: translateY(0); }
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
+    html { scroll-behavior: smooth; }
     body {
       font-family: 'Poppins', -apple-system, BlinkMacSystemFont, sans-serif;
       background: var(--bg);
@@ -469,6 +496,7 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       line-height: 1.55;
       -webkit-font-smoothing: antialiased;
       text-align: left;
+      animation: fadeIn var(--dur) var(--ease-out);
     }
     .topbar {
       background: var(--bg-card);
@@ -478,6 +506,9 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       align-items: center;
       justify-content: space-between;
       box-shadow: var(--shadow);
+      animation: slideDown 0.4s var(--ease-out);
+      position: relative;
+      z-index: 10;
     }
     .topbar-brand {
       display: flex;
@@ -496,6 +527,7 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       display: inline-flex;
       align-items: center;
       justify-content: center;
+      animation: pulse-soft 2.5s var(--ease-in-out) infinite;
     }
     .logo-mark::before {
       content: "";
@@ -518,6 +550,7 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
     .hero {
       margin-bottom: 28px;
       text-align: left;
+      animation: fadeInUp 0.5s var(--ease-out) 0.05s both;
     }
     .hero h1 {
       font-size: 1.75rem;
@@ -545,9 +578,21 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       border-radius: var(--radius);
       padding: 22px 24px;
       box-shadow: var(--shadow);
-      transition: box-shadow 0.2s;
+      transition: box-shadow var(--dur) var(--ease-out), transform var(--dur-fast) var(--ease-out), border-color var(--dur-fast);
     }
-    .card:hover { box-shadow: var(--shadow-hover); }
+    .card:hover {
+      box-shadow: var(--shadow-hover);
+      transform: translateY(-2px);
+      border-color: rgba(0,0,0,0.08);
+    }
+    .main .card:nth-child(1) { animation: fadeInUp 0.45s var(--ease-out) 0.1s both; }
+    .main .card:nth-child(2) { animation: fadeInUp 0.45s var(--ease-out) 0.18s both; }
+    .main .card:nth-child(3) { animation: fadeInUp 0.45s var(--ease-out) 0.26s both; }
+    .main .card:nth-child(4) { animation: fadeInUp 0.45s var(--ease-out) 0.34s both; }
+    .sidebar .card:nth-child(1) { animation: fadeInUp 0.45s var(--ease-out) 0.14s both; }
+    .sidebar .card:nth-child(2) { animation: fadeInUp 0.45s var(--ease-out) 0.22s both; }
+    .sidebar .card:nth-child(3) { animation: fadeInUp 0.45s var(--ease-out) 0.3s both; }
+    .sidebar .card:nth-child(4) { animation: fadeInUp 0.45s var(--ease-out) 0.38s both; }
     .card-title {
       font-size: 0.75rem;
       font-weight: 600;
@@ -581,7 +626,7 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       border: 1px solid var(--border);
       border-radius: 10px;
       color: var(--black);
-      transition: border-color 0.15s, box-shadow 0.15s;
+      transition: border-color var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), background var(--dur-fast);
     }
     .prompt-row input::placeholder { color: var(--text-muted); }
     .prompt-row input:focus {
@@ -605,6 +650,10 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       background: #262626;
       box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       transform: translateY(-1px);
+    }
+    .btn:active {
+      transform: translateY(0);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
     }
     .section-title {
       font-size: 1.0625rem;
@@ -632,7 +681,9 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       line-height: 1.5;
       border-bottom: 1px solid var(--border);
       color: var(--text-soft);
+      transition: background var(--dur-fast), color var(--dur-fast);
     }
+    .feed-item:hover { background: rgba(0,0,0,0.02); }
     .feed-item:last-child { border-bottom: none; }
     .feed-item.ceo { color: var(--black); font-weight: 500; }
     .feed-item.cfo { color: var(--black); opacity: 0.9; }
@@ -654,17 +705,17 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       border: 1px solid var(--border);
       border-radius: 10px;
       color: var(--text-soft);
-      transition: background 0.12s, border-color 0.12s;
+      transition: background var(--dur-fast) var(--ease-out), border-color var(--dur-fast), transform var(--dur-fast) var(--ease-out), box-shadow var(--dur-fast);
     }
-    .task-pill:hover {
-      background: #ebeae6;
-      border-color: rgba(0,0,0,0.1);
-    }
+    .task-pill:hover { transform: translateY(-1px); box-shadow: 0 2px 8px rgba(0,0,0,0.06); }
     .task-pill .dot {
       width: 8px; height: 8px; border-radius: 50%;
     }
     .task-pill.pending .dot { background: var(--text-muted); }
-    .task-pill.running .dot { background: var(--black); }
+    .task-pill.running .dot {
+      background: var(--black);
+      animation: pulse-soft 1.2s var(--ease-in-out) infinite;
+    }
     .task-pill.passed .dot { background: var(--success); }
     .task-pill.failed .dot { background: var(--danger); }
     .task-pill .id { font-weight: 600; color: var(--black); }
@@ -680,8 +731,23 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       border-top: 1px solid var(--border);
     }
     @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+    .stat {
+      animation: fadeInUp 0.4s var(--ease-out) both;
+    }
+    .stat:nth-child(1) { animation-delay: 0.42s; }
+    .stat:nth-child(2) { animation-delay: 0.48s; }
+    .stat:nth-child(3) { animation-delay: 0.54s; }
+    .stat:nth-child(4) { animation-delay: 0.6s; }
     .stat .label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
-    .stat .value { font-size: 1.25rem; font-weight: 700; color: var(--black); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .stat .value {
+      font-size: 1.25rem;
+      font-weight: 700;
+      color: var(--black);
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.02em;
+      transition: transform var(--dur-fast) var(--ease-out);
+    }
+    .stat:hover .value { transform: scale(1.02); }
     .empty-feed { padding: 24px 20px; color: var(--text-muted); font-size: 0.875rem; }
     .health-box {
       display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap;
@@ -702,6 +768,7 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
       border-top: 1px solid var(--border);
       font-size: 0.8125rem;
       color: var(--text-muted);
+      animation: fadeIn 0.5s var(--ease-out) 0.65s both;
     }
     .sidebar .card { margin-bottom: 20px; }
     .sidebar .card:last-child { margin-bottom: 0; }
@@ -995,6 +1062,7 @@ def create_app(
     ledger: Any = None,
     auth: Any = None,
     charter_name: str = "Default",
+    charter_path: str | None = None,
 ) -> Any:
     """Create FastAPI app with dashboard and API. Optionally inject engine/ledger/auth."""
     try:
@@ -1003,11 +1071,12 @@ def create_app(
     except ImportError:
         raise ImportError("fastapi required for web UI; pip install fastapi uvicorn")
 
-    global _engine, _ledger, _auth, _charter_name
+    global _engine, _ledger, _auth, _charter_name, _charter_path
     _engine = engine
     _ledger = ledger
     _auth = auth
     _charter_name = charter_name
+    _charter_path = charter_path
     if engine is not None:
         engine._on_event = _on_event
 
@@ -1193,6 +1262,115 @@ def create_app(
         for e in entries:
             e["verified"] = verify_report_integrity(e)
         return {"audit_trail": entries}
+
+    @app.get("/api/charter")
+    def api_charter_get():
+        """Return current charter as JSON (mission, fiscal_boundaries, core_competencies)."""
+        global _engine, _charter_path
+        if _engine and getattr(_engine, "_charter", None):
+            c = _engine._charter
+            return {
+                "mission": c.mission,
+                "fiscal_boundaries": c.fiscal_boundaries.model_dump(),
+                "core_competencies": [x.model_dump() for x in c.core_competencies],
+                "success_kpis": [x.model_dump() for x in c.success_kpis],
+                "charter_path": _charter_path,
+                "writable": bool(_charter_path and Path(_charter_path).exists() and os.access(Path(_charter_path).parent, os.W_OK)),
+            }
+        if _charter_path and Path(_charter_path).exists():
+            from sovereign_os import load_charter
+            c = load_charter(_charter_path)
+            return {
+                "mission": c.mission,
+                "fiscal_boundaries": c.fiscal_boundaries.model_dump(),
+                "core_competencies": [x.model_dump() for x in c.core_competencies],
+                "success_kpis": [x.model_dump() for x in c.success_kpis],
+                "charter_path": _charter_path,
+                "writable": os.access(Path(_charter_path).parent, os.W_OK),
+            }
+        return {"mission": "", "fiscal_boundaries": {}, "core_competencies": [], "success_kpis": [], "charter_path": None, "writable": False}
+
+    @app.put("/api/charter")
+    def api_charter_put(payload: dict | None = Body(None)):
+        """Update charter file (mission, fiscal_boundaries, core_competencies). Restart required for engine to pick up changes."""
+        global _charter_path, _engine
+        if not _charter_path or not Path(_charter_path).exists():
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="charter_path not set or file missing")
+        if not os.access(Path(_charter_path).parent, os.W_OK):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=403, detail="Charter file is not writable")
+        payload = payload or {}
+        try:
+            from sovereign_os import load_charter
+            from sovereign_os.models.charter import Charter, FiscalBoundaries, CoreCompetency
+            import yaml
+            current = load_charter(_charter_path)
+            updates: dict[str, Any] = {}
+            if "mission" in payload and payload["mission"] is not None:
+                updates["mission"] = str(payload["mission"]).strip() or current.mission
+            if "fiscal_boundaries" in payload and isinstance(payload["fiscal_boundaries"], dict):
+                fb = payload["fiscal_boundaries"]
+                updates["fiscal_boundaries"] = current.fiscal_boundaries.model_copy(update={
+                    k: (float(fb[k]) if k in ("daily_burn_max_usd", "max_budget_usd") else str(fb[k]) if k == "currency" else fb[k])
+                    for k in ("daily_burn_max_usd", "max_budget_usd", "currency") if k in fb
+                })
+            if "core_competencies" in payload and isinstance(payload["core_competencies"], list):
+                updates["core_competencies"] = [CoreCompetency.model_validate(x) for x in payload["core_competencies"] if isinstance(x, dict)]
+            current = current.model_copy(update=updates)
+            out = current.model_dump()
+            raw = yaml.dump(out, default_flow_style=False, allow_unicode=True, sort_keys=False)
+            Path(_charter_path).write_text(raw, encoding="utf-8")
+            if _engine and getattr(_engine, "_charter", None):
+                from sovereign_os.models.charter import Charter
+                _engine._charter = Charter.model_validate(out)
+            return {"ok": True, "message": "Charter updated. Restart recommended for full effect."}
+        except Exception as e:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/api/workers")
+    def api_workers():
+        """List registered workers (skill name and agent ids)."""
+        global _engine
+        if not _engine or not getattr(_engine, "_registry", None):
+            return {"workers": [], "message": "Engine or registry not available"}
+        reg = _engine._registry
+        workers: list[dict[str, Any]] = []
+        for skill_name, bidders in getattr(reg, "_skill_to_bidders", {}).items():
+            agents = [aid for aid, _ in bidders] if bidders else []
+            workers.append({"skill": skill_name, "agent_ids": agents})
+        return {"workers": workers}
+
+    @app.get("/api/settings")
+    def api_settings():
+        """Read-only summary of env and paths (secrets masked)."""
+        root = Path(__file__).resolve().parent.parent.parent
+        def mask(s: str) -> str:
+            if not s or len(s) < 8:
+                return "***" if s else ""
+            return s[:4] + "***" + s[-2:] if len(s) > 6 else "***"
+        return {
+            "SOVEREIGN_JOB_DB": os.getenv("SOVEREIGN_JOB_DB") or "(default)",
+            "SOVEREIGN_LEDGER_PATH": os.getenv("SOVEREIGN_LEDGER_PATH") or "(default)",
+            "SOVEREIGN_AUDIT_TRAIL_PATH": os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH") or "(not set)",
+            "SOVEREIGN_AUTO_APPROVE_JOBS": os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS", ""),
+            "SOVEREIGN_COMPLIANCE_AUTO_PROCEED": os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED", ""),
+            "SOVEREIGN_API_KEY": "set" if os.getenv("SOVEREIGN_API_KEY") else "not set",
+            "SOVEREIGN_JOB_IP_WHITELIST": os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "(not set)",
+            "STRIPE_API_KEY": "set" if os.getenv("STRIPE_API_KEY") else "not set",
+            "OPENAI_API_KEY": "set" if os.getenv("OPENAI_API_KEY") else "not set",
+            "ANTHROPIC_API_KEY": "set" if os.getenv("ANTHROPIC_API_KEY") else "not set",
+            "charter_path": _charter_path or "(not set)",
+        }
+
+    @app.get("/api/access")
+    def api_access():
+        """Access control summary: API key required, IP whitelist."""
+        return {
+            "api_key_required": bool((os.getenv("SOVEREIGN_API_KEY") or "").strip()),
+            "ip_whitelist": (os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "").strip() or None,
+        }
 
     @app.get("/api/jobs")
     def api_jobs(limit: int = 100):
@@ -1478,7 +1656,7 @@ def run_web_ui(
             ))
         _next_job_id = max((j.job_id for j in _jobs), default=0) + 1
         logger.info("Sovereign-OS: Job store loaded from %s (%s jobs)", job_db, len(_jobs))
-    app = create_app(engine=engine, ledger=ledger, auth=auth, charter_name=charter_name)
+    app = create_app(engine=engine, ledger=ledger, auth=auth, charter_name=charter_name, charter_path=path)
     concurrency = max(1, int(os.getenv("SOVEREIGN_JOB_WORKER_CONCURRENCY", "1")))
     if concurrency > 1:
         import threading

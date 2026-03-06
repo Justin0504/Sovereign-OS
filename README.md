@@ -21,8 +21,6 @@
 
 # Sovereign-OS
 
-**宪法优先的 AI 编排底座：一条 Charter 定义身份与预算，CEO 规划、CFO 把关、Auditor 判分、Ledger 不可篡改。** [快速开始](#-quick-start) · [Quick Start](#-quick-start)
-
 **One command. One Charter. A digital corporation that thinks, spends, and answers for every token.**
 
 Not another chatbot. Not another “AI agent framework.” Sovereign-OS is the **constitution-first substrate**: one YAML defines who the entity is, what it may spend, and how success is measured. The CEO plans. The CFO gates. The Auditor judges. **The Ledger never lies.**

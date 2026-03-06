@@ -29,7 +29,7 @@ core_competencies:
     description: Draft social posts for platforms (X/LinkedIn/etc.) with variations and CTA
     priority: 6
   - name: meeting_minutes
-    description: Turn transcripts into meeting minutes: decisions, action items, risks, open questions
+    description: "Turn transcripts into meeting minutes: decisions, action items, risks, open questions"
     priority: 6
   - name: translate
     description: Translate text while preserving formatting (lists, code blocks)
@@ -38,13 +38,13 @@ core_competencies:
     description: Rewrite and polish text for clarity while preserving meaning and facts
     priority: 6
   - name: collect_info
-    description: Collect and organize information (without tools): research plan, provisional summary, verification checklist
+    description: "Collect and organize information (without tools): research plan, provisional summary, verification checklist"
     priority: 6
   - name: extract_structured
     description: Extract structured JSON from text according to a schema; fill missing fields with null
     priority: 6
   - name: spec_writer
-    description: Write a concise SOW/spec: scope, deliverables, acceptance criteria, risks, open questions
+    description: "Write a concise SOW/spec: scope, deliverables, acceptance criteria, risks, open questions"
     priority: 6
   - name: assistant_chat
     description: Generic Q&A and conversational assistance when the goal does not match a specific skill

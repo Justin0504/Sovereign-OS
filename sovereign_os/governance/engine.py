@@ -160,8 +160,10 @@ class GovernanceEngine:
             logger.info("GOVERNANCE: Mission started. Goal: %s", (goal_text[:200] + "..." if len(goal_text) > 200 else goal_text))
             plan = await self._strategist.create_plan(goal_text)
 
+            total_estimated_cents = 0
             for task in plan.tasks:
                 estimated_cents = self._cost_converter(task)
+                total_estimated_cents += estimated_cents
                 try:
                     self._treasury.approve_task(
                         estimated_cents,
@@ -180,8 +182,17 @@ class GovernanceEngine:
                 "GOVERNANCE: Strategic Intent logged. %d tasks approved; ready for Agent Dispatch (Phase 3).",
                 len(plan.tasks),
             )
+            balance_cents = self._ledger.total_usd_cents()
             if self._on_event:
                 self._on_event("plan_created", {"goal": goal_text, "tasks": [{"task_id": t.task_id, "required_skill": t.required_skill} for t in plan.tasks]})
+                self._on_event(
+                    "cfo_approved",
+                    {
+                        "task_count": len(plan.tasks),
+                        "estimated_cents": total_estimated_cents,
+                        "balance_cents": balance_cents,
+                    },
+                )
             return plan
 
     def _required_capability_for_skill(self, required_skill: str) -> Capability:
