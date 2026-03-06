@@ -29,7 +29,7 @@ _success_counter = None
 _fail_counter = None
 
 try:
-    from prometheus_client import Counter, start_http_server
+    from prometheus_client import Counter, Histogram, Gauge, start_http_server
     _tokens_counter = Counter(
         "sovereign_tokens_total",
         "Total tokens used (input+output) per model",
@@ -45,9 +45,25 @@ try:
         "Audit fail count per model",
         ["model"],
     )
+    _jobs_completed_total = Counter(
+        "sovereign_jobs_completed_total",
+        "Total jobs finished by status",
+        ["status"],
+    )
+    _job_duration_seconds = Histogram(
+        "sovereign_job_duration_seconds",
+        "Job execution duration in seconds",
+        buckets=(1.0, 5.0, 15.0, 30.0, 60.0, 120.0, 300.0),
+    )
+    _jobs_queue_pending = Gauge("sovereign_jobs_pending", "Number of jobs pending approval")
+    _jobs_queue_running = Gauge("sovereign_jobs_running", "Number of jobs currently running")
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
     _PROMETHEUS_AVAILABLE = False
+    _jobs_completed_total = None
+    _job_duration_seconds = None
+    _jobs_queue_pending = None
+    _jobs_queue_running = None
 
 
 def init_telemetry(
@@ -111,6 +127,46 @@ def record_llm_tokens(model: str, input_tokens: int, output_tokens: int) -> None
             _tokens_counter.labels(model=model or "unknown").inc(input_tokens + output_tokens)
         except Exception:
             pass
+
+
+def record_job_completed(status: str, duration_seconds: float) -> None:
+    """Record job completion for Prometheus (sovereign_jobs_completed_total, sovereign_job_duration_seconds)."""
+    if _jobs_completed_total is not None:
+        try:
+            _jobs_completed_total.labels(status=status).inc()
+        except Exception:
+            pass
+    if _job_duration_seconds is not None and duration_seconds >= 0:
+        try:
+            _job_duration_seconds.observe(duration_seconds)
+        except Exception:
+            pass
+
+
+def set_job_queue_gauges(pending: int, running: int) -> None:
+    """Set sovereign_jobs_pending and sovereign_jobs_running gauges (e.g. when serving /metrics)."""
+    if _jobs_queue_pending is not None:
+        try:
+            _jobs_queue_pending.set(pending)
+        except Exception:
+            pass
+    if _jobs_queue_running is not None:
+        try:
+            _jobs_queue_running.set(running)
+        except Exception:
+            pass
+
+
+def get_prometheus_metrics_output(pending: int = 0, running: int = 0) -> bytes:
+    """Update queue gauges and return Prometheus text format. Use from FastAPI /metrics endpoint."""
+    set_job_queue_gauges(pending, running)
+    if not _PROMETHEUS_AVAILABLE:
+        return b"# Prometheus client not installed\n"
+    try:
+        from prometheus_client import REGISTRY, generate_latest
+        return generate_latest(REGISTRY)
+    except Exception:
+        return b"# Metrics export failed\n"
 
 
 def record_mission_success(model: str, success: bool) -> None:

@@ -5,12 +5,20 @@ Web UI: FastAPI dashboard — balance, tasks, decision stream, run mission.
 import asyncio
 import logging
 import os
+import signal
+import uuid
 from collections import deque
 from dataclasses import dataclass, asdict
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 from threading import Thread
 from typing import Any
+
+# Graceful shutdown: when set, job worker stops picking new jobs after current one finishes
+_shutdown_requested = False
+_last_job_completed_at: float | None = None  # for /health
+_job_concurrency_semaphore: Any = None  # threading.Semaphore when SOVEREIGN_JOB_WORKER_CONCURRENCY > 1
 
 logger = logging.getLogger(__name__)
 
@@ -42,6 +50,11 @@ class Job:
     updated_ts: float = time.time()
     payment_id: str | None = None
     error: str | None = None
+    callback_url: str | None = None  # optional per-job webhook; overrides SOVEREIGN_WEBHOOK_URL when set
+    retry_count: int = 0  # number of retries; used by POST /api/jobs/{id}/retry
+    request_id: str | None = None  # trace id for logs and webhook
+    priority: int = 0  # higher = run first when approved
+    run_after_ts: float | None = None  # run only after this Unix timestamp (scheduling)
 
 
 _jobs: list[Job] = []
@@ -85,13 +98,37 @@ def _on_event(event_type: str, data: dict[str, Any]) -> None:
             _logs.append(("auditor_fail", f"Task [{task_id}] FAILED. Reason: {reason}"))
 
 
-def _enqueue_job(goal: str, charter: str, amount_cents: int = 0, currency: str = "USD") -> Job:
-    """Create a new job in pending status. Requires human approval before execution."""
+def _enqueue_job(
+    goal: str,
+    charter: str,
+    amount_cents: int = 0,
+    currency: str = "USD",
+    callback_url: str | None = None,
+    dedup_within_seconds: int | None = None,
+    priority: int = 0,
+    run_after_ts: float | None = None,
+) -> Job:
+    """Create a new job in pending status. Requires human approval before execution. When dedup_within_seconds is set (e.g. by ingest poller), skip if a job with same goal+amount_cents was created within that window."""
     global _next_job_id, _jobs, _job_store
     amount_cents = max(0, int(amount_cents))
     currency = currency or "USD"
+    callback_url = (callback_url or "").strip() or None
+    if dedup_within_seconds and dedup_within_seconds > 0:
+        cutoff = time.time() - dedup_within_seconds
+        for j in _jobs:
+            if (
+                (j.goal or "").strip() == (goal or "").strip()
+                and getattr(j, "amount_cents", 0) == amount_cents
+                and getattr(j, "created_ts", 0) >= cutoff
+            ):
+                _logs.append(("system", f"Ingest dedup: skipped duplicate of job {j.job_id} (goal+amount within {dedup_within_seconds}s)."))
+                return j
+    request_id = uuid.uuid4().hex
     if _job_store is not None:
-        row = _job_store.add_job(goal, charter, amount_cents=amount_cents, currency=currency)
+        row = _job_store.add_job(
+            goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url,
+            priority=priority, run_after_ts=run_after_ts,
+        )
         job = Job(
             job_id=row.job_id,
             goal=row.goal,
@@ -103,6 +140,11 @@ def _enqueue_job(goal: str, charter: str, amount_cents: int = 0, currency: str =
             updated_ts=row.updated_ts,
             payment_id=row.payment_id,
             error=row.error,
+            callback_url=row.callback_url,
+            retry_count=getattr(row, "retry_count", 0),
+            request_id=request_id,
+            priority=getattr(row, "priority", 0),
+            run_after_ts=getattr(row, "run_after_ts", None),
         )
         _next_job_id = row.job_id + 1
     else:
@@ -112,11 +154,65 @@ def _enqueue_job(goal: str, charter: str, amount_cents: int = 0, currency: str =
             charter=charter,
             amount_cents=amount_cents,
             currency=currency,
+            callback_url=callback_url,
+            retry_count=0,
+            request_id=request_id,
+            priority=priority,
+            run_after_ts=run_after_ts,
         )
         _next_job_id += 1
     _jobs.append(job)
-    _logs.append(("system", f"Job {job.job_id} created (pending approval)."))
+    auto_approve = (os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS") or "").strip().lower() in ("1", "true", "yes")
+    if auto_approve:
+        job.status = "approved"
+        job.updated_ts = time.time()
+        if _job_store is not None:
+            _job_store.update_job(job.job_id, status="approved")
+            push_approved = getattr(_job_store, "push_approved", None)
+            if callable(push_approved):
+                push_approved(job.job_id)
+        _logs.append(("system", f"Job {job.job_id} created and auto-approved (human-out-of-loop)."))
+    else:
+        _logs.append(("system", f"Job {job.job_id} created (pending approval)."))
     return job
+
+
+def _fire_job_webhook(
+    job: Job,
+    status: str,
+    results: list[Any],
+    reports: list[Any],
+) -> None:
+    """If SOVEREIGN_WEBHOOK_URL or job.callback_url is set, POST completion payload (with retries)."""
+    url = (job.callback_url or "").strip() or (os.getenv("SOVEREIGN_WEBHOOK_URL") or "").strip()
+    if not url:
+        return
+    result_summary = "\n".join(getattr(r, "output", "") for r in (results or [])).strip() or ""
+    audit_score = (
+        sum(getattr(r, "score", 0.0) for r in (reports or [])) / len(reports)
+        if reports else 0.0
+    )
+    secret = (os.getenv("SOVEREIGN_WEBHOOK_SECRET") or "").strip() or None
+    request_id = getattr(job, "request_id", None)
+    try:
+        from sovereign_os.web.job_webhook import notify_job_completion
+        notify_job_completion(
+            webhook_url=url,
+            job_id=job.job_id,
+            status=status,
+            goal=job.goal,
+            amount_cents=job.amount_cents,
+            currency=job.currency or "USD",
+            payment_id=job.payment_id,
+            completed_at=datetime.now(timezone.utc).isoformat(),
+            result_summary=result_summary,
+            audit_score=audit_score,
+            charter=job.charter or "Default",
+            secret=secret,
+            request_id=request_id,
+        )
+    except Exception as e:
+        logger.warning("Job completion webhook failed for job_id=%s request_id=%s: %s", job.job_id, request_id, e)
 
 
 def _run_one_job(job: Job) -> None:
@@ -125,18 +221,25 @@ def _run_one_job(job: Job) -> None:
     charge via PaymentService and record income in UnifiedLedger.
     """
     global _engine, _ledger, _payment_service
+    start_time = time.time()
     if _engine is None:
         job.status = "failed"
         job.error = "Engine not configured"
         job.updated_ts = time.time()
         _logs.append(("auditor_fail", f"Job {job.job_id} failed: {job.error}"))
+        try:
+            from sovereign_os.telemetry.tracer import record_job_completed
+            record_job_completed("failed", time.time() - start_time)
+        except Exception:
+            pass
         return
 
     job.status = "running"
     job.updated_ts = time.time()
     if _job_store is not None:
         _job_store.update_job(job.job_id, status="running")
-    _logs.append(("ceo", f"Job {job.job_id} running: {job.goal[:80]}{'…' if len(job.goal) > 80 else ''}"))
+    req_id = getattr(job, "request_id", None) or ""
+    _logs.append(("ceo", f"Job {job.job_id} running: {job.goal[:80]}{'…' if len(job.goal) > 80 else ''}" + (f" [request_id={req_id}]" if req_id else "")))
 
     async def _run_mission_and_settle() -> None:
         plan, results, reports = await _engine.run_mission_with_audit(job.goal, abort_on_audit_failure=False)
@@ -155,6 +258,7 @@ def _run_one_job(job: Job) -> None:
             if _job_store is not None:
                 _job_store.update_job(job.job_id, status="completed")
             _logs.append(("auditor_pass", f"Job {job.job_id} completed (no charge)."))
+            _fire_job_webhook(job, "completed", results, reports)
             return
         if _payment_service is None:
             job.status = "completed"
@@ -162,6 +266,7 @@ def _run_one_job(job: Job) -> None:
             if _job_store is not None:
                 _job_store.update_job(job.job_id, status="completed")
             _logs.append(("system", f"Job {job.job_id} completed (no payment service; income not recorded)."))
+            _fire_job_webhook(job, "completed", results, reports)
             return
         try:
             pid = await _payment_service.charge(
@@ -181,6 +286,7 @@ def _run_one_job(job: Job) -> None:
             if _job_store is not None:
                 _job_store.update_job(job.job_id, status="completed", payment_id=pid)
             _logs.append(("auditor_pass", f"Job {job.job_id} completed. Charged {job.amount_cents/100:.2f} {job.currency} (ref={pid})."))
+            _fire_job_webhook(job, "completed", results, reports)
         except Exception as e:
             job.status = "payment_failed"
             job.error = str(e)
@@ -189,11 +295,23 @@ def _run_one_job(job: Job) -> None:
                 _job_store.update_job(job.job_id, status="payment_failed", error=job.error)
             _logs.append(("auditor_fail", f"Job {job.job_id} payment failed: {e}"))
             logger.exception("Job %s payment failed", job.job_id)
+            _fire_job_webhook(job, "payment_failed", results, reports)
 
     async def _run() -> None:
         try:
             await _run_mission_and_settle()
         except Exception as e:
+            from sovereign_os.governance.exceptions import HumanApprovalRequiredError
+
+            if isinstance(e, HumanApprovalRequiredError):
+                job.status = "pending"
+                job.error = str(e)
+                job.updated_ts = time.time()
+                if _job_store is not None:
+                    _job_store.update_job(job.job_id, status="pending", error=job.error)
+                _logs.append(("cfo", f"Job {job.job_id}: human approval required for spend — {e}"))
+                logger.warning("Job %s: %s", job.job_id, e)
+                return
             job.status = "failed"
             job.error = str(e)
             job.updated_ts = time.time()
@@ -208,19 +326,115 @@ def _run_one_job(job: Job) -> None:
         loop.run_until_complete(_run())
     finally:
         loop.close()
+    if job.status in ("completed", "failed", "payment_failed"):
+        global _last_job_completed_at
+        _last_job_completed_at = time.time()
+        try:
+            from sovereign_os.telemetry.tracer import record_job_completed
+            record_job_completed(job.status, time.time() - start_time)
+        except Exception:
+            pass
+
+
+def _run_one_job_with_sem(job: Job) -> None:
+    """Run one job and release concurrency semaphore when done."""
+    try:
+        _run_one_job(job)
+    finally:
+        if _job_concurrency_semaphore is not None:
+            _job_concurrency_semaphore.release()
+
+
+def _job_row_to_job(row: Any) -> Job:
+    """Build a Job from a JobRow (store)."""
+    return Job(
+        job_id=row.job_id,
+        goal=row.goal,
+        charter=row.charter,
+        amount_cents=row.amount_cents,
+        currency=row.currency,
+        status=row.status,
+        created_ts=row.created_ts,
+        updated_ts=row.updated_ts,
+        payment_id=row.payment_id,
+        error=row.error,
+        callback_url=row.callback_url,
+        retry_count=getattr(row, "retry_count", 0),
+        request_id=None,
+        priority=getattr(row, "priority", 0),
+        run_after_ts=getattr(row, "run_after_ts", None),
+    )
 
 
 def _job_worker() -> None:
-    """Background thread: pick approved jobs one at a time and run them."""
-    while True:
+    """Background thread: pick approved jobs and run them (up to SOVEREIGN_JOB_WORKER_CONCURRENCY in parallel). Respects _shutdown_requested. Orders by priority (higher first) and run_after_ts (ready first). When store has pop_approved (Redis), claim from shared queue."""
+    global _shutdown_requested
+    concurrency = max(1, int(os.getenv("SOVEREIGN_JOB_WORKER_CONCURRENCY", "1")))
+    pop_approved = getattr(_job_store, "pop_approved", None) if _job_store else None
+    while not _shutdown_requested:
+        if pop_approved and callable(pop_approved):
+            job_id = pop_approved(timeout=5.0)
+            if job_id is not None and _job_store is not None:
+                row = _job_store.get_job(job_id)
+                if row and row.status == "approved":
+                    job = _job_row_to_job(row)
+                    _jobs.append(job)  # so UI lists it
+                    if _job_concurrency_semaphore is not None:
+                        if not _job_concurrency_semaphore.acquire(blocking=False):
+                            # Re-queue: push back (best-effort)
+                            if getattr(_job_store, "push_approved", None):
+                                _job_store.push_approved(job_id)
+                            continue
+                        Thread(target=_run_one_job_with_sem, args=(job,), daemon=False).start()
+                    else:
+                        _run_one_job(job)
+                    continue
+            time.sleep(1)
+            continue
         time.sleep(5)
-        for j in _jobs:
-            if j.status == "approved":
+        if _shutdown_requested:
+            break
+        now = time.time()
+        approved = [
+            j for j in _jobs
+            if j.status == "approved"
+            and (getattr(j, "run_after_ts", None) is None or getattr(j, "run_after_ts", 0) <= now)
+        ]
+        approved.sort(key=lambda j: (-getattr(j, "priority", 0), getattr(j, "run_after_ts") or 0))
+        if _job_concurrency_semaphore is None:
+            for j in approved:
                 _run_one_job(j)
                 break
+        else:
+            if not _job_concurrency_semaphore.acquire(blocking=False):
+                continue
+            for j in approved:
+                Thread(target=_run_one_job_with_sem, args=(j,), daemon=False).start()
+                break
+            else:
+                _job_concurrency_semaphore.release()
+    logger.info("Job worker exiting (shutdown_requested=%s)", _shutdown_requested)
 
 
-_HTML_DASHBOARD = """<!DOCTYPE html>
+_DASHBOARD_TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "dashboard.html"
+
+
+def _get_dashboard_html() -> str:
+    """Return dashboard HTML (template at load time or embedded fallback)."""
+    return _EMBEDDED_DASHBOARD
+
+
+def _load_dashboard_html() -> str:
+    """Load from template file if present, else use embedded default (same layout as template)."""
+    if _DASHBOARD_TEMPLATE_PATH.exists():
+        return _DASHBOARD_TEMPLATE_PATH.read_text(encoding="utf-8")
+    return _DEFAULT_EMBEDDED_DASHBOARD
+
+
+# Embedded dashboard: synced with templates/dashboard.html (dual-column, cards, health, token usage).
+# When template exists, _load_dashboard_html() uses it at module init so _EMBEDDED_DASHBOARD stays in sync.
+_EMBEDDED_DASHBOARD = ""
+_DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
@@ -231,16 +445,19 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
   <link href="https://fonts.googleapis.com/css2?family=Poppins:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #faf9f6;
+      --bg: #f5f4f1;
       --bg-card: #ffffff;
-      --text: #0a0a0a;
-      --text-soft: #404040;
+      --text: #0f0f0f;
+      --text-soft: #525252;
       --text-muted: #737373;
-      --border: rgba(0,0,0,0.08);
-      --black: #0a0a0a;
-      --success: #166534;
-      --warn: #854d0e;
-      --danger: #991b1b;
+      --border: rgba(0,0,0,0.06);
+      --black: #0f0f0f;
+      --success: #15803d;
+      --warn: #a16207;
+      --danger: #b91c1c;
+      --radius: 14px;
+      --shadow: 0 1px 3px rgba(0,0,0,0.06);
+      --shadow-hover: 0 8px 24px rgba(0,0,0,0.08);
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
@@ -248,18 +465,19 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
       background: var(--bg);
       color: var(--text);
       min-height: 100vh;
-      font-size: 18px;
-      line-height: 1.6;
+      font-size: 15px;
+      line-height: 1.55;
       -webkit-font-smoothing: antialiased;
       text-align: left;
     }
     .topbar {
       background: var(--bg-card);
       border-bottom: 1px solid var(--border);
-      padding: 20px 32px;
+      padding: 16px 28px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      box-shadow: var(--shadow);
     }
     .topbar-brand {
       display: flex;
@@ -292,70 +510,76 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
     }
     .topbar-meta strong { color: var(--black); font-weight: 600; margin-left: 4px; }
     .wrap {
-      max-width: 680px;
+      max-width: 1180px;
       margin: 0 auto;
-      padding: 64px 32px 96px 32px;
+      padding: 32px 24px 48px;
       text-align: left;
     }
     .hero {
-      margin-bottom: 64px;
+      margin-bottom: 28px;
       text-align: left;
     }
     .hero h1 {
-      font-size: 2.75rem;
+      font-size: 1.75rem;
       font-weight: 700;
       letter-spacing: -0.03em;
       color: var(--black);
-      line-height: 1.2;
-      margin-bottom: 20px;
-      text-align: left;
+      line-height: 1.25;
+      margin-bottom: 6px;
     }
     .hero p {
-      font-size: 1.125rem;
+      font-size: 0.9375rem;
       color: var(--text-soft);
       font-weight: 400;
-      max-width: 520px;
-      margin-top: 4px;
-      margin-left: 0;
-      text-align: left;
     }
-    .strip {
-      display: flex;
-      gap: 28px;
-      padding: 20px 0 32px;
-      margin-bottom: 40px;
-      border-bottom: 1px solid var(--border);
-      font-size: 0.9375rem;
-      color: var(--text-muted);
-      justify-content: flex-start;
-      text-align: left;
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 360px;
+      gap: 24px;
+      align-items: start;
     }
-    .strip strong { color: var(--black); font-weight: 600; }
-    .prompt-box {
-      margin-bottom: 56px;
+    @media (max-width: 900px) { .grid-2 { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--bg-card);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 22px 24px;
+      box-shadow: var(--shadow);
+      transition: box-shadow 0.2s;
     }
-    .prompt-box label {
-      display: block;
-      font-size: 1.125rem;
+    .card:hover { box-shadow: var(--shadow-hover); }
+    .card-title {
+      font-size: 0.75rem;
       font-weight: 600;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+      margin-bottom: 6px;
+    }
+    .card-heading {
+      font-size: 1.0625rem;
+      font-weight: 700;
       color: var(--black);
-      margin-bottom: 16px;
-      text-align: left;
+      margin-bottom: 4px;
+    }
+    .card-desc {
+      font-size: 0.8125rem;
+      color: var(--text-muted);
+      margin-bottom: 14px;
     }
     .prompt-row {
       display: flex;
-      gap: 14px;
+      gap: 10px;
       align-items: stretch;
-      justify-content: flex-start;
     }
     .prompt-row input {
       flex: 1;
-      padding: 20px 24px;
-      font-size: 1.0625rem;
+      padding: 14px 18px;
+      font-size: 0.9375rem;
       font-family: inherit;
-      background: var(--bg-card);
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 10px;
       color: var(--black);
       transition: border-color 0.15s, box-shadow 0.15s;
     }
@@ -366,47 +590,46 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
       box-shadow: 0 0 0 2px rgba(0,0,0,0.06);
     }
     .btn {
-      padding: 20px 36px;
-      font-size: 1rem;
+      padding: 14px 24px;
+      font-size: 0.9375rem;
       font-weight: 600;
       font-family: inherit;
       background: var(--black);
       color: #fff;
       border: none;
-      border-radius: 12px;
+      border-radius: 10px;
       cursor: pointer;
       transition: background 0.15s, box-shadow 0.15s, transform 0.15s;
     }
     .btn:hover {
       background: #262626;
-      box-shadow: 0 8px 18px rgba(0,0,0,0.12);
+      box-shadow: 0 4px 12px rgba(0,0,0,0.15);
       transform: translateY(-1px);
     }
     .section-title {
-      font-size: 1.25rem;
+      font-size: 1.0625rem;
       font-weight: 700;
       color: var(--black);
-      margin-bottom: 4px;
-      letter-spacing: -0.02em;
-      text-align: left;
+      margin-bottom: 2px;
+      letter-spacing: -0.01em;
     }
     .section-subtitle {
-      font-size: 0.9375rem;
+      font-size: 0.8125rem;
       color: var(--text-muted);
-      margin-bottom: 20px;
+      margin-bottom: 14px;
     }
     .feed {
-      background: var(--bg-card);
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
-      padding: 6px 0;
-      max-height: 380px;
+      border-radius: 10px;
+      padding: 4px 0;
+      max-height: 320px;
       overflow-y: auto;
     }
     .feed-item {
-      padding: 18px 28px;
-      font-size: 1rem;
-      line-height: 1.6;
+      padding: 12px 18px;
+      font-size: 0.875rem;
+      line-height: 1.5;
       border-bottom: 1px solid var(--border);
       color: var(--text-soft);
     }
@@ -418,29 +641,27 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
     .tasks-row {
       display: flex;
       flex-wrap: wrap;
-      gap: 14px;
-      margin-top: 16px;
-      justify-content: flex-start;
+      gap: 10px;
+      margin-top: 12px;
     }
     .task-pill {
       display: inline-flex;
       align-items: center;
-      gap: 10px;
-      padding: 14px 20px;
-      font-size: 1rem;
-      background: var(--bg-card);
+      gap: 8px;
+      padding: 10px 14px;
+      font-size: 0.875rem;
+      background: var(--bg);
       border: 1px solid var(--border);
-      border-radius: 12px;
+      border-radius: 10px;
       color: var(--text-soft);
-      transition: background 0.12s, box-shadow 0.12s, border-color 0.12s;
+      transition: background 0.12s, border-color 0.12s;
     }
     .task-pill:hover {
-      background: #f3f1eb;
-      border-color: rgba(0,0,0,0.14);
-      box-shadow: 0 4px 10px rgba(0,0,0,0.04);
+      background: #ebeae6;
+      border-color: rgba(0,0,0,0.1);
     }
     .task-pill .dot {
-      width: 10px; height: 10px; border-radius: 50%;
+      width: 8px; height: 8px; border-radius: 50%;
     }
     .task-pill.pending .dot { background: var(--text-muted); }
     .task-pill.running .dot { background: var(--black); }
@@ -453,62 +674,108 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
     .stats {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
-      gap: 32px;
-      margin-top: 56px;
-      padding-top: 40px;
+      gap: 20px;
+      margin-top: 28px;
+      padding-top: 24px;
       border-top: 1px solid var(--border);
-      text-align: left;
     }
     @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); } }
-    .stat .label { font-size: 0.9375rem; color: var(--text-muted); margin-bottom: 8px; }
-    .stat .value { font-size: 1.5rem; font-weight: 700; color: var(--black); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
-    .empty-feed { padding: 32px 28px; color: var(--text-muted); font-size: 1rem; }
+    .stat .label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.03em; }
+    .stat .value { font-size: 1.25rem; font-weight: 700; color: var(--black); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+    .empty-feed { padding: 24px 20px; color: var(--text-muted); font-size: 0.875rem; }
+    .health-box {
+      display: inline-flex; align-items: center; gap: 14px; flex-wrap: wrap;
+      padding: 12px 16px; background: var(--bg); border: 1px solid var(--border);
+      border-radius: 10px; font-size: 0.875rem;
+    }
+    .health-box .status { font-weight: 600; }
+    .health-box .status.ok { color: var(--success); }
+    .health-box .status.degraded, .health-box .status.error { color: var(--danger); }
+    .health-box span + span { margin-left: 8px; }
+    .token-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; background: var(--bg); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
+    .token-table th, .token-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+    .token-table th { background: rgba(0,0,0,0.04); font-weight: 600; color: var(--black); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .token-table tr:last-child td { border-bottom: none; }
     .footer-strip {
-      margin-top: 40px;
-      padding-top: 20px;
+      margin-top: 32px;
+      padding-top: 16px;
       border-top: 1px solid var(--border);
-      font-size: 0.875rem;
+      font-size: 0.8125rem;
       color: var(--text-muted);
     }
+    .sidebar .card { margin-bottom: 20px; }
+    .sidebar .card:last-child { margin-bottom: 0; }
+    .audit-trail-feed { max-height: 180px; overflow-y: auto; font-size: 0.8125rem; }
+    .audit-trail-item { padding: 8px 0; border-bottom: 1px solid var(--border); color: var(--text-soft); }
+    .audit-trail-item:last-child { border-bottom: none; }
+    .audit-trail-item .task-id { font-weight: 600; color: var(--black); }
+    .audit-trail-item .verified { color: var(--success); }
+    .audit-trail-item .unverified { color: var(--danger); }
   </style>
 </head>
 <body>
   <header class="topbar">
     <span class="topbar-brand"><span class="logo-mark"></span>Sovereign-OS</span>
-    <span class="topbar-meta">Charter <strong id="charter">—</strong> · Balance <strong id="balance">—</strong> · Tokens <strong id="tokens">—</strong> · Trust <strong id="trust">—</strong></span>
+    <span class="topbar-meta">Charter <strong id="charter">—</strong> · Balance <strong id="balance">—</strong> · Tokens <strong id="tokens">—</strong> · Trust <strong id="trust">—</strong> · <a href="/health" target="_blank" style="color:var(--text-muted);text-decoration:none">Health</a></span>
   </header>
   <div class="wrap">
     <header class="hero">
       <h1>Command Center</h1>
-      <p>Run a mission and watch the stream. Plan, approve, execute, audit.</p>
+      <p>Run missions, approve jobs, and monitor the audit stream. Ledger · CEO/CFO · 24/7 jobs · <a href="/health" target="_blank" style="color:var(--text-soft);text-decoration:none">/health</a></p>
     </header>
-    <div class="strip">
-      <span>Charter <strong id="charter2">—</strong></span>
-      <span>Balance <strong id="balance2">—</strong></span>
-      <span>Tokens <strong id="tokens2">—</strong></span>
-      <span>Trust <strong id="trust2">—</strong></span>
-    </div>
-    <section class="prompt-box">
-      <label for="goal">Run a mission</label>
-      <div class="prompt-row">
-        <input type="text" id="goal" placeholder="Describe what the entity should do..." value="Summarize the market in one paragraph." />
-        <button class="btn" onclick="runMission()">Run</button>
+    <div class="grid-2">
+      <div class="main">
+        <section class="card" style="margin-bottom: 24px;">
+          <div class="card-title">Mission</div>
+          <div class="card-heading">Run a mission</div>
+          <p class="card-desc">Describe the goal; the entity will plan, get CFO approval, dispatch agents, and audit.</p>
+          <div class="prompt-row">
+            <input type="text" id="goal" placeholder="e.g. Summarize the market in one paragraph" value="Summarize the market in one paragraph." />
+            <button class="btn" onclick="runMission()">Run</button>
+          </div>
+        </section>
+        <section class="card" style="margin-bottom: 24px;">
+          <div class="card-title">Task DAG</div>
+          <div class="card-heading">Tasks</div>
+          <p class="card-desc">Current or last mission task status (pending → running → passed/failed).</p>
+          <div class="tasks-row" id="tasks"></div>
+        </section>
+        <section class="card" style="margin-bottom: 24px;">
+          <div class="card-title">Audit trail</div>
+          <div class="card-heading">Activity</div>
+          <p class="card-desc">Plans, approvals, execution, and audit results in real time.</p>
+          <div class="feed" id="logs"></div>
+        </section>
       </div>
-    </section>
-    <section>
-      <div class="section-title">Job queue</div>
-      <p class="section-subtitle">External orders can be ingested as jobs, approved by a human, and then executed 24/7.</p>
-      <div class="tasks-row" id="jobs"></div>
-    </section>
-    <section>
-      <div class="section-title">Tasks</div>
-      <div class="tasks-row" id="tasks"></div>
-    </section>
-    <section style="margin-top: 48px;">
-      <div class="section-title">Activity</div>
-      <p class="section-subtitle">Every mission creates a verifiable audit trail of plans, spending, execution, and review.</p>
-      <div class="feed" id="logs"></div>
-    </section>
+      <aside class="sidebar">
+        <section class="card">
+          <div class="card-title">System</div>
+          <div class="card-heading">Health check</div>
+          <p class="card-desc">Ledger and Redis. Refreshed every 10s.</p>
+          <div class="health-box" id="health">
+            <span class="status">—</span><span>Ledger: —</span><span>Redis: —</span>
+          </div>
+        </section>
+        <section class="card">
+          <div class="card-title">Cost</div>
+          <div class="card-heading">Token usage</div>
+          <p class="card-desc">Per task and per agent from the ledger.</p>
+          <div id="tokenUsage"><span class="empty-feed">No token records yet.</span></div>
+        </section>
+        <section class="card">
+          <div class="card-title">Operations</div>
+          <div class="card-heading">Job queue</div>
+          <p class="card-desc">External jobs; approve to run 24/7.</p>
+          <div class="tasks-row" id="jobs"></div>
+        </section>
+        <section class="card">
+          <div class="card-title">Phase 6a</div>
+          <div class="card-heading">Audit trail</div>
+          <p class="card-desc">Recent audits (proof_hash). Set SOVEREIGN_AUDIT_TRAIL_PATH to enable.</p>
+          <div id="auditTrail" class="audit-trail-feed"><span class="empty-feed">No audit trail. Run missions and set SOVEREIGN_AUDIT_TRAIL_PATH.</span></div>
+        </section>
+      </aside>
+    </div>
     <div class="stats">
       <div class="stat"><div class="label">Balance</div><div class="value" id="finBalance">$0.00</div></div>
       <div class="stat"><div class="label">Tokens burned</div><div class="value" id="finTokens">0</div></div>
@@ -516,7 +783,7 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
       <div class="stat"><div class="label">Trust score</div><div class="value" id="finTrust">—</div></div>
     </div>
     <div class="footer-strip">
-      Sovereign‑OS is experimental software. Always keep a human in the loop for financial and production decisions.
+      Sovereign‑OS is experimental. Keep a human in the loop for financial and production decisions.
     </div>
   </div>
   <script>
@@ -528,7 +795,6 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
         r('balance').textContent = balance;
         r('tokens').textContent = tokens;
         r('trust').textContent = trust;
-        if (r('charter2')) { r('charter2').textContent = charter; r('balance2').textContent = balance; r('tokens2').textContent = tokens; r('trust2').textContent = trust; }
         r('finBalance').textContent = balance === '—' ? '$0.00' : balance;
         r('finTokens').textContent = tokens === '—' ? '0' : tokens;
         r('finAgent').textContent = (d.agent_id || '—').slice(0, 20);
@@ -572,6 +838,53 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
         div.scrollTop = div.scrollHeight;
       }).catch(() => {});
     }
+    function fetchHealth() {
+      fetch('/health').then(x => x.json()).then(d => {
+        const el = r('health');
+        if (!el) return;
+        const status = (d.status || 'error').toLowerCase();
+        const ledger = d.ledger === true ? '✓' : (d.ledger === false ? '✗' : '—');
+        const redis = d.redis === true ? '✓' : (d.redis === false ? '✗' : '—');
+        let mode = '';
+        if (d.auto_approve_jobs === true) mode += ' Auto-approve ON';
+        if (d.compliance_auto_proceed === true) mode += ' Compliance auto ON';
+        if (mode) mode = '<span style="color:var(--success)">' + mode.trim() + '</span>';
+        el.innerHTML = '<span class="status ' + status + '">' + escapeHtml(status.toUpperCase()) + '</span><span>Ledger: ' + ledger + '</span><span>Redis: ' + redis + '</span>' + (mode ? mode : '');
+      }).catch(() => {
+        const el = r('health');
+        if (el) el.innerHTML = '<span class="status error">ERROR</span><span>Failed to fetch /health</span>';
+      });
+    }
+    function fetchTokenUsage() {
+      fetch('/api/token_usage').then(x => x.json()).then(d => {
+        const el = r('tokenUsage');
+        if (!el) return;
+        const rows = d.token_usage || [];
+        if (!rows.length) {
+          el.innerHTML = '<span class="empty-feed">No token records yet. Run a mission to see usage.</span>';
+          return;
+        }
+        el.innerHTML = '<table class="token-table"><thead><tr><th>Task</th><th>Agent</th><th>Model</th><th>Input</th><th>Output</th><th>Total</th></tr></thead><tbody>' +
+          rows.map(u => '<tr><td>' + escapeHtml(u.task_id) + '</td><td>' + escapeHtml(u.agent_id) + '</td><td>' + escapeHtml(u.model_id) + '</td><td>' + (u.input_tokens || 0) + '</td><td>' + (u.output_tokens || 0) + '</td><td>' + (u.total_tokens || 0) + '</td></tr>').join('') +
+          '</tbody></table>';
+      }).catch(() => {});
+    }
+    function fetchAuditTrail() {
+      fetch('/api/audit_trail?limit=10').then(x => x.json()).then(d => {
+        const el = r('auditTrail');
+        if (!el) return;
+        const list = d.audit_trail || [];
+        if (!list.length) {
+          el.innerHTML = '<span class="empty-feed">' + escapeHtml(d.message || 'No audit trail. Set SOVEREIGN_AUDIT_TRAIL_PATH.') + '</span>';
+          return;
+        }
+        el.innerHTML = list.slice(0, 10).map(e => {
+          const cls = e.verified ? 'verified' : 'unverified';
+          const hash = (e.proof_hash || '').slice(0, 8);
+          return '<div class="audit-trail-item"><span class="task-id">' + escapeHtml(e.task_id) + '</span> ' + (e.passed ? 'PASS' : 'FAIL') + ' · ' + (e.score != null ? e.score : '') + ' <span class="' + cls + '">' + (e.verified ? '✓' : '✗') + '</span> ' + hash + '</div>';
+        }).join('');
+      }).catch(() => {});
+    }
     function escapeHtml(s) { const e = document.createElement('div'); e.textContent = s; return e.innerHTML; }
     function runMission() {
       const goal = r('goal').value || 'Summarize the market in one paragraph.';
@@ -584,11 +897,50 @@ _HTML_DASHBOARD = """<!DOCTYPE html>
     setInterval(fetchTasks, 1500);
     setInterval(fetchLogs, 1000);
     setInterval(fetchJobs, 5000);
-    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs();
+    setInterval(fetchHealth, 10000);
+    setInterval(fetchTokenUsage, 3000);
+    setInterval(fetchAuditTrail, 8000);
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchAuditTrail();
   </script>
 </body>
 </html>
 """
+
+_EMBEDDED_DASHBOARD = _load_dashboard_html()
+
+# Rate limit for POST /api/jobs: client_id -> list of request timestamps (pruned to last 60s)
+_job_rate_limit_times: dict[str, list[float]] = {}
+
+# Job validation limits (aligned with OPTIMIZATION_ROADMAP)
+JOB_GOAL_MAX_LEN = 20_000
+JOB_AMOUNT_CENTS_MIN = 0
+JOB_AMOUNT_CENTS_MAX = 1_000_000
+
+
+def validate_job_input(
+    goal: str,
+    amount_cents: int,
+    callback_url: str | None,
+    *,
+    goal_max_len: int = JOB_GOAL_MAX_LEN,
+    amount_min: int = JOB_AMOUNT_CENTS_MIN,
+    amount_max: int = JOB_AMOUNT_CENTS_MAX,
+) -> None:
+    """Validate job fields. Raises ValueError with a message if invalid. Used by API and tests."""
+    from urllib.parse import urlparse
+    if len(goal) > goal_max_len:
+        raise ValueError(f"goal length exceeds {goal_max_len}")
+    if amount_cents < amount_min or amount_cents > amount_max:
+        raise ValueError(f"amount_cents must be between {amount_min} and {amount_max}")
+    if callback_url:
+        try:
+            parsed = urlparse(callback_url)
+            if parsed.scheme not in ("http", "https") or not parsed.netloc:
+                raise ValueError("callback_url must be a valid http(s) URL")
+        except ValueError:
+            raise
+        except Exception as e:
+            raise ValueError("callback_url must be a valid http(s) URL") from e
 
 
 def _api_key_dependency():
@@ -601,9 +953,15 @@ def _api_key_dependency():
         return _noop
     def _verify(x_api_key: str | None = Header(None), authorization: str | None = Header(None)):
         token = x_api_key or (authorization.split(" ", 1)[-1] if authorization and str(authorization).lower().startswith("bearer ") else None)
-        if token != key:
+        if not token or not (key and _secure_compare(token, key)):
             raise HTTPException(status_code=401, detail="Invalid or missing API key")
     return _verify
+
+
+def _secure_compare(a: str, b: str) -> bool:
+    """Constant-time comparison to avoid timing attacks on API key."""
+    import hmac
+    return hmac.compare_digest(a.encode("utf-8"), b.encode("utf-8"))
 
 
 def create_app(
@@ -629,9 +987,76 @@ def create_app(
 
     app = FastAPI(title="Sovereign-OS Command Center (Web)")
 
+    def _config_warnings() -> list[str]:
+        """Warnings when minimal config for paid/demo use is missing or production-unsafe."""
+        w: list[str] = []
+        if not (os.getenv("STRIPE_API_KEY") or "").strip():
+            w.append("STRIPE_API_KEY not set (payments will use DummyPaymentService)")
+        stripe_key = (os.getenv("STRIPE_API_KEY") or "").strip()
+        if stripe_key and "sk_live_" in stripe_key:
+            w.append("Live Stripe key (sk_live_) detected; ensure this is intended for production")
+        if stripe_key and not (os.getenv("SOVEREIGN_API_KEY") or "").strip():
+            w.append("SOVEREIGN_API_KEY not set (recommended for production to protect POST /api/jobs)")
+        openai = (os.getenv("OPENAI_API_KEY") or "").strip()
+        anthropic = (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+        if not openai and not anthropic:
+            w.append("No LLM key set (set OPENAI_API_KEY or ANTHROPIC_API_KEY for real workers)")
+        return w
+
+    def _job_rate_limit_dep(request: Request):
+        """Enforce SOVEREIGN_JOB_RATE_LIMIT_PER_MIN (per client IP). No-op if unset or 0."""
+        from fastapi import HTTPException
+        limit = int(os.getenv("SOVEREIGN_JOB_RATE_LIMIT_PER_MIN", "0"))
+        if limit <= 0:
+            return
+        now = time.time()
+        key = (request.client.host if request.client else None) or "anonymous"
+        if key not in _job_rate_limit_times:
+            _job_rate_limit_times[key] = []
+        times = _job_rate_limit_times[key]
+        times[:] = [t for t in times if now - t < 60]
+        if len(times) >= limit:
+            raise HTTPException(status_code=429, detail="Job creation rate limit exceeded (SOVEREIGN_JOB_RATE_LIMIT_PER_MIN)")
+        times.append(now)
+
+    def _job_ip_whitelist_dep(request: Request):
+        """When SOVEREIGN_JOB_IP_WHITELIST is set (comma-separated), reject requests from other IPs with 403."""
+        from fastapi import HTTPException
+        raw = (os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "").strip()
+        if not raw:
+            return
+        allowed = {x.strip() for x in raw.split(",") if x.strip()}
+        if not allowed:
+            return
+        host = (request.client.host if request.client else None) or ""
+        if host not in allowed:
+            raise HTTPException(status_code=403, detail="IP not allowed (SOVEREIGN_JOB_IP_WHITELIST)")
+
+    def _validate_job_input(goal: str, amount_cents: int, callback_url: str | None) -> None:
+        """Raise HTTPException 400 if goal/amount_cents/callback_url are invalid."""
+        from fastapi import HTTPException
+        try:
+            validate_job_input(goal, amount_cents, callback_url)
+        except ValueError as e:
+            raise HTTPException(status_code=400, detail=str(e))
+
+    @app.get("/metrics")
+    def metrics():
+        """Prometheus scrape endpoint: sovereign_jobs_* and LLM/audit metrics."""
+        try:
+            from sovereign_os.telemetry.tracer import get_prometheus_metrics_output
+            from fastapi.responses import Response
+            pending = sum(1 for j in _jobs if getattr(j, "status", "") == "pending")
+            running = sum(1 for j in _jobs if getattr(j, "status", "") == "running")
+            body = get_prometheus_metrics_output(pending=pending, running=running)
+            return Response(content=body, media_type="text/plain; charset=utf-8")
+        except Exception as e:
+            logger.exception("Metrics export failed: %s", e)
+            return Response(content=b"# error\n", status_code=500, media_type="text/plain")
+
     @app.get("/health")
     def health():
-        """Health check for load balancers and orchestrators. Returns 200 if ledger is readable; 503 if critical failure."""
+        """Health check for load balancers and orchestrators. Returns 200 if ledger is readable; 503 if critical failure. Includes config_warnings and mode hints (auto_approve_jobs, compliance_auto_proceed)."""
         try:
             ledger_ok = _ledger is not None
             if _ledger:
@@ -647,15 +1072,40 @@ def create_app(
                 except Exception:
                     redis_ok = False
             status = "ok" if ledger_ok else "degraded"
-            body = {"status": status, "ledger": ledger_ok, "redis": redis_ok}
+            jobs_total = len(_jobs)
+            jobs_pending = sum(1 for j in _jobs if getattr(j, "status", "") == "pending")
+            jobs_running = sum(1 for j in _jobs if getattr(j, "status", "") == "running")
+            auto_approve = (os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS") or "").strip().lower() in ("1", "true", "yes")
+            compliance_auto = (os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED") or "").strip().lower() in ("1", "true", "yes")
+            body = {
+                "status": status,
+                "ledger": ledger_ok,
+                "redis": redis_ok,
+                "config_warnings": _config_warnings(),
+                "jobs_total": jobs_total,
+                "jobs_pending": jobs_pending,
+                "jobs_running": jobs_running,
+                "last_job_completed_at": _last_job_completed_at,
+                "auto_approve_jobs": auto_approve,
+                "compliance_auto_proceed": compliance_auto,
+            }
             return body if ledger_ok else (JSONResponse(status_code=503, content=body))
         except Exception as e:
             logger.exception("Health check failed")
             return JSONResponse(status_code=503, content={"status": "error", "error": str(e)})
 
-    @app.get("/", response_class=HTMLResponse)
+    @app.get("/")
     def index():
-        return _HTML_DASHBOARD
+        from fastapi.responses import Response
+        return Response(
+            content=_get_dashboard_html(),
+            media_type="text/html",
+            headers={
+                "Cache-Control": "no-store, no-cache, must-revalidate, max-age=0",
+                "Pragma": "no-cache",
+                "Expires": "0",
+            },
+        )
 
     @app.get("/api/status")
     def api_status():
@@ -684,6 +1134,40 @@ def create_app(
     def api_logs():
         return {"logs": [{"source": s, "message": m} for s, m in _logs]}
 
+    @app.get("/api/token_usage")
+    def api_token_usage():
+        """Token consumption per task and per agent (from Ledger token entries)."""
+        out: list[dict[str, Any]] = []
+        if _ledger and hasattr(_ledger, "entries"):
+            for e in _ledger.entries():
+                if getattr(e, "token", None) is None:
+                    continue
+                t = e.token
+                out.append({
+                    "task_id": t.task_id or "—",
+                    "agent_id": t.agent_id or "—",
+                    "model_id": t.model_id,
+                    "input_tokens": t.input_tokens,
+                    "output_tokens": t.output_tokens,
+                    "total_tokens": t.total_tokens,
+                })
+        return {"token_usage": out}
+
+    @app.get("/api/audit_trail")
+    def api_audit_trail(limit: int = 200):
+        """Verifiable audit trail: last N reports (proof_hash, task_id, passed, etc.). Set SOVEREIGN_AUDIT_TRAIL_PATH to enable persistence."""
+        try:
+            from sovereign_os.auditor.trail import load_audit_trail, verify_report_integrity
+        except ImportError:
+            return {"audit_trail": [], "message": "auditor.trail not available"}
+        path = os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH")
+        if not path:
+            return {"audit_trail": [], "message": "SOVEREIGN_AUDIT_TRAIL_PATH not set"}
+        entries = load_audit_trail(path, limit=min(500, max(1, limit)))
+        for e in entries:
+            e["verified"] = verify_report_integrity(e)
+        return {"audit_trail": entries}
+
     @app.get("/api/jobs")
     def api_jobs():
         return {
@@ -696,19 +1180,67 @@ def create_app(
     @app.post(
         "/api/jobs",
         summary="Create job (pending approval)",
-        description="Submit a new job. Body: goal (str), charter (str, optional), amount_cents (int), currency (str). If SOVEREIGN_API_KEY is set, send X-API-Key or Authorization: Bearer <key>.",
+        description="Submit a new job. Body: goal (str), charter (str, optional), amount_cents (int), currency (str), callback_url (str, optional). Rate limit: SOVEREIGN_JOB_RATE_LIMIT_PER_MIN. If SOVEREIGN_API_KEY is set, send X-API-Key or Authorization: Bearer <key>.",
     )
     def api_jobs_create(
         payload: dict | None = Body(None),
         _: None = Depends(_api_key_dependency()),
+        __: None = Depends(_job_rate_limit_dep),
+        ___: None = Depends(_job_ip_whitelist_dep),
     ):
         body = payload or {}
         goal = str(body.get("goal") or "Summarize the market in one paragraph.").strip()
         charter = str(body.get("charter") or _charter_name or "Default")
         amount_cents = int(body.get("amount_cents") or 0)
         currency = str(body.get("currency") or "USD")
-        job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency)
+        callback_url = (body.get("callback_url") or "").strip() or None
+        priority = int(body.get("priority") or 0)
+        run_after_ts = body.get("run_after_ts")
+        if run_after_ts is not None:
+            run_after_ts = float(run_after_ts)
+        elif body.get("run_after_sec") is not None:
+            run_after_ts = time.time() + float(body.get("run_after_sec"))
+        _validate_job_input(goal, amount_cents, callback_url)
+        job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url, priority=priority, run_after_ts=run_after_ts)
         return {"job": asdict(job)}
+
+    @app.post(
+        "/api/jobs/batch",
+        summary="Create multiple jobs (pending approval)",
+        description="Body: jobs (array of { goal, charter?, amount_cents?, currency?, callback_url? }). Same validation as POST /api/jobs. Rate limit: one batch counts as one request.",
+    )
+    def api_jobs_batch(
+        payload: dict | None = Body(None),
+        _: None = Depends(_api_key_dependency()),
+        __: None = Depends(_job_rate_limit_dep),
+        ___: None = Depends(_job_ip_whitelist_dep),
+    ):
+        body = payload or {}
+        items = body.get("jobs") or body.get("items") or []
+        if not isinstance(items, list) or len(items) > 100:
+            from fastapi import HTTPException
+            raise HTTPException(status_code=400, detail="jobs must be an array with 1–100 items")
+        charter_default = _charter_name or "Default"
+        jobs_out: list[dict[str, Any]] = []
+        for i, item in enumerate(items):
+            if not isinstance(item, dict):
+                from fastapi import HTTPException
+                raise HTTPException(status_code=400, detail=f"jobs[{i}] must be an object")
+            goal = str(item.get("goal") or "").strip() or "Summarize the market in one paragraph."
+            charter = str(item.get("charter") or charter_default).strip() or charter_default
+            amount_cents = int(item.get("amount_cents") or 0)
+            currency = str(item.get("currency") or "USD")
+            callback_url = (item.get("callback_url") or "").strip() or None
+            priority = int(item.get("priority") or 0)
+            run_after_ts = item.get("run_after_ts")
+            if run_after_ts is not None:
+                run_after_ts = float(run_after_ts)
+            elif item.get("run_after_sec") is not None:
+                run_after_ts = time.time() + float(item.get("run_after_sec"))
+            _validate_job_input(goal, amount_cents, callback_url)
+            job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url, priority=priority, run_after_ts=run_after_ts)
+            jobs_out.append(asdict(job))
+        return {"jobs": jobs_out}
 
     @app.post("/api/jobs/{job_id}/approve")
     def api_jobs_approve(job_id: int):
@@ -719,9 +1251,38 @@ def create_app(
                 j.updated_ts = time.time()
                 if _job_store is not None:
                     _job_store.update_job(job_id, status="approved")
+                    push_approved = getattr(_job_store, "push_approved", None)
+                    if callable(push_approved):
+                        push_approved(job_id)
                 _logs.append(("ceo", f"Job {job_id} approved for execution."))
                 return {"job": asdict(j)}
         return JSONResponse(status_code=404, content={"error": "Job not found"})
+
+    @app.post("/api/jobs/{job_id}/retry", summary="Retry a failed or payment_failed job")
+    def api_jobs_retry(job_id: int):
+        """Set job back to approved for one more run. Only for status failed/payment_failed; respects SOVEREIGN_JOB_MAX_RETRIES (default 2)."""
+        from fastapi import HTTPException
+        global _job_store
+        max_retries = int(os.getenv("SOVEREIGN_JOB_MAX_RETRIES", "2"))
+        for j in _jobs:
+            if j.job_id == job_id:
+                if j.status not in ("failed", "payment_failed"):
+                    raise HTTPException(status_code=400, detail=f"Job not retryable (status={j.status})")
+                rc = getattr(j, "retry_count", 0)
+                if rc >= max_retries:
+                    raise HTTPException(status_code=400, detail=f"Max retries ({max_retries}) exceeded")
+                j.status = "approved"
+                j.error = None
+                j.retry_count = rc + 1
+                j.updated_ts = time.time()
+                if _job_store is not None:
+                    _job_store.update_job(job_id, status="approved", error=None, retry_count=j.retry_count)
+                    push_approved = getattr(_job_store, "push_approved", None)
+                    if callable(push_approved):
+                        push_approved(job_id)
+                _logs.append(("ceo", f"Job {job_id} retry approved (attempt {j.retry_count}/{max_retries})."))
+                return {"job": asdict(j)}
+        raise HTTPException(status_code=404, detail="Job not found")
 
     @app.post("/api/run")
     def api_run(payload: dict | None = Body(None)):
@@ -783,13 +1344,15 @@ def run_web_ui(
     root = Path(__file__).resolve().parents[2]
     if charter_path and Path(charter_path).exists():
         path = charter_path
+    elif (root / "charter.default.yaml").exists():
+        path = str(root / "charter.default.yaml")
     elif (root / "charter.example.yaml").exists():
         path = str(root / "charter.example.yaml")
     elif (root / "charters" / "The_Freelancer.yaml").exists():
         path = str(root / "charters" / "The_Freelancer.yaml")
     else:
         raise FileNotFoundError(
-            "No charter file found. Add charter.example.yaml in project root or run with --charter path/to/charter.yaml"
+            "No charter file found. Add charter.default.yaml or charter.example.yaml in project root or run with --charter path/to/charter.yaml"
         )
     charter = load_charter(path)
     ledger_path = os.getenv("SOVEREIGN_LEDGER_PATH")
@@ -797,8 +1360,32 @@ def run_web_ui(
     if ledger.total_usd_cents() == 0:
         ledger.record_usd(1000)  # 1000 cents = $10.00 demo balance (seed when empty)
     auth = SovereignAuth()
-    review = ReviewEngine(charter)
-    engine = GovernanceEngine(charter, ledger, auth=auth, review_engine=review, on_event=_on_event)
+    review = ReviewEngine(charter, audit_trail_path=os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH"))
+    compliance_hook = None
+    spend_threshold_cents = 0
+    try:
+        raw = os.getenv("SOVEREIGN_COMPLIANCE_SPEND_THRESHOLD_CENTS", "").strip()
+        if raw and int(raw) > 0:
+            from sovereign_os.compliance import ThresholdComplianceHook
+
+            spend_threshold_cents = int(raw)
+            compliance_hook = ThresholdComplianceHook(spend_threshold_cents)
+            logger.info("Sovereign-OS: compliance hook enabled (spend threshold=%s cents)", spend_threshold_cents)
+    except ValueError:
+        pass
+    compliance_auto_proceed = (os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED") or "").strip().lower() in ("1", "true", "yes")
+    if compliance_auto_proceed:
+        logger.info("Sovereign-OS: human-out-of-loop — compliance auto-proceed enabled (no human approval for high spend).")
+    engine = GovernanceEngine(
+        charter,
+        ledger,
+        auth=auth,
+        review_engine=review,
+        on_event=_on_event,
+        compliance_hook=compliance_hook,
+        spend_threshold_cents=spend_threshold_cents,
+        compliance_auto_proceed=compliance_auto_proceed,
+    )
 
     # Initialize payment service once per process
     global _payment_service
@@ -809,10 +1396,39 @@ def run_web_ui(
         _payment_service = None
 
     charter_name = Path(path).stem.replace("_", " ").title()
+    redis_url = (os.getenv("REDIS_URL") or "").strip()
     job_db = os.getenv("SOVEREIGN_JOB_DB")
-    if job_db:
+    global _job_store, _jobs, _next_job_id
+    if redis_url:
+        try:
+            from sovereign_os.jobs.redis_store import RedisJobStore
+            _job_store = RedisJobStore(redis_url)
+            _jobs.clear()
+            for row in _job_store.list_jobs():
+                _jobs.append(Job(
+                    job_id=row.job_id,
+                    goal=row.goal,
+                    charter=row.charter,
+                    amount_cents=row.amount_cents,
+                    currency=row.currency,
+                    status=row.status,
+                    created_ts=row.created_ts,
+                    updated_ts=row.updated_ts,
+                    payment_id=row.payment_id,
+                    error=row.error,
+                    callback_url=row.callback_url,
+                    retry_count=getattr(row, "retry_count", 0),
+                    request_id=None,
+                    priority=getattr(row, "priority", 0),
+                    run_after_ts=getattr(row, "run_after_ts", None),
+                ))
+            _next_job_id = max((j.job_id for j in _jobs), default=0) + 1
+            logger.info("Sovereign-OS: Redis job store connected (%s jobs)", len(_jobs))
+        except Exception as e:
+            logger.warning("Redis job store failed, falling back to in-memory queue: %s", e)
+            _job_store = None
+    elif job_db:
         from sovereign_os.jobs.store import JobStore
-        global _job_store, _jobs, _next_job_id
         _job_store = JobStore(job_db)
         _jobs.clear()
         for row in _job_store.list_jobs():
@@ -827,21 +1443,72 @@ def run_web_ui(
                 updated_ts=row.updated_ts,
                 payment_id=row.payment_id,
                 error=row.error,
+                callback_url=row.callback_url,
+                retry_count=getattr(row, "retry_count", 0),
+                request_id=getattr(row, "request_id", None),
+                priority=getattr(row, "priority", 0),
+                run_after_ts=getattr(row, "run_after_ts", None),
             ))
         _next_job_id = max((j.job_id for j in _jobs), default=0) + 1
         logger.info("Sovereign-OS: Job store loaded from %s (%s jobs)", job_db, len(_jobs))
     app = create_app(engine=engine, ledger=ledger, auth=auth, charter_name=charter_name)
-    t = Thread(target=_job_worker, daemon=True)
-    t.start()
+    concurrency = max(1, int(os.getenv("SOVEREIGN_JOB_WORKER_CONCURRENCY", "1")))
+    if concurrency > 1:
+        import threading
+        global _job_concurrency_semaphore
+        _job_concurrency_semaphore = threading.Semaphore(concurrency)
+    job_worker_thread = Thread(target=_job_worker, daemon=False)
+    job_worker_thread.start()
     try:
         from sovereign_os.ingest.poller import start_ingest_poller
-        if start_ingest_poller(_enqueue_job):
+        def _enqueue_job_for_ingest(goal: str, charter: str, amount_cents: int, currency: str):
+            dedup_sec = 0
+            try:
+                raw = os.getenv("SOVEREIGN_INGEST_DEDUP_SEC", "").strip()
+                if raw:
+                    dedup_sec = max(0, int(raw))
+            except ValueError:
+                pass
+            return _enqueue_job(
+                goal, charter, amount_cents, currency,
+                dedup_within_seconds=dedup_sec or None,
+            )
+        if start_ingest_poller(_enqueue_job_for_ingest):
             logger.info("Sovereign-OS Web UI: ingest poller started (SOVEREIGN_INGEST_URL).")
     except Exception as e:
         logger.warning("INGEST: could not start poller: %s", e)
     logger.info("Sovereign-OS Web UI: job worker started (24/7). Open http://localhost:%s (or http://127.0.0.1:%s)", port, port)
+
+    def _sigterm_handler(*args: Any) -> None:
+        global _shutdown_requested
+        _shutdown_requested = True
+        logger.info("SIGTERM received; job worker will finish current job then exit.")
+
+    try:
+        signal.signal(signal.SIGTERM, _sigterm_handler)
+    except (AttributeError, ValueError):
+        pass  # Windows or unsupported
+
     import uvicorn
-    uvicorn.run(app, host=host, port=port, log_level="info")
+    config = uvicorn.Config(app, host=host, port=port, log_level="info")
+    server = uvicorn.Server(config)
+    server_thread = Thread(target=server.run, daemon=False)
+    server_thread.start()
+    shutdown_timeout = 120
+    while not _shutdown_requested:
+        time.sleep(0.5)
+    if _shutdown_requested:
+        logger.info("Shutdown requested; waiting for job worker (max %ss)...", shutdown_timeout)
+        job_worker_thread.join(timeout=shutdown_timeout)
+        if job_worker_thread.is_alive():
+            logger.warning("Job worker did not finish within %ss", shutdown_timeout)
+        # Wait for any in-flight jobs (when concurrency > 1) to finish
+        for _ in range(shutdown_timeout):
+            if sum(1 for j in _jobs if getattr(j, "status", "") == "running") == 0:
+                break
+            time.sleep(1)
+        server.should_exit = True
+        server_thread.join(timeout=5)
 
 
 if __name__ == "__main__":

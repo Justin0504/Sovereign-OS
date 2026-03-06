@@ -25,6 +25,10 @@ class JobRow:
     updated_ts: float = 0.0
     payment_id: str | None = None
     error: str | None = None
+    callback_url: str | None = None
+    retry_count: int = 0
+    priority: int = 0
+    run_after_ts: float | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -60,22 +64,45 @@ class JobStore:
                     created_ts REAL NOT NULL,
                     updated_ts REAL NOT NULL,
                     payment_id TEXT,
-                    error TEXT
+                    error TEXT,
+                    callback_url TEXT,
+                    retry_count INTEGER NOT NULL DEFAULT 0,
+                    priority INTEGER NOT NULL DEFAULT 0,
+                    run_after_ts REAL
                 )
                 """
             )
             c.execute(
                 "CREATE INDEX IF NOT EXISTS ix_jobs_status ON jobs(status)"
             )
+            # Migration: add callback_url if table existed without it
+            if self._path != ":memory:":
+                try:
+                    c.execute("ALTER TABLE jobs ADD COLUMN callback_url TEXT")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+                try:
+                    c.execute("ALTER TABLE jobs ADD COLUMN retry_count INTEGER NOT NULL DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass  # column already exists
+                try:
+                    c.execute("ALTER TABLE jobs ADD COLUMN priority INTEGER NOT NULL DEFAULT 0")
+                except sqlite3.OperationalError:
+                    pass
+                try:
+                    c.execute("ALTER TABLE jobs ADD COLUMN run_after_ts REAL")
+                except sqlite3.OperationalError:
+                    pass
 
     def list_jobs(self) -> list[JobRow]:
         with self._conn() as c:
             c.row_factory = sqlite3.Row
             rows = c.execute(
-                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error FROM jobs ORDER BY job_id"
+                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error, callback_url, retry_count, priority, run_after_ts FROM jobs ORDER BY job_id"
             ).fetchall()
-        return [
-            JobRow(
+        def _row(r: Any) -> JobRow:
+            keys = r.keys() if hasattr(r, "keys") else []
+            return JobRow(
                 job_id=r["job_id"],
                 goal=r["goal"],
                 charter=r["charter"],
@@ -86,24 +113,36 @@ class JobStore:
                 updated_ts=r["updated_ts"],
                 payment_id=r["payment_id"],
                 error=r["error"],
+                callback_url=r["callback_url"] if "callback_url" in keys else None,
+                retry_count=int(r["retry_count"]) if "retry_count" in keys else 0,
+                priority=int(r["priority"]) if "priority" in keys else 0,
+                run_after_ts=float(r["run_after_ts"]) if "run_after_ts" in keys and r["run_after_ts"] is not None else None,
             )
-            for r in rows
-        ]
+        return [_row(r) for r in rows]
 
     def next_job_id(self) -> int:
         with self._conn() as c:
             r = c.execute("SELECT COALESCE(MAX(job_id), 0) + 1 AS n FROM jobs").fetchone()
             return r[0]
 
-    def add_job(self, goal: str, charter: str, amount_cents: int = 0, currency: str = "USD") -> JobRow:
+    def add_job(
+        self,
+        goal: str,
+        charter: str,
+        amount_cents: int = 0,
+        currency: str = "USD",
+        callback_url: str | None = None,
+        priority: int = 0,
+        run_after_ts: float | None = None,
+    ) -> JobRow:
         now = time.time()
         with self._conn() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO jobs (goal, charter, amount_cents, currency, status, created_ts, updated_ts)
-                VALUES (?, ?, ?, ?, 'pending', ?, ?)
+                INSERT INTO jobs (goal, charter, amount_cents, currency, status, created_ts, updated_ts, callback_url, retry_count, priority, run_after_ts)
+                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?)
                 """,
-                (goal, charter, amount_cents, currency, now, now),
+                (goal, charter, amount_cents, currency, now, now, callback_url or None, priority, run_after_ts),
             )
             job_id = cur.lastrowid if cur.lastrowid else self.next_job_id()
         return JobRow(
@@ -117,17 +156,22 @@ class JobStore:
             updated_ts=now,
             payment_id=None,
             error=None,
+            callback_url=callback_url or None,
+            retry_count=0,
+            priority=priority,
+            run_after_ts=run_after_ts,
         )
 
     def get_job(self, job_id: int) -> JobRow | None:
         with self._conn() as c:
             c.row_factory = sqlite3.Row
             r = c.execute(
-                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error FROM jobs WHERE job_id = ?",
+                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error, callback_url, retry_count, priority, run_after_ts FROM jobs WHERE job_id = ?",
                 (job_id,),
             ).fetchone()
         if r is None:
             return None
+        keys = r.keys()
         return JobRow(
             job_id=r["job_id"],
             goal=r["goal"],
@@ -139,6 +183,10 @@ class JobStore:
             updated_ts=r["updated_ts"],
             payment_id=r["payment_id"],
             error=r["error"],
+            callback_url=r["callback_url"] if "callback_url" in keys else None,
+            retry_count=int(r["retry_count"]) if "retry_count" in keys else 0,
+            priority=int(r["priority"]) if "priority" in keys else 0,
+            run_after_ts=float(r["run_after_ts"]) if "run_after_ts" in keys and r["run_after_ts"] is not None else None,
         )
 
     def update_job(
@@ -148,6 +196,7 @@ class JobStore:
         status: str | None = None,
         payment_id: str | None = None,
         error: str | None = None,
+        retry_count: int | None = None,
     ) -> bool:
         updates: list[str] = ["updated_ts = ?"]
         args: list[Any] = [time.time()]
@@ -160,6 +209,9 @@ class JobStore:
         if error is not None:
             updates.append("error = ?")
             args.append(error)
+        if retry_count is not None:
+            updates.append("retry_count = ?")
+            args.append(retry_count)
         args.append(job_id)
         with self._conn() as conn:
             cur = conn.execute(
