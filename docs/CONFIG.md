@@ -98,6 +98,13 @@ environment:
   REDIS_URL: redis://redis:6379/0
 ```
 
+## Ingest bridge (Reddit, scrapers, retail)
+
+For **real** orders from Reddit, scraped sites, or Shopify/WooCommerce, run the ingest bridge and point Sovereign-OS at it. See [INGEST_BRIDGE.md](INGEST_BRIDGE.md).
+
+- **Bridge:** `python -m sovereign_os.ingest_bridge` (optional deps: `pip install praw requests beautifulsoup4` or `pip install -e ".[bridge]"`).
+- **Sovereign-OS:** Set `SOVEREIGN_INGEST_URL=http://<bridge>:9000/jobs?take=true` and optional `SOVEREIGN_INGEST_INTERVAL_SEC`, `SOVEREIGN_AUTO_APPROVE_JOBS=true`.
+
 ## CLI
 
 - **Charter path:** Required for `sovereign run` (e.g. `-c charter.example.yaml`). Exits with error if the file is missing.

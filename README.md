@@ -113,6 +113,7 @@ Phases 1–6a done (governance, ledger, MCP, audit trail, Stripe, webhook). Phas
 - **🔄 Multi-model** — Strategist and workers can use different backends (e.g. GPT-4o for planning, cheaper models for execution).
 - **🔐 SovereignAuth** — RBAC by TrustScore. READ_FILES, WRITE_FILES, SPEND_USD, CALL_API gated; agents earn capabilities.
 - **🌐 Web Dashboard (24/7)** — Run missions, job queue, approve/retry, health, token usage, audit trail. Optional ingest from URL; Stripe charges; webhook on completion.
+- **🌍 Ingest bridge** — Pull **real** orders from Reddit (PRAW), any JSON/HTML URL, or Shopify/WooCommerce; feed Sovereign-OS via a single URL or direct POST. [INGEST_BRIDGE](docs/INGEST_BRIDGE.md)
 - **🔌 MCP native** — Plug into the same tool graph as the rest of the ecosystem.
 - **📊 Observability** — OpenTelemetry, Prometheus metrics (`GET /metrics`: job counters, duration, queue gauges), verifiable audit trail with `proof_hash`.
 - **🔒 Security** — API key via env; constant-time comparison; job input validation; optional IP whitelist and rate limit. [CONFIG](docs/CONFIG.md).
@@ -128,17 +129,18 @@ Phases 1–6a done (governance, ledger, MCP, audit trail, Stripe, webhook). Phas
 
 ```
 sovereign_os/
-├── models/       # Charter (Pydantic)
-├── ledger/       # UnifiedLedger (cents + tokens)
-├── governance/   # CEO (Strategist) + CFO (Treasury) + Engine
-├── agents/       # Workers, Registry, SovereignAuth
-├── auditor/      # ReviewEngine, AuditReport (proof_hash)
-├── jobs/         # JobStore (SQLite), RedisJobStore (Redis queue)
-├── ingest/       # Poll URL → enqueue jobs
-├── web/          # FastAPI dashboard, /api/jobs, /health, Stripe webhook
-└── ui/           # Textual TUI (optional)
-docs/             # QUICKSTART, CONFIG, CHARTER, WORKER, MONETIZATION, …
-tests/            # pytest
+├── models/         # Charter (Pydantic)
+├── ledger/         # UnifiedLedger (cents + tokens)
+├── governance/     # CEO (Strategist) + CFO (Treasury) + Engine
+├── agents/         # Workers, Registry, SovereignAuth
+├── auditor/        # ReviewEngine, AuditReport (proof_hash)
+├── jobs/           # JobStore (SQLite), RedisJobStore (Redis queue)
+├── ingest/         # Poll URL → enqueue jobs
+├── ingest_bridge/  # Reddit, scrapers, Shopify/WooCommerce → jobs (optional)
+├── web/            # FastAPI dashboard, /api/jobs, /health, Stripe webhook
+└── ui/             # Textual TUI (optional)
+docs/               # QUICKSTART, CONFIG, INGEST_BRIDGE, DEMO_SCRIPT, …
+tests/              # pytest
 ```
 
 ---
@@ -152,6 +154,8 @@ tests/            # pytest
 | [Charter](docs/CHARTER.md) | How to write mission, competencies, KPIs, fiscal bounds. |
 | [Worker](docs/WORKER.md) | How to add and register custom workers. |
 | [Monetization](docs/MONETIZATION.md) | Job queue, Stripe, approval, compliance, human-out-of-loop. |
+| [**Demo script**](docs/DEMO_SCRIPT.md) | End-to-end: auto ingest → CEO/CFO → permissions (firewall) → delivery → Stripe. |
+| [**Ingest bridge**](docs/INGEST_BRIDGE.md) | Industrial bridge: Reddit, scrapers, Shopify/WooCommerce → Sovereign-OS. |
 | [Audit proof](docs/AUDIT_PROOF.md) | Verifiable trail, `proof_hash`, integrity check. |
 | [Optimization roadmap](docs/OPTIMIZATION_ROADMAP.md) | Next steps: reliability, observability, security, scale. |
 | [Future development plan](docs/FUTURE_DEVELOPMENT.md) | Wave-by-wave plan: stability, UX/deploy, workers/scale, community. |
@@ -176,6 +180,16 @@ pytest tests/ -v
 docker compose up -d redis web
 # http://localhost:8000
 ```
+
+**Ingest bridge (real orders from Reddit, scrapers, retail):**
+
+```bash
+pip install -e ".[bridge]"   # praw, requests, beautifulsoup4
+python -m sovereign_os.ingest_bridge   # serves on :9000 by default
+# Then set SOVEREIGN_INGEST_URL=http://localhost:9000/jobs?take=true and start the Web app.
+```
+
+See [INGEST_BRIDGE](docs/INGEST_BRIDGE.md) for Reddit, scraper, and Shopify/WooCommerce config.
 
 **Troubleshooting:** Payments still “Dummy” or no real LLM? Set `STRIPE_API_KEY` and `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in `.env`; restart. Check `GET /health` for `config_warnings`. [QUICKSTART](docs/QUICKSTART.md).
 

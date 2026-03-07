@@ -204,3 +204,5 @@ You can also pass `callback_url` per job; that URL is POSTed when that job compl
 5. For "notify client": set `SOVEREIGN_WEBHOOK_URL` (and optional `SOVEREIGN_WEBHOOK_SECRET`); in your backend handle the POST and send email/Slack etc.
 
 For more env vars and security, see [CONFIG.md](CONFIG.md); for billing and compliance, see [MONETIZATION.md](MONETIZATION.md).
+
+**Full demo narrative (auto ingest, CEO/CFO, permissions, delivery, Stripe):** [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
