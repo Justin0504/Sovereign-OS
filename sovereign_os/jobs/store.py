@@ -219,3 +219,9 @@ class JobStore:
                 args,
             )
             return cur.rowcount > 0
+
+    def delete_job(self, job_id: int) -> bool:
+        """Remove a job by id. Returns True if deleted."""
+        with self._conn() as conn:
+            cur = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
+            return cur.rowcount > 0

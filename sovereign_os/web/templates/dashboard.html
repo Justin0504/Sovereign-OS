@@ -9,26 +9,28 @@
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #f8f7f5;
-      --bg-card: #ffffff;
-      --bg-elevated: #fefefe;
-      --text: #1a1a1a;
-      --text-soft: #4a4a4a;
-      --text-muted: #6b6b6b;
-      --border: rgba(0,0,0,0.06);
-      --border-strong: rgba(0,0,0,0.09);
-      --black: #0f0f0f;
-      --accent: var(--black);
-      --accent-soft: rgba(0, 0, 0, 0.06);
-      --success: #059669;
-      --success-soft: rgba(5, 150, 105, 0.1);
-      --warn: #b45309;
-      --danger: #dc2626;
-      --danger-soft: rgba(220, 38, 38, 0.08);
+      /* Orange-white theme */
+      --bg: #fdf4eb;
+      --bg-card: #fffbf7;
+      --bg-elevated: #fef8f2;
+      --text: #3d2817;
+      --text-soft: #6b4a2e;
+      --text-muted: #7a5638;
+      --border: #ecd9c6;
+      --border-strong: #d4b896;
+      --black: #2d1a0a;
+      --accent: #b45309;
+      --accent-soft: #fef3e6;
+      --accent-link: #ea580c;
+      --success: #2d1a0a;
+      --success-soft: #fef3e6;
+      --warn: #6b4a2e;
+      --danger: #2d1a0a;
+      --danger-soft: rgba(180, 83, 9, 0.1);
       --radius: 12px;
       --radius-lg: 16px;
-      --shadow: 0 1px 2px rgba(0,0,0,0.04), 0 2px 8px rgba(0,0,0,0.03);
-      --shadow-hover: 0 4px 12px rgba(0,0,0,0.06), 0 12px 28px rgba(0,0,0,0.06);
+      --shadow: 0 1px 3px rgba(180, 83, 9, 0.06), 0 4px 12px rgba(180, 83, 9, 0.04);
+      --shadow-hover: 0 2px 8px rgba(180, 83, 9, 0.08), 0 8px 24px rgba(180, 83, 9, 0.05);
       --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
       --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
       --dur: 0.35s;
@@ -74,7 +76,7 @@
       display: flex;
       align-items: center;
       justify-content: space-between;
-      box-shadow: 0 1px 0 rgba(255,255,255,0.8) inset, var(--shadow);
+      box-shadow: 0 1px 0 rgba(255, 255, 255, 0.8) inset, var(--shadow);
       animation: slideDown 0.4s var(--ease-out);
       position: relative;
       z-index: 10;
@@ -92,12 +94,12 @@
       width: 20px;
       height: 20px;
       border-radius: 8px;
-      background: linear-gradient(135deg, var(--black) 0%, #333 100%);
+      background: linear-gradient(135deg, #b45309 0%, #8b3d09 100%);
       display: inline-flex;
       align-items: center;
       justify-content: center;
       animation: pulse-soft 2.5s var(--ease-in-out) infinite;
-      box-shadow: 0 1px 2px rgba(0,0,0,0.12);
+      box-shadow: 0 1px 2px rgba(0, 0, 0, 0.15);
     }
     .logo-mark::before {
       content: "";
@@ -123,6 +125,7 @@
       color: var(--text-muted);
     }
     .topbar-meta strong { color: var(--black); font-weight: 600; margin-left: 4px; }
+    .topbar-meta a { color: var(--accent-link); }
     .topbar-meta a:hover { color: var(--black); text-decoration: underline; text-underline-offset: 2px; }
     .wrap {
       max-width: 1360px;
@@ -157,12 +160,12 @@
       font-weight: 400;
       max-width: 560px;
     }
-    .hero a { color: var(--black); text-decoration: none; }
+    .hero a { color: var(--accent-link); text-decoration: none; }
     .hero a:hover { text-decoration: underline; text-underline-offset: 2px; }
     .dashboard-panel {
       border-radius: var(--radius-lg);
       overflow: hidden;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 6px 24px rgba(0,0,0,0.05);
+      box-shadow: 0 1px 3px rgba(45, 36, 22, 0.05), 0 6px 20px rgba(45, 36, 22, 0.04);
       background: var(--bg-card);
       animation: fadeInUp 0.5s var(--ease-out) 0.08s both;
     }
@@ -184,9 +187,9 @@
     }
     .panel-section:last-child { border-bottom: none; }
     .main .panel-section:first-child {
-      border-left: 3px solid var(--black);
+      border-left: 3px solid var(--accent);
     }
-    .panel-section:hover { background: rgba(0,0,0,0.008); }
+    .panel-section:hover { background: rgba(0,0,0,0.02); }
     .card-title, .section-title {
       font-size: 0.75rem;
       font-weight: 600;
@@ -235,7 +238,7 @@
       font-size: 0.9375rem;
       font-weight: 600;
       font-family: inherit;
-      background: var(--black);
+      background: var(--accent);
       color: #fff;
       border: none;
       border-radius: var(--radius);
@@ -243,8 +246,8 @@
       transition: background var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
     }
     .btn:hover {
-      background: #171717;
-      box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+      background: #8b3d09;
+      box-shadow: 0 2px 8px rgba(180, 83, 9, 0.35);
       transform: translateY(-1px);
     }
     .btn:active {
@@ -283,7 +286,7 @@
       color: var(--text-soft);
       transition: background var(--dur-fast), color var(--dur-fast);
     }
-    .feed-item:hover { background: rgba(0,0,0,0.03); }
+    .feed-item:hover { background: var(--accent-soft); }
     .feed-item:last-child { border-bottom: none; }
     .feed-item.ceo { color: var(--black); font-weight: 500; }
     .feed-item.cfo { color: var(--black); opacity: 0.9; }
@@ -301,14 +304,15 @@
       gap: 8px;
       padding: 8px 14px;
       font-size: 0.9375rem;
-      background: rgba(0,0,0,0.04);
+      background: var(--accent-soft);
       border: none;
       border-radius: 6px;
       color: var(--text-soft);
       transition: background var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+      box-shadow: none;
     }
     .task-pill:hover {
-      background: rgba(0,0,0,0.07);
+      background: rgba(0,0,0,0.08);
       transform: translateY(-1px);
     }
     .task-pill .dot {
@@ -322,9 +326,11 @@
     .task-pill.passed .dot { background: var(--success); }
     .task-pill.failed .dot { background: var(--danger); }
     .task-pill .id { font-weight: 600; color: var(--black); }
-    .task-pill.job-completed { background: var(--success-soft); color: var(--success); }
-    .task-pill.job-failed, .task-pill.job-payment_failed { background: var(--danger-soft); color: var(--danger); }
-    .task-pill.job-running { background: rgba(0,0,0,0.06); }
+    .task-pill.job-completed { background: var(--success-soft); color: var(--success); border: none; }
+    .task-pill.job-failed, .task-pill.job-payment_failed { background: var(--danger-soft); color: var(--text-soft); border: none; }
+    .task-pill.job-running { background: var(--accent-soft); border: none; }
+    .task-pill .btn-delete { background: rgba(180, 83, 9, 0.12); color: var(--black); border: none; }
+    .task-pill .btn-delete:hover { background: rgba(180, 83, 9, 0.2); }
     .stats {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -380,31 +386,39 @@
     .audit-trail-item .unverified { color: var(--danger); }
     .app-layout { display: flex; min-height: calc(100vh - 52px); }
     .nav-sidebar {
-      width: 220px;
-      min-width: 220px;
-      background: var(--bg-elevated);
+      width: 240px;
+      min-width: 240px;
+      background: #fceee0;
       border-right: 1px solid var(--border);
-      padding: 20px 0;
+      padding: 24px 0;
       flex-shrink: 0;
     }
+    .nav-section {
+      padding: 0 0 20px 0;
+      margin-bottom: 20px;
+      border-bottom: 1px solid var(--border);
+    }
+    .nav-section:last-child { margin-bottom: 0; padding-bottom: 0; border-bottom: none; }
     .nav-sidebar .nav-title {
-      font-size: 0.75rem;
+      font-size: 0.6875rem;
       font-weight: 600;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
       color: var(--text-muted);
-      padding: 0 20px 8px;
+      padding: 0 24px 14px;
       text-transform: uppercase;
     }
     .nav-sidebar a {
       display: block;
-      padding: 8px 20px;
+      padding: 12px 24px;
       font-size: 0.9375rem;
       color: var(--text-soft);
       text-decoration: none;
       transition: background var(--dur-fast), color var(--dur-fast);
+      margin: 0 8px;
+      border-radius: 8px;
     }
-    .nav-sidebar a:hover { background: rgba(0,0,0,0.04); color: var(--black); }
-    .nav-sidebar a.active { background: rgba(0,0,0,0.06); color: var(--black); font-weight: 600; }
+    .nav-sidebar a:hover { background: rgba(180, 83, 9, 0.1); color: var(--black); }
+    .nav-sidebar a.active { background: rgba(180, 83, 9, 0.14); color: var(--black); font-weight: 600; }
     .main-content { flex: 1; overflow: auto; }
     .content-panel { display: none; }
     .content-panel.active { display: block; }
@@ -416,8 +430,23 @@
     .settings-table th, .settings-table td { padding: 10px 0; text-align: left; border-bottom: 1px solid var(--border); }
     .settings-table th { font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
     .workers-list { list-style: none; }
-    .workers-list { list-style: none; }
     .workers-list li { padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 0.9375rem; }
+    .form-group label input[type="checkbox"] { margin-right: 8px; vertical-align: middle; }
+    .settings-options { max-width: 560px; }
+    .settings-option { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+    .settings-option input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex-shrink: 0; }
+    .settings-option label { margin: 0; font-size: 0.9375rem; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; cursor: pointer; }
+    .access-options { max-width: 560px; }
+    .access-option { display: flex; align-items: center; gap: 12px; margin-bottom: 4px; }
+    .access-option input[type="checkbox"] { width: 18px; height: 18px; margin: 0; flex-shrink: 0; }
+    .access-option label { margin: 0; font-size: 0.9375rem; font-weight: 500; color: var(--text); text-transform: none; letter-spacing: 0; cursor: pointer; }
+    .settings-save-row { display: flex; align-items: center; gap: 12px; margin-top: 24px; max-width: 560px; }
+    .workers-editor { max-width: 640px; }
+    .workers-editor table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; }
+    .workers-editor th, .workers-editor td { padding: 10px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .workers-editor th { font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
+    .workers-editor input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9375rem; }
+    .workers-editor .btn-small { padding: 6px 10px; font-size: 0.8125rem; }
   </style>
 </head>
 <body>
@@ -427,16 +456,27 @@
   </header>
   <div class="app-layout">
     <nav class="nav-sidebar">
-      <div class="nav-title">Operate</div>
-      <a href="#dashboard" class="nav-link" data-panel="dashboard">Dashboard</a>
-      <div class="nav-title">Governance</div>
-      <a href="#governance" class="nav-link" data-panel="governance">CEO / CFO · Charter</a>
-      <div class="nav-title">Access</div>
-      <a href="#access" class="nav-link" data-panel="access">Permissions &amp; API</a>
-      <div class="nav-title">Capacity</div>
-      <a href="#workers" class="nav-link" data-panel="workers">Workers</a>
-      <div class="nav-title">Manage</div>
-      <a href="#settings" class="nav-link" data-panel="settings">Settings</a>
+      <div class="nav-section">
+        <div class="nav-title">Operate</div>
+        <a href="#dashboard" class="nav-link" data-panel="dashboard">Dashboard</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Governance</div>
+        <a href="#governance" class="nav-link" data-panel="governance">Charter</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Access</div>
+        <a href="#access" class="nav-link" data-panel="access">API &amp; IP</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Capacity</div>
+        <a href="#workers" class="nav-link" data-panel="workers">Workers</a>
+      </div>
+      <div class="nav-section">
+        <div class="nav-title">Manage</div>
+        <a href="#settings" class="nav-link" data-panel="settings">Settings</a>
+        <a href="#storage" class="nav-link" data-panel="storage">Storage</a>
+      </div>
     </nav>
     <main class="main-content">
   <div class="wrap">
@@ -512,35 +552,86 @@
     </div>
     </div>
     <div id="panel-governance" class="content-panel">
-      <header class="hero"><div class="hero-label">Governance</div><h1>CEO / CFO · Charter</h1><p>Mission, fiscal boundaries, and core competencies. Changes are saved to the charter file; restart recommended for full effect.</p></header>
+      <header class="hero"><div class="hero-label">Charter</div><h1>Mission &amp; budget</h1><p>Edit mission and spending limits. Saved to charter file.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
         <div id="governanceForm">
-          <div class="form-group"><label>Mission</label><textarea id="charterMission" placeholder="Entity mission statement"></textarea></div>
-          <div class="form-group"><label>Daily burn max (USD)</label><input type="number" id="charterDailyBurn" step="0.01" min="0" placeholder="50" /></div>
+          <div class="form-group"><label>Mission</label><textarea id="charterMission" placeholder="What this entity does"></textarea></div>
+          <div class="form-group"><label>Daily limit (USD)</label><input type="number" id="charterDailyBurn" step="0.01" min="0" placeholder="50" /></div>
           <div class="form-group"><label>Max budget (USD)</label><input type="number" id="charterMaxBudget" step="0.01" min="0" placeholder="500" /></div>
           <div class="form-group"><label>Currency</label><input type="text" id="charterCurrency" placeholder="USD" /></div>
           <p class="card-desc" id="charterPathHint" style="margin-bottom: 16px;"></p>
-          <button class="btn" onclick="saveCharter()">Save charter</button>
+          <button class="btn" onclick="saveCharter()">Save</button>
           <span id="charterSaveStatus" style="margin-left: 12px; font-size: 0.875rem; color: var(--text-muted);"></span>
         </div>
       </div>
     </div>
     <div id="panel-access" class="content-panel">
-      <header class="hero"><div class="hero-label">Access</div><h1>Permissions &amp; API</h1><p>API key requirement and IP whitelist for job creation. Configure via environment variables (SOVEREIGN_API_KEY, SOVEREIGN_JOB_IP_WHITELIST).</p></header>
+      <header class="hero"><div class="hero-label">Access</div><h1>Who can create jobs</h1><p>Require API key and/or limit by IP. Saves immediately.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
-        <table class="settings-table"><tbody id="accessTable"></tbody></table>
+        <div class="access-options" style="max-width: 560px;">
+          <div class="access-option">
+            <input type="checkbox" id="accessApiKeyRequired" />
+            <label for="accessApiKeyRequired">Require API key</label>
+          </div>
+          <div class="form-group" style="margin-top: 20px;">
+            <label>IP list (comma-separated; leave empty = allow all)</label>
+            <input type="text" id="accessIpWhitelist" placeholder="127.0.0.1, 1.2.3.4" style="max-width: 400px;" />
+          </div>
+          <div class="settings-save-row" style="margin-top: 24px;">
+            <button class="btn" onclick="saveAccess()">Save</button>
+            <span id="accessSaveStatus" style="font-size: 0.875rem; color: var(--text-muted);"></span>
+          </div>
+        </div>
       </div>
     </div>
     <div id="panel-workers" class="content-panel">
-      <header class="hero"><div class="hero-label">Capacity</div><h1>Workers</h1><p>Registered skills and agents. To add custom workers, extend the engine registry in code (see docs/WORKER.md).</p></header>
+      <header class="hero"><div class="hero-label">Workers</div><h1>Configure skills</h1><p>Add a skill (name + description), then <strong>Save</strong>. For new skills only, <strong>Generate code</strong> appears when an AI API key is set (OPENAI or Anthropic in .env). Existing skills show &quot;(has code)&quot;.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
-        <ul class="workers-list" id="workersList"></ul>
+        <div class="workers-editor">
+          <table><thead><tr><th>Name</th><th>Description</th><th>Priority</th><th></th></tr></thead><tbody id="workersTableBody"></tbody></table>
+          <button class="btn btn-small" type="button" onclick="addWorkerRow()" style="margin-top: 12px;">Add skill</button>
+          <div style="margin-top: 20px;">
+            <button class="btn" onclick="saveWorkers()">Save</button>
+            <span id="workersSaveStatus" style="margin-left: 12px; font-size: 0.875rem; color: var(--text-muted);"></span>
+          </div>
+        </div>
+        <div class="workers-registered" style="margin-top: 28px; padding-top: 20px; border-top: 1px solid var(--border);">
+          <div class="card-title" style="margin-bottom: 8px;">Registered workers (have code)</div>
+          <ul class="workers-list" id="workersListRegistered"></ul>
+        </div>
       </div>
     </div>
     <div id="panel-settings" class="content-panel">
-      <header class="hero"><div class="hero-label">Manage</div><h1>Settings</h1><p>Environment and paths (read-only). Edit .env or system env to change.</p></header>
+      <header class="hero"><div class="hero-label">Settings</div><h1>Behavior</h1><p>Toggle auto-approve and compliance. Other values come from environment.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
+        <div class="settings-options">
+          <div class="settings-option">
+            <input type="checkbox" id="settingAutoApprove" />
+            <label for="settingAutoApprove">Auto-approve new jobs</label>
+          </div>
+          <div class="settings-option">
+            <input type="checkbox" id="settingComplianceAuto" />
+            <label for="settingComplianceAuto">Compliance auto-proceed (restart for full effect)</label>
+          </div>
+          <div class="settings-save-row">
+            <button class="btn" onclick="saveSettings()">Save</button>
+            <span id="settingsSaveStatus" class="settings-status" style="font-size: 0.875rem; color: var(--text-muted);"></span>
+          </div>
+        </div>
+        <div class="card-desc" style="margin-top: 28px; margin-bottom: 8px;">From environment (edit .env to change):</div>
         <table class="settings-table"><tbody id="settingsTable"></tbody></table>
+      </div>
+    </div>
+    <div id="panel-storage" class="content-panel">
+      <header class="hero"><div class="hero-label">Storage</div><h1>Data &amp; exports</h1><p>View stored data and run actions: clear finished jobs, export ledger or audit.</p></header>
+      <div class="dashboard-panel" style="padding: 28px 32px;">
+        <div class="storage-summary" id="storageSummary" style="margin-bottom: 24px; padding: 16px; background: var(--accent-soft); border-radius: var(--radius); font-size: 0.9375rem;"></div>
+        <div class="storage-actions" style="display: flex; flex-wrap: wrap; gap: 12px; align-items: center;">
+          <button class="btn" onclick="clearCompletedJobs()">Clear completed jobs</button>
+          <a href="/api/ledger/export" class="btn" download="ledger.jsonl" id="exportLedgerLink" style="text-decoration: none;">Export ledger</a>
+          <a href="/api/audit_trail/export" class="btn" download="audit_trail.json" id="exportAuditLink" style="text-decoration: none;">Export audit</a>
+        </div>
+        <p class="card-desc" style="margin-top: 16px; font-size: 0.875rem;">Clear removes completed/failed jobs from the list and database. Export downloads ledger (JSONL) or audit trail (JSON).</p>
       </div>
     </div>
   </div>
@@ -561,6 +652,7 @@
       if (panelId === "access") fetchAccess();
       if (panelId === "workers") fetchWorkers();
       if (panelId === "settings") fetchSettings();
+      if (panelId === "storage") fetchStorage();
     }
     window.addEventListener("hashchange", function() { switchPanel(); });
     switchPanel(getPanel());
@@ -601,21 +693,172 @@
     }
     function fetchAccess() {
       fetch("/api/access").then(function(x) { return x.json(); }).then(function(d) {
-        var t = r("accessTable");
-        t.innerHTML = "<tr><th>API key required</th><td>" + (d.api_key_required ? "Yes" : "No") + "</td></tr><tr><th>IP whitelist</th><td>" + (d.ip_whitelist || "(not set)") + "</td></tr>";
+        r("accessApiKeyRequired").checked = !!d.api_key_required;
+        r("accessIpWhitelist").value = d.ip_whitelist || "";
+        r("accessSaveStatus").textContent = "";
       }).catch(function() {});
     }
+    function saveAccess() {
+      var status = r("accessSaveStatus");
+      status.textContent = "Saving…";
+      status.style.color = "var(--text-muted)";
+      fetch("/api/access", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          api_key_required: r("accessApiKeyRequired").checked,
+          ip_whitelist: r("accessIpWhitelist").value.trim() || ""
+        })
+      }).then(function(x) { return x.json().then(function(d) { if (!x.ok) throw new Error(d.detail || x.statusText); return d; }); })
+        .then(function() { status.textContent = "Saved. Takes effect immediately."; status.style.color = "var(--success)"; })
+        .catch(function(e) { status.textContent = "Error: " + (e.message || e); status.style.color = "var(--danger)"; });
+    }
+    var _workerRegisteredSkills = [];
+    var _workerLlmConfigured = false;
     function fetchWorkers() {
-      fetch("/api/workers").then(function(x) { return x.json(); }).then(function(d) {
-        var ul = r("workersList");
-        if (!d.workers || !d.workers.length) { ul.innerHTML = "<li>" + (d.message || "No workers.") + "</li>"; return; }
-        ul.innerHTML = d.workers.map(function(w) { return "<li><strong>" + escapeHtml(w.skill) + "</strong>" + (w.agent_ids && w.agent_ids.length ? " · " + w.agent_ids.join(", ") : "") + "</li>"; }).join("");
+      Promise.all([
+        fetch("/api/workers").then(function(x) { return x.json(); }),
+        fetch("/api/status").then(function(x) { return x.json(); })
+      ]).then(function(arr) {
+        var workersData = arr[0], statusData = arr[1];
+        _workerRegisteredSkills = (workersData.workers || []).map(function(w) { return w.skill; });
+        _workerLlmConfigured = statusData.llm_configured === true;
+        var el = r("workersListRegistered");
+        if (el) {
+          if (!workersData.workers || !workersData.workers.length) el.innerHTML = "<li style=\"color:var(--text-muted)\">" + escapeHtml(workersData.message || "No workers registered.") + "</li>";
+          else el.innerHTML = workersData.workers.map(function(w) { return "<li><strong>" + escapeHtml(w.skill) + "</strong>" + (w.agent_ids && w.agent_ids.length ? " · " + w.agent_ids.join(", ") : "") + "</li>"; }).join("");
+        }
+        return fetch("/api/charter").then(function(x) { return x.json(); });
+      }).then(function(d) {
+        var tbody = r("workersTableBody");
+        if (!tbody) return;
+        var list = d.core_competencies || [];
+        tbody.innerHTML = list.map(function(c) {
+          return "<tr data-row>" + workerRowHtml(escapeAttr(c.name || ""), escapeAttr(c.description || ""), c.priority != null ? c.priority : 5) + "</tr>";
+        }).join("");
+        if (list.length === 0) addWorkerRow();
       }).catch(function() {});
+    }
+    function workerRowHtml(nameVal, descVal, priorityVal) {
+      var skill = nameToSkill(nameVal);
+      var hasCode = skill && _workerRegisteredSkills.indexOf(skill) >= 0;
+      var genBtn = "";
+      if (hasCode) genBtn = "<span class=\"row-gen-status\" style=\"font-size:0.8rem;color:var(--text-muted)\">(has code)</span>";
+      else if (!_workerLlmConfigured) genBtn = "<span class=\"row-gen-status\" style=\"font-size:0.8rem;color:var(--warn)\">Set API key in .env</span>";
+      else genBtn = "<button type=\"button\" class=\"btn btn-small\" onclick=\"generateCodeForRow(this)\">Generate code</button> <span class=\"row-gen-status\" style=\"font-size:0.8rem;margin-left:6px\"></span>";
+      return "<td><input type=\"text\" name=\"name\" value=\"" + (nameVal || "") + "\" placeholder=\"e.g. my_task\" /></td>" +
+        "<td><input type=\"text\" name=\"desc\" value=\"" + (descVal || "") + "\" placeholder=\"Description\" /></td>" +
+        "<td><input type=\"number\" name=\"priority\" min=\"1\" max=\"10\" value=\"" + (priorityVal || 5) + "\" style=\"width:70px\" /></td>" +
+        "<td>" + genBtn + " <button type=\"button\" class=\"btn btn-small\" onclick=\"removeWorkerRow(this)\" style=\"background:rgba(0,0,0,0.08);color:var(--black);border:none\">Remove</button></td>";
+    }
+    function escapeAttr(s) { return String(s).replace(/&/g, "&amp;").replace(/"/g, "&quot;").replace(/</g, "&lt;").replace(/>/g, "&gt;"); }
+    function addWorkerRow() {
+      var tbody = r("workersTableBody");
+      var tr = document.createElement("tr");
+      tr.setAttribute("data-row", "");
+      tr.innerHTML = workerRowHtml("", "", 5);
+      tbody.appendChild(tr);
+    }
+    function nameToSkill(name) {
+      var s = (name || "").trim().toLowerCase().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "");
+      if (!s) return "";
+      if (!/^[a-z]/.test(s)) s = "skill_" + s;
+      return s;
+    }
+    function generateCodeForRow(btn) {
+      if (!_workerLlmConfigured) return;
+      var row = btn.closest("tr");
+      if (!row) return;
+      var inputs = row.querySelectorAll("input");
+      var name = (inputs[0] && inputs[0].value) ? inputs[0].value.trim() : "";
+      var desc = (inputs[1] && inputs[1].value) ? inputs[1].value.trim() : "User-defined worker.";
+      var skill = nameToSkill(name);
+      var statusEl = row.querySelector(".row-gen-status");
+      if (!skill) { if (statusEl) { statusEl.textContent = "Enter name first."; statusEl.style.color = "var(--danger)"; } return; }
+      if (_workerRegisteredSkills.indexOf(skill) >= 0) { if (statusEl) { statusEl.textContent = "Already has code."; statusEl.style.color = "var(--text-muted)"; } return; }
+      if (!/^[a-z][a-z0-9_]*$/.test(skill)) { if (statusEl) { statusEl.textContent = "Name must be letters/numbers/underscores."; statusEl.style.color = "var(--danger)"; } return; }
+      if (statusEl) { statusEl.textContent = "…"; statusEl.style.color = "var(--text-muted)"; }
+      fetch("/api/workers/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ skill: skill, description: desc })
+      }).then(function(x) { return x.json().then(function(d) {
+        if (!x.ok) { var msg = d.detail; if (Array.isArray(msg)) msg = msg.map(function(m) { return m.msg || String(m); }).join(" "); throw new Error(msg || x.statusText); }
+        return d;
+      });       }).then(function(d) {
+        _workerRegisteredSkills.push(skill);
+        if (btn) btn.style.display = "none";
+        if (statusEl) { statusEl.textContent = "(has code). Restart server to load."; statusEl.style.color = "var(--success)"; }
+      }).catch(function(e) {
+        if (statusEl) { statusEl.textContent = "Error: " + (e.message || e); statusEl.style.color = "var(--danger)"; }
+      });
+    }
+    function removeWorkerRow(btn) { var row = btn.closest("tr"); if (row) row.remove(); }
+    function saveWorkers() {
+      var status = r("workersSaveStatus");
+      status.textContent = "Saving…";
+      status.style.color = "var(--text-muted)";
+      var rows = document.querySelectorAll("#workersTableBody tr[data-row]");
+      var core_competencies = [];
+      for (var i = 0; i < rows.length; i++) {
+        var cells = rows[i].querySelectorAll("input");
+        var name = (cells[0] && cells[0].value) ? cells[0].value.trim() : "";
+        if (!name) continue;
+        core_competencies.push({
+          name: name,
+          description: (cells[1] && cells[1].value) ? cells[1].value.trim() : "",
+          priority: parseInt((cells[2] && cells[2].value) ? cells[2].value : "5", 10) || 5
+        });
+      }
+      fetch("/api/charter", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ core_competencies: core_competencies })
+      }).then(function(x) { return x.json().then(function(d) { if (!x.ok) throw new Error(d.detail || x.statusText); return d; }); })
+        .then(function() { status.textContent = "Saved. Restart recommended."; status.style.color = "var(--success)"; })
+        .catch(function(e) { status.textContent = "Error: " + (e.message || e); status.style.color = "var(--danger)"; });
     }
     function fetchSettings() {
       fetch("/api/settings").then(function(x) { return x.json(); }).then(function(d) {
+        r("settingAutoApprove").checked = (d.SOVEREIGN_AUTO_APPROVE_JOBS || "").toLowerCase() === "true" || d.SOVEREIGN_AUTO_APPROVE_JOBS === "1";
+        r("settingComplianceAuto").checked = (d.SOVEREIGN_COMPLIANCE_AUTO_PROCEED || "").toLowerCase() === "true" || d.SOVEREIGN_COMPLIANCE_AUTO_PROCEED === "1";
+        var skip = ["SOVEREIGN_AUTO_APPROVE_JOBS", "SOVEREIGN_COMPLIANCE_AUTO_PROCEED", "writable"];
         var t = r("settingsTable");
-        t.innerHTML = Object.keys(d).map(function(k) { return "<tr><th>" + escapeHtml(k) + "</th><td>" + escapeHtml(String(d[k])) + "</td></tr>"; }).join("");
+        t.innerHTML = Object.keys(d).filter(function(k) { return skip.indexOf(k) === -1; }).map(function(k) { return "<tr><th>" + escapeHtml(k) + "</th><td>" + escapeHtml(String(d[k])) + "</td></tr>"; }).join("");
+        r("settingsSaveStatus").textContent = "";
+      }).catch(function() {});
+    }
+    function saveSettings() {
+      var status = r("settingsSaveStatus");
+      status.textContent = "Saving…";
+      status.style.color = "var(--text-muted)";
+      fetch("/api/settings", {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          SOVEREIGN_AUTO_APPROVE_JOBS: r("settingAutoApprove").checked ? "true" : "false",
+          SOVEREIGN_COMPLIANCE_AUTO_PROCEED: r("settingComplianceAuto").checked ? "true" : "false"
+        })
+      }).then(function(x) { return x.json().then(function(d) { if (!x.ok) throw new Error(d.detail || x.statusText); return d; }); })
+        .then(function() { status.textContent = "Saved."; status.style.color = "var(--success)"; })
+        .catch(function(e) { status.textContent = "Error: " + (e.message || e); status.style.color = "var(--danger)"; });
+    }
+
+    function fetchStorage() {
+      fetch("/api/storage").then(function(x) { return x.json(); }).then(function(d) {
+        var el = r("storageSummary");
+        if (!el) return;
+        var parts = [];
+        parts.push("Jobs: " + (d.jobs_total || 0) + " total, " + (d.jobs_completed_or_failed || 0) + " done/failed");
+        if (d.ledger_path) parts.push("Ledger: " + d.ledger_path);
+        if (d.audit_path) parts.push("Audit: " + d.audit_path);
+        if (d.overrides_path) parts.push("Settings file: " + d.overrides_path);
+        el.textContent = parts.length ? parts.join(" · ") : "No storage info.";
+      }).catch(function() {});
+    }
+    function clearCompletedJobs() {
+      fetch("/api/jobs/clear-completed", { method: "POST" }).then(function(x) { return x.json(); }).then(function(d) {
+        if (d.ok) { fetchStorage(); fetchJobs(); }
       }).catch(function() {});
     }
 
@@ -657,7 +900,8 @@
           const approveBtn = j.status === 'pending'
             ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="approveJob(' + j.job_id + ')">Approve</button>'
             : '';
-          return '<div class=\"' + cls + '\"><span class=\"id\">' + label + '</span><span>' + amount + status + '</span>' + approveBtn + '</div>';
+          const deleteBtn = ' <button type="button" class="btn btn-delete" style="padding:6px 10px;font-size:0.8rem" onclick="deleteJob(' + j.job_id + ')">Delete</button>';
+          return '<div class=\"' + cls + '\"><span class=\"id\">' + label + '</span><span>' + amount + status + '</span>' + approveBtn + deleteBtn + '</div>';
         }).join('');
       }).catch(() => {});
     }
@@ -719,6 +963,12 @@
     }
     function approveJob(id) {
       fetch('/api/jobs/' + id + '/approve', { method: 'POST' }).then(() => { fetchJobs(); fetchLogs(); }).catch(() => {});
+    }
+    function deleteJob(id) {
+      if (!confirm('Delete job ' + id + '?')) return;
+      fetch('/api/jobs/' + id, { method: 'DELETE' }).then(function(x) {
+        if (x.ok) { fetchJobs(); var p = getPanel(); if (p === 'storage') fetchStorage(); }
+      }).catch(function() {});
     }
     setInterval(fetchStatus, 2000);
     setInterval(fetchTasks, 1500);

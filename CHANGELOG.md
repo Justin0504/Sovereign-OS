@@ -31,7 +31,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/).
 ### Added
 
 - **README first screen:** One-liner at top, badges (CI, License, Python), 3-step Quick Start; image placeholder; [examples/](examples/) and Web Dashboard linked.
-- **examples/:** [examples/README.md](examples/README.md) with CLI, ledger+audit-trail, freelancer charter; `demo.sh` and `demo.bat` for one-command run with `--ledger` and `--audit-trail`.
+- **examples/:** CLI, ledger+audit-trail, freelancer charter; `demo.sh` and `demo.bat` for one-command run with `--ledger` and `--audit-trail`. See [QUICKSTART](docs/QUICKSTART.md) and [PAID_DEMO](docs/PAID_DEMO.md).
 - **docs/MONETIZATION.md:** Job queue, Stripe, human approval, and compliance threshold; end-to-end monetization flow.
 - **docs/RELEASE.md:** Release checklist and suggested HN/Reddit post text.
 - **Compliance hook (Phase 6b):** `HumanApprovalRequiredError`; `Treasury` accepts `compliance_hook` and `spend_threshold_cents`; when task cost ≥ threshold, hook can return `REQUEST_HUMAN_APPROVAL` and mission raises. `GovernanceEngine` passes hook to Treasury. Web UI: set `SOVEREIGN_COMPLIANCE_SPEND_THRESHOLD_CENTS` to enable; on raise, job is set back to `pending` with message. `ThresholdComplianceHook` in `sovereign_os.compliance`. See [PHASE6](docs/PHASE6.md) and [CONFIG](docs/CONFIG.md).

@@ -34,6 +34,63 @@ _payment_service: Any = None
 _job_store: Any = None  # sovereign_os.jobs.store.JobStore when SOVEREIGN_JOB_DB set
 
 
+def _ui_overrides_path() -> Path:
+    """Path to UI overrides JSON (access + settings)."""
+    root = Path(__file__).resolve().parent.parent.parent
+    data_dir = Path(os.getenv("SOVEREIGN_DATA_DIR", str(root / "data")))
+    return data_dir / "ui_overrides.json"
+
+
+def _get_ui_overrides() -> dict[str, Any]:
+    """Read UI overrides from file. Returns {} if missing or invalid."""
+    path = _ui_overrides_path()
+    if not path.exists():
+        return {}
+    try:
+        import json
+        raw = path.read_text(encoding="utf-8")
+        data = json.loads(raw)
+        return data if isinstance(data, dict) else {}
+    except Exception:
+        return {}
+
+
+def _set_ui_overrides_section(section: str, updates: dict[str, Any]) -> None:
+    """Merge updates into a section (e.g. 'access', 'settings') and write file."""
+    import json
+    path = _ui_overrides_path()
+    current = _get_ui_overrides()
+    if section not in current:
+        current[section] = {}
+    for key, value in updates.items():
+        if value is None:
+            current[section].pop(key, None)
+        else:
+            current[section][key] = value
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+
+
+def _effective_auto_approve() -> bool:
+    """True if jobs should be auto-approved (overlay then env)."""
+    o = _get_ui_overrides()
+    s = o.get("settings") or {}
+    v = s.get("SOVEREIGN_AUTO_APPROVE_JOBS")
+    if v is not None:
+        return str(v).strip().lower() in ("1", "true", "yes")
+    return (os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS") or "").strip().lower() in ("1", "true", "yes")
+
+
+def _effective_compliance_auto() -> bool:
+    """True if compliance should auto-proceed (overlay then env)."""
+    o = _get_ui_overrides()
+    s = o.get("settings") or {}
+    v = s.get("SOVEREIGN_COMPLIANCE_AUTO_PROCEED")
+    if v is not None:
+        return str(v).strip().lower() in ("1", "true", "yes")
+    return (os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED") or "").strip().lower() in ("1", "true", "yes")
+
+
 # ---------------------------------------------------------------------------
 # Job queue (24/7 ingestion + human approval)
 # ---------------------------------------------------------------------------
@@ -168,7 +225,7 @@ def _enqueue_job(
         )
         _next_job_id += 1
     _jobs.append(job)
-    auto_approve = (os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS") or "").strip().lower() in ("1", "true", "yes")
+    auto_approve = _effective_auto_approve()
     if auto_approve:
         job.status = "approved"
         job.updated_ts = time.time()
@@ -1037,8 +1094,14 @@ def validate_job_input(
 
 
 def _api_key_dependency():
-    """Dependency: require X-API-Key or Authorization Bearer when SOVEREIGN_API_KEY is set."""
+    """Dependency: require X-API-Key when API key is required (overlay or env)."""
     from fastapi import Header, HTTPException
+    o = _get_ui_overrides()
+    acc = o.get("access") or {}
+    if acc.get("api_key_required") is False:
+        def _noop():
+            return
+        return _noop
     key = os.getenv("SOVEREIGN_API_KEY")
     if not key:
         def _noop():
@@ -1115,9 +1178,14 @@ def create_app(
         times.append(now)
 
     def _job_ip_whitelist_dep(request: Request):
-        """When SOVEREIGN_JOB_IP_WHITELIST is set (comma-separated), reject requests from other IPs with 403."""
+        """When IP whitelist is set (overlay or env), reject requests from other IPs with 403."""
         from fastapi import HTTPException
-        raw = (os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "").strip()
+        o = _get_ui_overrides()
+        acc = o.get("access") or {}
+        if "ip_whitelist" in acc:
+            raw = (acc.get("ip_whitelist") or "").strip()
+        else:
+            raw = (os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "").strip()
         if not raw:
             return
         allowed = {x.strip() for x in raw.split(",") if x.strip()}
@@ -1125,7 +1193,7 @@ def create_app(
             return
         host = (request.client.host if request.client else None) or ""
         if host not in allowed:
-            raise HTTPException(status_code=403, detail="IP not allowed (SOVEREIGN_JOB_IP_WHITELIST)")
+            raise HTTPException(status_code=403, detail="IP not allowed (whitelist)")
 
     def _validate_job_input(goal: str, amount_cents: int, callback_url: str | None) -> None:
         """Raise HTTPException 400 if goal/amount_cents/callback_url are invalid."""
@@ -1170,8 +1238,8 @@ def create_app(
             jobs_total = len(_jobs)
             jobs_pending = sum(1 for j in _jobs if getattr(j, "status", "") == "pending")
             jobs_running = sum(1 for j in _jobs if getattr(j, "status", "") == "running")
-            auto_approve = (os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS") or "").strip().lower() in ("1", "true", "yes")
-            compliance_auto = (os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED") or "").strip().lower() in ("1", "true", "yes")
+            auto_approve = _effective_auto_approve()
+            compliance_auto = _effective_compliance_auto()
             body = {
                 "status": status,
                 "ledger": ledger_ok,
@@ -1219,7 +1287,18 @@ def create_app(
                 trust = str(_auth._scores[last])
             else:
                 trust = str(getattr(_auth, "_base", 50))
-        return {"balance": balance, "tokens": tokens, "trust_score": trust, "agent_id": agent_id, "charter": _charter_name}
+        llm_configured = bool(
+            (os.getenv("OPENAI_API_KEY") or "").strip()
+            or (os.getenv("ANTHROPIC_API_KEY") or "").strip()
+        )
+        return {
+            "balance": balance,
+            "tokens": tokens,
+            "trust_score": trust,
+            "agent_id": agent_id,
+            "charter": _charter_name,
+            "llm_configured": llm_configured,
+        }
 
     @app.get("/api/tasks")
     def api_tasks():
@@ -1262,6 +1341,28 @@ def create_app(
         for e in entries:
             e["verified"] = verify_report_integrity(e)
         return {"audit_trail": entries}
+
+    @app.get("/api/audit_trail/export")
+    def api_audit_trail_export():
+        """Export audit trail as JSON file (download)."""
+        from fastapi.responses import Response
+        try:
+            from sovereign_os.auditor.trail import load_audit_trail, verify_report_integrity
+        except ImportError:
+            return Response(content="[]", media_type="application/json", status_code=404)
+        path = os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH")
+        if not path:
+            return Response(content="[]", media_type="application/json", status_code=404)
+        entries = load_audit_trail(path, limit=2000)
+        for e in entries:
+            e["verified"] = verify_report_integrity(e)
+        import json
+        body = json.dumps(entries, indent=2, default=str)
+        return Response(
+            content=body,
+            media_type="application/json",
+            headers={"Content-Disposition": "attachment; filename=audit_trail.json"},
+        )
 
     @app.get("/api/charter")
     def api_charter_get():
@@ -1342,35 +1443,160 @@ def create_app(
             workers.append({"skill": skill_name, "agent_ids": agents})
         return {"workers": workers}
 
+    def _user_workers_dir() -> Path:
+        """Resolved path to sovereign_os/agents/user_workers (for generated code)."""
+        return Path(__file__).resolve().parent.parent / "agents" / "user_workers"
+
+    _WORKER_TEMPLATE = '''"""
+{class_name}: User-defined worker for skill "{skill}".
+Generated via Web UI. Edit this file to customize behavior.
+"""
+
+from __future__ import annotations
+
+import logging
+from sovereign_os.agents.base import BaseWorker, TaskInput, TaskResult
+
+logger = logging.getLogger(__name__)
+
+
+class {class_name}(BaseWorker):
+    """{description}"""
+
+    async def execute(self, task: TaskInput) -> TaskResult:
+        desc = (task.description or "").strip() or task.task_id
+        if not self.llm:
+            return TaskResult(
+                task_id=task.task_id,
+                success=True,
+                output=f"[{{self.__class__.__name__}}] No LLM; echo: {{desc[:200]}}",
+                metadata={{"worker": "{class_name}"}},
+            )
+        prompt = f"Task: {{desc}}"
+        try:
+            system = (self.system_prompt or "You are a helpful assistant.").strip() or "You are a helpful assistant."
+            messages = [
+                {{"role": "system", "content": system}},
+                {{"role": "user", "content": prompt}},
+            ]
+            content = await self.llm.chat(messages)
+            output = (content or "").strip() or "[No output]"
+            return TaskResult(
+                task_id=task.task_id,
+                success=True,
+                output=output[:65536],
+                metadata={{"worker": "{class_name}"}},
+            )
+        except Exception as e:
+            logger.exception("{class_name} execute failed: %s", e)
+            return TaskResult(
+                task_id=task.task_id,
+                success=False,
+                output=f"[{{self.__class__.__name__}}] Error: {{e}}",
+                metadata={{"worker": "{class_name}", "error": str(e)}},
+            )
+'''
+
+    @app.post("/api/workers/generate")
+    def api_workers_generate(payload: dict | None = Body(None)):
+        """Generate a new worker Python file in agents/user_workers. Body: skill (str), description (str). Restart to load. Requires OPENAI_API_KEY or ANTHROPIC_API_KEY."""
+        import re
+        from fastapi import HTTPException
+        if not (os.getenv("OPENAI_API_KEY") or "").strip() and not (os.getenv("ANTHROPIC_API_KEY") or "").strip():
+            raise HTTPException(
+                status_code=400,
+                detail="Set OPENAI_API_KEY or ANTHROPIC_API_KEY in .env to generate workers.",
+            )
+        body = payload or {}
+        skill = (body.get("skill") or "").strip().lower()
+        description = (body.get("description") or "").strip() or "User-defined worker."
+        if not skill:
+            raise HTTPException(status_code=400, detail="skill is required")
+        if not re.match(r"^[a-z][a-z0-9_]*$", skill):
+            raise HTTPException(
+                status_code=400,
+                detail="skill must be lowercase letters, numbers, underscores (e.g. my_task)",
+            )
+        allowed_dir = _user_workers_dir()
+        allowed_dir.mkdir(parents=True, exist_ok=True)
+        out_file = allowed_dir / f"{skill}_worker.py"
+        if out_file.exists():
+            raise HTTPException(status_code=409, detail=f"Worker already exists: {out_file.name}")
+        class_name = "".join(w.capitalize() for w in skill.split("_")) + "Worker"
+        try:
+            content = _WORKER_TEMPLATE.format(
+                class_name=class_name,
+                skill=skill,
+                description=description.replace('"""', "'"),
+            )
+            out_file.write_text(content, encoding="utf-8")
+        except OSError as e:
+            raise HTTPException(status_code=500, detail=f"Could not write file: {e}") from e
+        return {"ok": True, "path": str(out_file), "skill": skill, "message": "Restart the server to load this worker."}
+
+    def _effective_setting(key: str) -> str:
+        """Return effective value for a setting (overlay then env)."""
+        o = _get_ui_overrides()
+        s = o.get("settings") or {}
+        if key in s and s[key] is not None:
+            return str(s[key]).strip()
+        return (os.getenv(key) or "").strip()
+
     @app.get("/api/settings")
     def api_settings():
-        """Read-only summary of env and paths (secrets masked)."""
-        root = Path(__file__).resolve().parent.parent.parent
-        def mask(s: str) -> str:
-            if not s or len(s) < 8:
-                return "***" if s else ""
-            return s[:4] + "***" + s[-2:] if len(s) > 6 else "***"
+        """Settings summary. Editable keys (auto_approve, compliance_auto) can be updated via PUT."""
         return {
             "SOVEREIGN_JOB_DB": os.getenv("SOVEREIGN_JOB_DB") or "(default)",
             "SOVEREIGN_LEDGER_PATH": os.getenv("SOVEREIGN_LEDGER_PATH") or "(default)",
             "SOVEREIGN_AUDIT_TRAIL_PATH": os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH") or "(not set)",
-            "SOVEREIGN_AUTO_APPROVE_JOBS": os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS", ""),
-            "SOVEREIGN_COMPLIANCE_AUTO_PROCEED": os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED", ""),
+            "SOVEREIGN_AUTO_APPROVE_JOBS": _effective_setting("SOVEREIGN_AUTO_APPROVE_JOBS"),
+            "SOVEREIGN_COMPLIANCE_AUTO_PROCEED": _effective_setting("SOVEREIGN_COMPLIANCE_AUTO_PROCEED"),
             "SOVEREIGN_API_KEY": "set" if os.getenv("SOVEREIGN_API_KEY") else "not set",
             "SOVEREIGN_JOB_IP_WHITELIST": os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "(not set)",
             "STRIPE_API_KEY": "set" if os.getenv("STRIPE_API_KEY") else "not set",
             "OPENAI_API_KEY": "set" if os.getenv("OPENAI_API_KEY") else "not set",
             "ANTHROPIC_API_KEY": "set" if os.getenv("ANTHROPIC_API_KEY") else "not set",
             "charter_path": _charter_path or "(not set)",
+            "writable": True,
         }
+
+    @app.put("/api/settings")
+    def api_settings_put(payload: dict | None = Body(None)):
+        """Update editable settings (SOVEREIGN_AUTO_APPROVE_JOBS, SOVEREIGN_COMPLIANCE_AUTO_PROCEED). Auto-approve takes effect on next job; compliance may require restart."""
+        body = payload or {}
+        allowed = {"SOVEREIGN_AUTO_APPROVE_JOBS", "SOVEREIGN_COMPLIANCE_AUTO_PROCEED"}
+        updates = {k: str(v) for k, v in body.items() if k in allowed and v is not None}
+        if updates:
+            _set_ui_overrides_section("settings", updates)
+        return {"ok": True, "message": "Settings updated. Auto-approve applies to new jobs; restart for full compliance effect."}
 
     @app.get("/api/access")
     def api_access():
-        """Access control summary: API key required, IP whitelist."""
-        return {
-            "api_key_required": bool((os.getenv("SOVEREIGN_API_KEY") or "").strip()),
-            "ip_whitelist": (os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "").strip() or None,
-        }
+        """Access control: effective values from overlay then env. Editable via PUT."""
+        o = _get_ui_overrides()
+        acc = o.get("access") or {}
+        if "api_key_required" in acc:
+            api_key_required = bool(acc["api_key_required"])
+        else:
+            api_key_required = bool((os.getenv("SOVEREIGN_API_KEY") or "").strip())
+        if "ip_whitelist" in acc:
+            ip_whitelist = (acc.get("ip_whitelist") or "").strip() or None
+        else:
+            ip_whitelist = (os.getenv("SOVEREIGN_JOB_IP_WHITELIST") or "").strip() or None
+        return {"api_key_required": api_key_required, "ip_whitelist": ip_whitelist, "writable": True}
+
+    @app.put("/api/access")
+    def api_access_put(payload: dict | None = Body(None)):
+        """Update access settings (API key required, IP whitelist). Takes effect immediately."""
+        body = payload or {}
+        updates = {}
+        if "api_key_required" in body:
+            updates["api_key_required"] = bool(body["api_key_required"])
+        if "ip_whitelist" in body:
+            updates["ip_whitelist"] = (body.get("ip_whitelist") or "").strip() or ""
+        if updates:
+            _set_ui_overrides_section("access", updates)
+        return {"ok": True, "message": "Access settings updated."}
 
     @app.get("/api/jobs")
     def api_jobs(limit: int = 100):
@@ -1381,6 +1607,59 @@ def create_app(
             "jobs": [asdict(j) for j in sorted_jobs[:cap]],
             "total": len(_jobs),
         }
+
+    @app.delete("/api/jobs/{job_id}")
+    def api_jobs_delete(job_id: int):
+        """Delete one job by id (any status). Returns 404 if not found."""
+        global _jobs, _job_store
+        for j in _jobs:
+            if j.job_id == job_id:
+                _jobs.remove(j)
+                if _job_store is not None and hasattr(_job_store, "delete_job"):
+                    try:
+                        _job_store.delete_job(job_id)
+                    except Exception:
+                        pass
+                return {"ok": True, "job_id": job_id}
+        return JSONResponse(status_code=404, content={"error": "Job not found"})
+
+    @app.post("/api/jobs/clear-completed")
+    def api_jobs_clear_completed():
+        """Remove all completed, failed, and payment_failed jobs from the list and store."""
+        global _jobs, _job_store
+        to_remove = [j for j in _jobs if getattr(j, "status", "") in ("completed", "failed", "payment_failed")]
+        for j in to_remove:
+            _jobs.remove(j)
+            if _job_store is not None and hasattr(_job_store, "delete_job"):
+                try:
+                    _job_store.delete_job(j.job_id)
+                except Exception:
+                    pass
+        return {"ok": True, "removed": len(to_remove)}
+
+    @app.get("/api/storage")
+    def api_storage():
+        """Summary of stored data (jobs count, paths). For UI storage panel."""
+        completed = sum(1 for j in _jobs if getattr(j, "status", "") in ("completed", "failed", "payment_failed"))
+        path = _ui_overrides_path()
+        return {
+            "jobs_total": len(_jobs),
+            "jobs_completed_or_failed": completed,
+            "ledger_path": getattr(_ledger, "_path", None) if _ledger else None,
+            "audit_path": os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH"),
+            "overrides_path": str(path) if path.exists() else None,
+        }
+
+    @app.get("/api/ledger/export")
+    def api_ledger_export():
+        """Export ledger entries as JSONL. Returns text/plain."""
+        from fastapi.responses import PlainTextResponse
+        if not _ledger or not hasattr(_ledger, "entries"):
+            return PlainTextResponse("", status_code=404)
+        lines = []
+        for e in _ledger.entries():
+            lines.append(e.model_dump_json())
+        return PlainTextResponse("\n".join(lines), media_type="application/x-ndjson")
 
     @app.post(
         "/api/jobs",

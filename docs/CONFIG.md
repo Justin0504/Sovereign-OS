@@ -66,7 +66,7 @@ The Web process is designed for **24/7** operation: a background thread continuo
 | Per-job `callback_url` | In `POST /api/jobs` body you can pass `callback_url`; when that job completes, the webhook is sent to this URL instead of (or in addition to) the global `SOVEREIGN_WEBHOOK_URL`. |
 | (payload) | Each job gets a `request_id` (trace id) at creation; it is included in the webhook payload when set, for correlating logs and delivery. |
 
-Payload format and retries: see [OPEN_SOURCE_READY_PLAN.md](OPEN_SOURCE_READY_PLAN.md) (Webhook 载荷规范). Typical use: your backend receives the webhook and then notifies the customer (email, Slack, etc.).
+Payload format and retries: see [OPEN_SOURCE_READY_PLAN.md](OPEN_SOURCE_READY_PLAN.md) (Webhook payload spec). Typical use: your backend receives the webhook and then notifies the customer (email, Slack, etc.).
 
 ## Payments (Stripe)
 

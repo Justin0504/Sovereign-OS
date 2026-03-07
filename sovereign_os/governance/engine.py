@@ -141,6 +141,12 @@ class GovernanceEngine:
         r.register("assistant_chat", AssistantChatWorker)
         r.register("code_assistant", CodeAssistantWorker)
         r.register("code_review", CodeReviewWorker)
+        try:
+            from sovereign_os.agents.user_workers import get_user_workers
+            for skill_name, worker_cls in get_user_workers():
+                r.register(skill_name, worker_cls)
+        except Exception as e:
+            logger.warning("Could not load user workers: %s", e)
         r.set_default(StubWorker)
         return r
 

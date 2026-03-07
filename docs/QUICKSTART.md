@@ -1,12 +1,12 @@
-# Quick Start：上手即用
+# Quick Start
 
-只需配置 **Stripe** 和 **一个 LLM API Key**（OpenAI 或 Anthropic），即可接单、执行基础任务并收费。
+Configure **Stripe** and **one LLM API key** (OpenAI or Anthropic) to accept jobs, run basic tasks, and charge.
 
 ---
 
-## 三步开始
+## Three steps
 
-### 1. 克隆并安装
+### 1. Clone and install
 
 ```bash
 git clone https://github.com/YourUsername/Sovereign-OS.git
@@ -14,105 +14,105 @@ cd Sovereign-OS
 pip install -e ".[llm]"
 ```
 
-如需 Stripe 收费演示，可选安装支付依赖：
+Optional, for Stripe payments:
 
 ```bash
 pip install -e ".[payments]"
 ```
 
-### 2. 配置环境变量
+### 2. Configure environment
 
-复制示例配置并填写**必填项**：
+Copy the example env and set **required** keys:
 
 ```bash
 cp .env.example .env
 ```
 
-编辑 `.env`，至少填写：
+Edit `.env` and set at least:
 
-| 变量 | 必填 | 说明 |
-|------|------|------|
-| `STRIPE_API_KEY` | 是（若需收费） | Stripe 密钥，测试用 `sk_test_...` |
-| `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY` | 二选一 | 用于 CEO 规划、审计与内置 Worker（摘要/研究/回复） |
+| Variable | Required | Description |
+|----------|----------|-------------|
+| `STRIPE_API_KEY` | Yes (for payments) | Stripe secret key; use `sk_test_...` for test |
+| `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | One of them | Used for CEO planning, audit, and built-in workers (summarize, research, reply) |
 
-**仅用 Anthropic 测试时**：只设置 `ANTHROPIC_API_KEY` 即可，无需设置 `SOVEREIGN_LLM_PROVIDER`，系统会自动使用 Anthropic。若需指定模型，可设置：
+**Anthropic only:** Set `ANTHROPIC_API_KEY`; you do not need `SOVEREIGN_LLM_PROVIDER`. To pin a model:
 
 ```bash
 SOVEREIGN_LLM_PROVIDER=anthropic
 SOVEREIGN_LLM_MODEL=claude-3-5-sonnet-20241022
 ```
 
-可选（推荐持久化）：
+Optional (recommended for persistence):
 
-- `SOVEREIGN_JOB_DB=./data/jobs.db` — 任务队列持久化
-- `SOVEREIGN_LEDGER_PATH=./data/ledger.jsonl` — 账本持久化
-- `SOVEREIGN_AUDIT_TRAIL_PATH=./data/audit.jsonl` — 审计轨迹持久化
+- `SOVEREIGN_JOB_DB=./data/jobs.db` — job queue persistence
+- `SOVEREIGN_LEDGER_PATH=./data/ledger.jsonl` — ledger persistence
+- `SOVEREIGN_AUDIT_TRAIL_PATH=./data/audit.jsonl` — audit trail persistence
 
-**Human-out-of-loop（无人值守接单）**：
+**Human-out-of-loop (auto-approve):**
 
-- `SOVEREIGN_AUTO_APPROVE_JOBS=true` — 新 Job 自动批准，无需在 Dashboard 点 Approve；配合 `SOVEREIGN_INGEST_URL` 可实现全自动接单→执行→收费→Webhook。
-- `SOVEREIGN_COMPLIANCE_AUTO_PROCEED=true` — 当设置了支出阈值时，超过阈值也自动放行，不要求二次人工批准。详见 [CONFIG.md](CONFIG.md)。
+- `SOVEREIGN_AUTO_APPROVE_JOBS=true` — new jobs are approved automatically; with `SOVEREIGN_INGEST_URL` you get full auto ingest → run → charge → webhook.
+- `SOVEREIGN_COMPLIANCE_AUTO_PROCEED=true` — when a spend threshold is set, exceeding it still auto-proceeds. See [CONFIG.md](CONFIG.md).
 
-### 3. 启动 Web 控制台
+### 3. Start the Web UI
 
 ```bash
 python -m sovereign_os.web.app
 ```
 
-或使用项目提供的脚本（会从 `.env` 加载变量）：
+Or use project scripts (they load `.env`):
 
 - Windows: `run_paid_demo.bat`
-- 或: `docker compose up web`
+- Or: `docker compose up web`
 
-打开浏览器访问 **http://localhost:8000**。
-
----
-
-## 首次发单与收费
-
-1. 在 Dashboard 的 **Mission** 输入框输入目标，例如：`Summarize the market in one paragraph.`
-2. 点击 **Run**，系统会使用默认 Charter（`charter.default.yaml`）和内置 Worker 规划并执行。
-3. 若使用 **Job queue** 收费流程：
-   - 用 `POST /api/jobs` 或示例脚本提交带金额的 Job（见 [examples/README.md](../examples/README.md)）。
-   - 在 Dashboard **Job queue** 中批准该 Job，执行完成后会自动扣款并记入 Ledger。
+Open **http://localhost:8000** in your browser.
 
 ---
 
-## 内置通用技能（Built-in skills）
+## First job and charge
 
-开箱即用（默认引擎已注册）：
-
-- `summarize`：摘要
-- `research`：简短调研（要点 + 结论）
-- `reply`：模板回复（支持 `{{var}}`）
-- `write_article`：写文章（标题选项/大纲/草稿/要点）
-- `solve_problem`：解题/解问题（理解→步骤→最终答案）
-- `write_email`：写邮件（主题 x3 + 正文）
-- `write_post`：写社媒 post（多版本 + CTA）
-- `meeting_minutes`：会议纪要（决策/行动项/风险）
-- `translate`：翻译（保留格式）
-- `rewrite_polish`：改写润色（不新增事实）
-- `collect_info`：收集信息（研究计划 + 临时结论 + 验证清单）
-- `extract_structured`：结构化抽取（JSON + 缺失字段）
-- `spec_writer`：写规格/SOW（范围/交付物/验收/风险/问题）
-
-## 健康检查与配置提示
-
-访问 **http://localhost:8000/health** 可查看：
-
-- `status`: 服务状态
-- `ledger`: 账本是否可用
-- `config_warnings`: 若未设置 Stripe 或 LLM Key，会在此列出，便于排查「静默回退到 Dummy」问题。
+1. In the Dashboard **Mission** box, enter a goal, e.g. `Summarize the market in one paragraph.`
+2. Click **Run**; the system uses the default Charter (`charter.default.yaml`) and built-in workers to plan and run.
+3. For **Job queue** payments:
+   - Submit a paid job via `POST /api/jobs` or the demo script (see [PAID_DEMO.md](PAID_DEMO.md)).
+   - Approve the job in the Dashboard **Job queue**; when it completes, payment is taken and recorded in the Ledger.
 
 ---
 
-## 接单方式
+## Built-in skills
 
-- **方式一**：在 Web UI 的 Mission 输入目标并 Run（即时执行，无队列）。
-- **方式二**：`POST /api/jobs` 提交 Job（body: `goal`, `amount_cents`, `currency`, 可选 `charter`, `callback_url`），在 Dashboard 批准后执行并收费。
-- **方式三**：设置 `SOVEREIGN_INGEST_URL`，系统会轮询该 JSON 地址并将新 Job 入队。详见 [CONFIG.md](CONFIG.md) 与 [MONETIZATION.md](MONETIZATION.md)。
+Available out of the box (registered in the default engine):
 
-### 示例：用 curl 提交付费 Job
+- `summarize` — summarization
+- `research` — short research (bullets + conclusion)
+- `reply` — template reply (supports `{{var}}`)
+- `write_article` — article writing
+- `solve_problem` — problem solving
+- `write_email` — email drafting
+- `write_post` — social post drafting
+- `meeting_minutes` — meeting minutes
+- `translate` — translation
+- `rewrite_polish` — rewrite and polish
+- `collect_info` — information gathering
+- `extract_structured` — structured extraction (JSON)
+- `spec_writer` — spec / SOW writing
+
+## Health and config warnings
+
+Open **http://localhost:8000/health** to see:
+
+- `status`: service status
+- `ledger`: whether the ledger is available
+- `config_warnings`: if Stripe or LLM key is missing, listed here so you can fix "silent fallback to Dummy".
+
+---
+
+## How to submit jobs
+
+- **Option 1:** Enter a goal in the Web UI Mission box and click Run (immediate run, no queue).
+- **Option 2:** `POST /api/jobs` with body: `goal`, `amount_cents`, `currency`, optional `charter`, `callback_url`; approve in the Dashboard to run and charge.
+- **Option 3:** Set `SOVEREIGN_INGEST_URL`; the system polls that JSON URL and enqueues new jobs. See [CONFIG.md](CONFIG.md) and [MONETIZATION.md](MONETIZATION.md).
+
+### Example: submit a paid job with curl
 
 ```bash
 curl -X POST http://localhost:8000/api/jobs \
@@ -120,7 +120,7 @@ curl -X POST http://localhost:8000/api/jobs \
   -d '{"goal":"Summarize the AI market in one paragraph.","amount_cents":100,"currency":"USD"}'
 ```
 
-若设置了 `SOVEREIGN_API_KEY`，需加请求头：
+If `SOVEREIGN_API_KEY` is set, add the header:
 
 ```bash
 curl -X POST http://localhost:8000/api/jobs \
@@ -131,19 +131,19 @@ curl -X POST http://localhost:8000/api/jobs \
 
 ---
 
-## 常见问题
+## FAQ
 
-| 现象 | 处理 |
-|------|------|
-| 启动后扣款仍显示 Dummy | 检查 `.env` 中 `STRIPE_API_KEY` 是否填写；重启 Web 进程；查看 `/health` 的 `config_warnings`。 |
-| 任务一直 Stub 无真实摘要 | 设置 `OPENAI_API_KEY` 或 `ANTHROPIC_API_KEY`，并安装 `pip install -e ".[llm]"`。 |
-| 想只用 Anthropic | 只配置 `ANTHROPIC_API_KEY` 即可，无需设置 `SOVEREIGN_LLM_PROVIDER`。 |
-| Webhook 收不到 | 确认 `SOVEREIGN_WEBHOOK_URL` 或 Job 的 `callback_url` 可公网访问；查看应用日志中的 webhook 重试记录。 |
+| Issue | What to do |
+|-------|------------|
+| Charges still show Dummy after start | Check `STRIPE_API_KEY` in `.env`; restart the web process; check `config_warnings` in `/health`. |
+| Tasks stay Stub with no real output | Set `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` and run `pip install -e ".[llm]"`. |
+| Anthropic only | Set `ANTHROPIC_API_KEY`; no need to set `SOVEREIGN_LLM_PROVIDER`. |
+| No webhook received | Ensure `SOVEREIGN_WEBHOOK_URL` or the job `callback_url` is reachable; check app logs for webhook retries. |
 
 ---
 
-## 下一步
+## Next steps
 
-- 内置技能与 Charter：见 [CHARTER.md](CHARTER.md)、[WORKER.md](WORKER.md)。
-- 支付与人工审批：见 [MONETIZATION.md](MONETIZATION.md)。
-- 完整配置项：见 [CONFIG.md](CONFIG.md)。
+- Charter and workers: [CHARTER.md](CHARTER.md), [WORKER.md](WORKER.md).
+- Payments and approval: [MONETIZATION.md](MONETIZATION.md).
+- All options: [CONFIG.md](CONFIG.md).
