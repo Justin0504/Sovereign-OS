@@ -74,6 +74,15 @@ class RedditOrderSource(OrderSource):
                         if not any(kw.lower() in combined for kw in self.keywords_required):
                             continue
                     amount = _parse_amount(title) or _parse_amount(body)
+                    author_name = (getattr(post.author, "name", None) or "").strip() or None
+                    contact = None
+                    if author_name:
+                        contact = {
+                            "platform": "reddit",
+                            "username": author_name,
+                            "post_id": post.id,
+                            "permalink": getattr(post, "permalink", "") or f"/r/{sub_name}/comments/{post.id}",
+                        }
                     yield RawOrder(
                         source_id=f"reddit:{post.id}",
                         goal=goal[:8000],
@@ -81,6 +90,7 @@ class RedditOrderSource(OrderSource):
                         currency="USD",
                         charter="Default",
                         meta={"subreddit": sub_name, "url": f"https://reddit.com{post.permalink}"},
+                        contact=contact,
                     )
             except Exception as e:
                 logger.exception("Reddit fetch subreddit %s: %s", sub_name, e)

@@ -37,3 +37,23 @@ class HumanApprovalRequiredError(Exception):
         super().__init__(message)
         self.amount_cents = amount_cents
         self.task_id = task_id
+
+
+class UnprofitableJobError(Exception):
+    """
+    Raised when the CFO rejects a job because estimated cost would exceed allowed share of job revenue
+    (unit economics: minimum margin not met). Top-company practice: do not accept deals below margin floor.
+    """
+
+    def __init__(
+        self,
+        message: str,
+        *,
+        job_revenue_cents: int = 0,
+        estimated_cost_cents: int = 0,
+        min_margin_ratio: float = 0.0,
+    ) -> None:
+        super().__init__(message)
+        self.job_revenue_cents = job_revenue_cents
+        self.estimated_cost_cents = estimated_cost_cents
+        self.min_margin_ratio = min_margin_ratio

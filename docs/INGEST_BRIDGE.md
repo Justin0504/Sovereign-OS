@@ -96,7 +96,7 @@ python -m sovereign_os.ingest_bridge
 | `REDDIT_MIN_SCORE` | Skip posts with score below this | `0` |
 | `REDDIT_KEYWORDS_REQUIRED` | Comma-separated; post must contain one | (any) |
 
-Create a Reddit “script” app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) to get client ID and secret.
+Create a Reddit “script” app at [reddit.com/prefs/apps](https://www.reddit.com/prefs/apps) to get client ID and secret. **Full Reddit setup (bridge + delivery + posting on r/forhire):** [REDDIT_SETUP_GUIDE.md](REDDIT_SETUP_GUIDE.md).
 
 ### Scraper
 

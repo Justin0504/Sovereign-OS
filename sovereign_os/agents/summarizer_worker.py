@@ -40,11 +40,16 @@ class SummarizerWorker(BaseWorker):
             ]
             content = await self.llm.chat(messages)
             output = (content or "").strip() or "[No summary produced]"
+            usage = getattr(self.llm, "_last_usage", None)
+            meta = {"worker": "SummarizerWorker", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"] = usage.get("input_tokens", 0)
+                meta["output_tokens"] = usage.get("output_tokens", 0)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=output[:65536],
-                metadata={"worker": "SummarizerWorker"},
+                metadata=meta,
             )
         except Exception as e:
             logger.exception("SummarizerWorker execute failed: %s", e)

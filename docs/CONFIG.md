@@ -19,6 +19,7 @@ All optional unless noted. Set in the shell, `.env`, or your process manager (e.
 | `SOVEREIGN_JOB_RATE_LIMIT_PER_MIN` | If set (e.g. `60`), limits how many `POST /api/jobs` requests each client IP can make per minute; returns 429 when exceeded. |
 | `SOVEREIGN_JOB_MAX_RETRIES` | Max retries for a single job via `POST /api/jobs/{id}/retry` (default `2`). Only `failed` / `payment_failed` jobs are retryable. |
 | `SOVEREIGN_JOB_WORKER_CONCURRENCY` | Max jobs run in parallel by the worker (default `1`). Set to `2` or more for higher throughput. |
+| `SOVEREIGN_JOB_WORKER_ENABLED` | When set to `false` (or `0`/`off`/`no`), the job worker thread is **not** started. No jobs run until you set it back to `true` and restart. Use to pause execution and avoid API cost. Default `true`. |
 | `SOVEREIGN_JOB_IP_WHITELIST` | Optional. Comma-separated IPs allowed to call `POST /api/jobs` and `POST /api/jobs/batch`; others get 403. |
 | (none) | Web UI: `GET /` (dashboard), `GET /health`, `GET /docs` (FastAPI Swagger). Dashboard shows “Auto-approve ON” / “Compliance auto ON” when those env vars are set. |
 
@@ -32,8 +33,11 @@ The Web process is designed for **24/7** operation: a background thread continuo
 
 | Variable | Description |
 |----------|-------------|
-| `SOVEREIGN_INGEST_URL` | JSON URL to poll for new jobs. Response: array or `{ "jobs": [...] }` with `goal`, optional `charter`, `amount_cents`, `currency`. |
-| `SOVEREIGN_INGEST_INTERVAL_SEC` | Polling interval in seconds (default `60`). |
+| `SOVEREIGN_INGEST_URL` | JSON URL to poll for new jobs. Response: array or `{ "jobs": [...] }` with `goal`, optional `charter`, `amount_cents`, `currency`. For demo: run `python scripts/serve_demo_orders.py` and set `http://localhost:8765/jobs?limit=3` to pull only 3 jobs from `examples/ingest_demo_orders.json`. If unset, no automatic intake. |
+| `SOVEREIGN_INGEST_ENABLED` | When set to `false` (or `0`/`off`/`no`), the ingest poller is **not** started even if `SOVEREIGN_INGEST_URL` is set. Use to stop automatic "接单" and reduce API cost. Default `true` when URL is set. |
+| `SOVEREIGN_INGEST_ONCE` | When set to `true` (or `1`/`yes`), the poller **fetches once** and then stops (no repeated polling). Use for demo: one pull, no loop. |
+| `SOVEREIGN_INGEST_INTERVAL_SEC` | Polling interval in seconds (default `60`). Ignored when `SOVEREIGN_INGEST_ONCE=true`. |
+| `SOVEREIGN_INGEST_MAX_JOBS_PER_POLL` | If set (e.g. `1` or `2`), at most this many jobs are enqueued per poll. Use to cap token rate when the ingest URL returns many jobs (see [TOKEN_SPIKE_INVESTIGATION.md](TOKEN_SPIKE_INVESTIGATION.md)). Default `0` = no cap. |
 | `SOVEREIGN_INGEST_DEDUP_SEC` | If set (e.g. `300`), the ingest poller will not enqueue a job when one with the same `goal` and `amount_cents` was already created within this many seconds. Reduces duplicate jobs from repeated polling. |
 
 ## Audit trail (verifiable)
@@ -49,11 +53,21 @@ The Web process is designed for **24/7** operation: a background thread continuo
 | `SOVEREIGN_COMPLIANCE_SPEND_THRESHOLD_CENTS` | If set to a positive number, the Web UI engine uses `ThresholdComplianceHook`: when a task’s estimated cost (cents) is ≥ this value, the job is put back to `pending` with “Human approval required” until a second approval. See [MONETIZATION.md](MONETIZATION.md) and [PHASE6.md](PHASE6.md). |
 | `SOVEREIGN_COMPLIANCE_AUTO_PROCEED` | When set to `true` (or `1`/`yes`), the CFO does **not** require human approval when the compliance hook returns “request human approval” for spend above the threshold; the task is allowed to proceed (human-out-of-loop for high spend). Use only when you accept the risk. |
 
+## Controlling API cost (avoid jobs running / 接单 non-stop)
+
+To avoid high LLM/API usage:
+
+1. **Turn off auto-approve** – Do **not** set `SOVEREIGN_AUTO_APPROVE_JOBS=true`. New jobs stay `pending` until you click Approve in the Dashboard, so you control when each job runs.
+2. **Stop automatic intake** – Unset `SOVEREIGN_INGEST_URL`, or set `SOVEREIGN_INGEST_ENABLED=false` so the ingest poller does not start. Otherwise the system keeps pulling jobs from the URL.
+3. **Pause all job execution** – Set `SOVEREIGN_JOB_WORKER_ENABLED=false`. The job worker thread will not start; no jobs run until you set it back to `true` and restart.
+
+Startup logs will warn when auto-approve or ingest is on so you can adjust.
+
 ## Human out of loop
 
 | Variable | Description |
 |----------|-------------|
-| `SOVEREIGN_AUTO_APPROVE_JOBS` | When set to `true` (or `1`/`yes`), every new job (from `POST /api/jobs` or ingest) is immediately set to `approved` so the worker runs it without a human clicking Approve. Full **human-out-of-loop**: ingest → auto-approve → run → charge → webhook. |
+| `SOVEREIGN_AUTO_APPROVE_JOBS` | When set to `true` (or `1`/`yes`), every new job (from `POST /api/jobs` or ingest) is immediately set to `approved` so the worker runs it without a human clicking Approve. Full **human-out-of-loop**: ingest → auto-approve → run → charge → webhook. **Leave unset/false to approve manually and control cost.** |
 | `SOVEREIGN_COMPLIANCE_AUTO_PROCEED` | See Compliance above. Together with `SOVEREIGN_AUTO_APPROVE_JOBS`, both gates can be automated. |
 
 ## Job completion webhook (delivery / proactive contact)
@@ -64,6 +78,9 @@ The Web process is designed for **24/7** operation: a background thread continuo
 | `SOVEREIGN_WEBHOOK_SECRET` | If set, the request body is signed with HMAC-SHA256 and sent in header `X-Sovereign-Signature: sha256=<hex>`. Receivers should verify this. |
 | `SOVEREIGN_WEBHOOK_LOG_PATH` | If set (default `data/webhook_log.jsonl` when logging is enabled), failed webhook deliveries (after all retries) are appended as one JSONL line per failure (url, job_id, status, error, ts). |
 | Per-job `callback_url` | In `POST /api/jobs` body you can pass `callback_url`; when that job completes, the webhook is sent to this URL instead of (or in addition to) the global `SOVEREIGN_WEBHOOK_URL`. |
+| Per-job `delivery_contact` | Optional. Dict e.g. `{"platform":"reddit","username":"x","post_id":"y","permalink":"/r/..."}`. When the job completes, the result can be posted back (e.g. Reddit comment on the post). See [DEMO_TASK_POSTS.md](DEMO_TASK_POSTS.md). |
+| `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` | Required for Reddit delivery (post comment with result). Same app as ingest or any Reddit app. |
+| `REDDIT_REFRESH_TOKEN` **or** `REDDIT_USERNAME` + `REDDIT_PASSWORD` | Reddit OAuth2 refresh token (preferred) or script-app credentials so the process can post the delivery comment. |
 | (payload) | Each job gets a `request_id` (trace id) at creation; it is included in the webhook payload when set, for correlating logs and delivery. |
 
 Payload format and retries: see [OPEN_SOURCE_READY_PLAN.md](OPEN_SOURCE_READY_PLAN.md) (Webhook payload spec). Typical use: your backend receives the webhook and then notifies the customer (email, Slack, etc.).
@@ -104,6 +121,7 @@ For **real** orders from Reddit, scraped sites, or Shopify/WooCommerce, run the 
 
 - **Bridge:** `python -m sovereign_os.ingest_bridge` (optional deps: `pip install praw requests beautifulsoup4` or `pip install -e ".[bridge]"`).
 - **Sovereign-OS:** Set `SOVEREIGN_INGEST_URL=http://<bridge>:9000/jobs?take=true` and optional `SOVEREIGN_INGEST_INTERVAL_SEC`, `SOVEREIGN_AUTO_APPROVE_JOBS=true`.
+- **Bridge config:** Optional `BRIDGE_CONFIG_PATH` points to a YAML file to overlay env (see [INGEST_BRIDGE.md](INGEST_BRIDGE.md)).
 
 ## CLI
 

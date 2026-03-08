@@ -5,6 +5,7 @@ Use when REDIS_URL is set; workers claim jobs via BRPOP from sovereign:queue:app
 
 from __future__ import annotations
 
+import json
 import time
 from typing import Any
 
@@ -18,6 +19,24 @@ def _float_or_none(v: Any) -> float | None:
         return float(v)
     except (TypeError, ValueError):
         return None
+
+
+def _safe_int(v: Any, default: int = 0) -> int:
+    if v is None or v == "" or v == b"":
+        return default
+    try:
+        return int(float(v))
+    except (TypeError, ValueError):
+        return default
+
+
+def _safe_float(v: Any, default: float = 0.0) -> float:
+    if v is None or v == "" or v == b"":
+        return default
+    try:
+        return float(v)
+    except (TypeError, ValueError):
+        return default
 
 
 class RedisJobStore:
@@ -53,11 +72,13 @@ class RedisJobStore:
         amount_cents: int = 0,
         currency: str = "USD",
         callback_url: str | None = None,
+        delivery_contact: dict | None = None,
         priority: int = 0,
         run_after_ts: float | None = None,
     ) -> JobRow:
         job_id = self.next_job_id()
         now = time.time()
+        dc_json = json.dumps(delivery_contact) if isinstance(delivery_contact, dict) else ""
         data = {
             "job_id": str(job_id),
             "goal": goal,
@@ -67,12 +88,13 @@ class RedisJobStore:
             "status": "pending",
             "created_ts": str(now),
             "updated_ts": str(now),
-            "payment_id": "" if payment_id is None else payment_id,
+            "payment_id": "",
             "error": "",
             "callback_url": "" if callback_url is None else callback_url,
             "retry_count": "0",
             "priority": str(priority),
             "run_after_ts": "" if run_after_ts is None else str(run_after_ts),
+            "delivery_contact": dc_json,
         }
         pipe = self._client.pipeline()
         pipe.hset(self._job_key(job_id), mapping=data)
@@ -93,6 +115,7 @@ class RedisJobStore:
             retry_count=0,
             priority=priority,
             run_after_ts=run_after_ts,
+            delivery_contact=delivery_contact,
         )
 
     def _hgetrow(self, job_id: int) -> dict[str, Any] | None:
@@ -110,6 +133,14 @@ class RedisJobStore:
                 out[k] = _float_or_none(v)
             elif k in ("payment_id", "error", "callback_url"):
                 out[k] = v or None
+            elif k == "delivery_contact":
+                if v and isinstance(v, str):
+                    try:
+                        out[k] = json.loads(v)
+                    except (json.JSONDecodeError, TypeError):
+                        out[k] = None
+                else:
+                    out[k] = None
             else:
                 out[k] = v
         return out
@@ -119,20 +150,21 @@ class RedisJobStore:
         if not row:
             return None
         return JobRow(
-            job_id=int(row.get("job_id", job_id)),
+            job_id=_safe_int(row.get("job_id", job_id), job_id),
             goal=str(row.get("goal", "")),
             charter=str(row.get("charter", "")),
-            amount_cents=int(row.get("amount_cents", 0)),
+            amount_cents=_safe_int(row.get("amount_cents", 0), 0),
             currency=str(row.get("currency", "USD")),
             status=str(row.get("status", "pending")),
-            created_ts=float(row.get("created_ts", 0)),
-            updated_ts=float(row.get("updated_ts", 0)),
+            created_ts=_safe_float(row.get("created_ts", 0), 0.0),
+            updated_ts=_safe_float(row.get("updated_ts", 0), 0.0),
             payment_id=row.get("payment_id"),
             error=row.get("error"),
             callback_url=row.get("callback_url"),
-            retry_count=int(row.get("retry_count", 0)),
-            priority=int(row.get("priority", 0)),
+            retry_count=_safe_int(row.get("retry_count", 0), 0),
+            priority=_safe_int(row.get("priority", 0), 0),
             run_after_ts=_float_or_none(row.get("run_after_ts")),
+            delivery_contact=row.get("delivery_contact"),
         )
 
     def list_jobs(self) -> list[JobRow]:

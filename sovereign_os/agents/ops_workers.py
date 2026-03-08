@@ -30,6 +30,20 @@ def _ctx(task: TaskInput, key: str, default: str = "") -> str:
         return default
 
 
+def _full_brief(task: TaskInput) -> str:
+    """Primary client brief: original_goal or task description. For industrial delivery."""
+    brief = _ctx(task, "original_goal", "").strip()
+    if not brief:
+        brief = (task.description or "").strip() or (task.task_id or "")
+    return brief
+
+
+_DELIVERABLE_RULES = (
+    "Use Markdown with ## for main sections and ### for subsections. "
+    "Neutral, scannable style; no marketing language. Do not invent scope or commitments."
+)
+
+
 class ExtractStructuredWorker(BaseWorker):
     """
     Extract structured data as JSON.
@@ -68,12 +82,11 @@ class ExtractStructuredWorker(BaseWorker):
                 ]
             )
             out = (content or "").strip() or "[No extraction produced]"
-            return TaskResult(
-                task_id=task.task_id,
-                success=True,
-                output=out[:65536],
-                metadata={"worker": "ExtractStructuredWorker", "deliverable_type": "json"},
-            )
+            usage = getattr(self.llm, "_last_usage", None)
+            meta = {"worker": "ExtractStructuredWorker", "deliverable_type": "json", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            return TaskResult(task_id=task.task_id, success=True, output=out[:65536], metadata=meta)
         except Exception as e:
             logger.exception("ExtractStructuredWorker failed: %s", e)
             return TaskResult(
@@ -85,26 +98,28 @@ class ExtractStructuredWorker(BaseWorker):
 
 
 class SpecWriterWorker(BaseWorker):
-    """Write a concise SOW/spec with acceptance criteria and open questions."""
+    """Write SOW/spec, or reusable template + filled example when the client requests it. Industrial delivery."""
 
     async def execute(self, task: TaskInput) -> TaskResult:
-        desc = (task.description or "").strip() or task.task_id
+        brief = _full_brief(task)
         if not self.llm:
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
-                output=f"[SpecWriterWorker] No LLM; echo: {desc[:200]}",
+                output=f"[SpecWriterWorker] No LLM; echo: {brief[:200]}",
                 metadata={"worker": "SpecWriterWorker", "deliverable_type": "markdown"},
             )
         audience = _ctx(task, "audience", "client")
-        timeline = _ctx(task, "timeline", "not specified")
-        system = (self.system_prompt or "You write clear scopes and specs.").strip()
+        system = (self.system_prompt or "You write clear scopes, specs, and reusable templates. Follow the client request exactly.").strip()
         user = (
-            f"Write a concise scope/spec (SOW) for the request below.\nAudience: {audience}\nTimeline: {timeline}\n\n"
-            f"Request:\n{desc}\n\n"
-            "Output in Markdown with:\n"
-            "- Goal\n- Scope (in/out)\n- Deliverables\n- Assumptions\n- Acceptance criteria\n- Risks\n- Open questions (max 7)\n"
-            "Rules: avoid vague promises; make acceptance criteria testable."
+            "Client request (follow exactly):\n\n"
+            f"{brief}\n\n"
+            f"Audience: {audience}. {_DELIVERABLE_RULES}\n\n"
+            "**If the request asks for a reusable template plus a filled example**, use this shape:\n"
+            "- ## Template — ### Exec summary (half page), ### Decisions log (bullets + owner column), ### Open questions (with owners), ### Next-meeting agenda\n"
+            "- ## Filled example — same subsections with realistic placeholder content (e.g. Q1 goals, headcount, roadmap) so the client sees how to fill the template\n"
+            "**If the request is a standard scope/spec**: ## Goal, ## Scope (in/out), ## Deliverables, ## Assumptions, ## Acceptance criteria, ## Risks, ## Open questions (max 7). "
+            "Output only the Markdown document, no preamble."
         )
         try:
             content = await self.llm.chat(
@@ -114,12 +129,11 @@ class SpecWriterWorker(BaseWorker):
                 ]
             )
             out = (content or "").strip() or "[No spec produced]"
-            return TaskResult(
-                task_id=task.task_id,
-                success=True,
-                output=out[:65536],
-                metadata={"worker": "SpecWriterWorker", "deliverable_type": "markdown"},
-            )
+            usage = getattr(self.llm, "_last_usage", None)
+            meta = {"worker": "SpecWriterWorker", "deliverable_type": "markdown", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            return TaskResult(task_id=task.task_id, success=True, output=out[:65536], metadata=meta)
         except Exception as e:
             logger.exception("SpecWriterWorker failed: %s", e)
             return TaskResult(
@@ -168,12 +182,11 @@ class InfoCollectorWorker(BaseWorker):
                 ]
             )
             out = (content or "").strip() or "[No info produced]"
-            return TaskResult(
-                task_id=task.task_id,
-                success=True,
-                output=out[:65536],
-                metadata={"worker": "InfoCollectorWorker", "deliverable_type": "markdown"},
-            )
+            usage = getattr(self.llm, "_last_usage", None)
+            meta = {"worker": "InfoCollectorWorker", "deliverable_type": "markdown", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            return TaskResult(task_id=task.task_id, success=True, output=out[:65536], metadata=meta)
         except Exception as e:
             logger.exception("InfoCollectorWorker failed: %s", e)
             return TaskResult(

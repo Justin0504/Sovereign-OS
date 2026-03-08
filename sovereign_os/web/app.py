@@ -2,7 +2,18 @@
 Web UI: FastAPI dashboard — balance, tasks, decision stream, run mission.
 """
 
+# Load .env from project root and cwd so OPENAI_API_KEY / cost-control vars are applied (override=True so .env wins)
+try:
+    from dotenv import load_dotenv
+    from pathlib import Path as _Path
+    _root = _Path(__file__).resolve().parents[2]
+    load_dotenv(_root / ".env", override=True)
+    load_dotenv(_Path.cwd() / ".env", override=True)
+except Exception:
+    pass
+
 import asyncio
+import json
 import logging
 import os
 import signal
@@ -21,6 +32,29 @@ _last_job_completed_at: float | None = None  # for /health
 _job_concurrency_semaphore: Any = None  # threading.Semaphore when SOVEREIGN_JOB_WORKER_CONCURRENCY > 1
 
 logger = logging.getLogger(__name__)
+
+
+def _safe_int(value: Any, default: int = 0, min_val: int | None = None, max_val: int | None = None) -> int:
+    """Coerce to int; use default on TypeError/ValueError. Optionally clamp to [min_val, max_val]."""
+    try:
+        n = int(float(value)) if value not in (None, "") else default
+    except (TypeError, ValueError):
+        n = default
+    if min_val is not None and n < min_val:
+        n = min_val
+    if max_val is not None and n > max_val:
+        n = max_val
+    return n
+
+
+def _safe_float(value: Any, default: float | None = 0.0) -> float | None:
+    """Coerce to float; use default on TypeError/ValueError. Returns None if value is None and default is None."""
+    if value is None or value == "":
+        return default
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return default
 
 # In-memory state shared with engine callbacks
 _tasks: list[dict[str, Any]] = []
@@ -113,10 +147,45 @@ class Job:
     request_id: str | None = None  # trace id for logs and webhook
     priority: int = 0  # higher = run first when approved
     run_after_ts: float | None = None  # run only after this Unix timestamp (scheduling)
+    delivery_contact: dict | None = None  # e.g. {"platform":"reddit","username":"x","post_id":"y"} for reply/DM after completion
 
 
 _jobs: list[Job] = []
 _next_job_id: int = 1
+_job_results: dict[int, dict[str, Any]] = {}  # job_id -> {goal, tasks: [{task_id, skill, output, success}], combined_output}
+
+
+def _job_results_path() -> Path:
+    """Path to persisted job results JSON (so View result works after restart)."""
+    root = Path(__file__).resolve().parents[2]
+    data_dir = Path(os.getenv("SOVEREIGN_DATA_DIR", str(root / "data")))
+    data_dir.mkdir(parents=True, exist_ok=True)
+    return data_dir / "job_results.json"
+
+
+def _load_job_results() -> None:
+    """Load _job_results from disk so View result shows past completed jobs."""
+    global _job_results
+    p = _job_results_path()
+    if not p.exists():
+        return
+    try:
+        with open(p, encoding="utf-8") as f:
+            raw = json.load(f)
+        if isinstance(raw, dict):
+            _job_results = {int(k): v for k, v in raw.items() if str(k).isdigit() and isinstance(v, dict)}
+    except Exception as e:
+        logger.warning("Could not load job_results from %s: %s", p, e)
+
+
+def _save_job_results() -> None:
+    """Persist _job_results to disk (called after each job completion)."""
+    p = _job_results_path()
+    try:
+        with open(p, "w", encoding="utf-8") as f:
+            json.dump({str(k): v for k, v in _job_results.items()}, f, ensure_ascii=False)
+    except Exception as e:
+        logger.warning("Could not save job_results to %s: %s", p, e)
 
 
 def _on_event(event_type: str, data: dict[str, Any]) -> None:
@@ -140,7 +209,20 @@ def _on_event(event_type: str, data: dict[str, Any]) -> None:
             if t.get("task_id") == task_id:
                 t["status"] = "running"
                 break
-        _logs.append(("cfo", f"CFO dispatch: Task {task_id} → {agent_id} (permission OK)."))
+        skill = data.get("skill", "")
+        skill_part = f" ({skill})" if skill else ""
+        _logs.append(("cfo", f"CFO dispatch: Task {task_id}{skill_part} → {agent_id} (permission OK)."))
+    elif event_type == "permission_denied":
+        task_id = data.get("task_id", "")
+        agent_id = data.get("agent_id", "")
+        capability = data.get("capability", "")
+        score = data.get("score", 0)
+        threshold = data.get("threshold", 0)
+        for t in _tasks:
+            if t.get("task_id") == task_id:
+                t["status"] = "failed"
+                break
+        _logs.append(("auditor_fail", f"Permission denied: Task {task_id} → {agent_id} (TrustScore {score} < {capability} {threshold})."))
     elif event_type == "task_finished":
         task_id = data.get("task_id", "")
         success = data.get("success", False)
@@ -167,6 +249,7 @@ def _enqueue_job(
     amount_cents: int = 0,
     currency: str = "USD",
     callback_url: str | None = None,
+    delivery_contact: dict | None = None,
     dedup_within_seconds: int | None = None,
     priority: int = 0,
     run_after_ts: float | None = None,
@@ -176,6 +259,8 @@ def _enqueue_job(
     amount_cents = max(0, int(amount_cents))
     currency = currency or "USD"
     callback_url = (callback_url or "").strip() or None
+    if delivery_contact is not None and not isinstance(delivery_contact, dict):
+        delivery_contact = None
     if dedup_within_seconds and dedup_within_seconds > 0:
         cutoff = time.time() - dedup_within_seconds
         for j in _jobs:
@@ -190,7 +275,7 @@ def _enqueue_job(
     if _job_store is not None:
         row = _job_store.add_job(
             goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url,
-            priority=priority, run_after_ts=run_after_ts,
+            delivery_contact=delivery_contact, priority=priority, run_after_ts=run_after_ts,
         )
         job = Job(
             job_id=row.job_id,
@@ -208,6 +293,7 @@ def _enqueue_job(
             request_id=request_id,
             priority=getattr(row, "priority", 0),
             run_after_ts=getattr(row, "run_after_ts", None),
+            delivery_contact=getattr(row, "delivery_contact", None),
         )
         _next_job_id = row.job_id + 1
     else:
@@ -222,6 +308,7 @@ def _enqueue_job(
             request_id=request_id,
             priority=priority,
             run_after_ts=run_after_ts,
+            delivery_contact=delivery_contact,
         )
         _next_job_id += 1
     _jobs.append(job)
@@ -276,6 +363,18 @@ def _fire_job_webhook(
         )
     except Exception as e:
         logger.warning("Job completion webhook failed for job_id=%s request_id=%s: %s", job.job_id, request_id, e)
+    else:
+        _logs.append(("system", "Delivery: result sent to webhook."))
+    # If job has delivery_contact (e.g. from Reddit ingest), post result back to the client
+    dc = getattr(job, "delivery_contact", None)
+    if isinstance(dc, dict) and dc.get("platform") == "reddit" and status in ("completed", "payment_failed"):
+        result_summary = "\n".join(getattr(r, "output", "") for r in (results or [])).strip() or ""
+        try:
+            from sovereign_os.delivery.reddit import deliver_result_to_reddit
+            if deliver_result_to_reddit(dc, result_summary, job.job_id):
+                _logs.append(("system", "Delivery: result posted to Reddit."))
+        except Exception as e:
+            logger.warning("Reddit delivery failed for job_id=%s: %s", job.job_id, e)
 
 
 def _run_one_job(job: Job) -> None:
@@ -305,7 +404,38 @@ def _run_one_job(job: Job) -> None:
     _logs.append(("ceo", f"Job {job.job_id} running: {job.goal[:80]}{'…' if len(job.goal) > 80 else ''}" + (f" [request_id={req_id}]" if req_id else "")))
 
     async def _run_mission_and_settle() -> None:
-        plan, results, reports = await _engine.run_mission_with_audit(job.goal, abort_on_audit_failure=False)
+        plan, results, reports = await _engine.run_mission_with_audit(
+            job.goal, abort_on_audit_failure=False, job_revenue_cents=job.amount_cents
+        )
+        task_by_id = {t.task_id: t for t in plan.tasks} if plan else {}
+        audit_details = []
+        if reports:
+            for rep in reports:
+                audit_details.append({
+                    "task_id": getattr(rep, "task_id", ""),
+                    "passed": getattr(rep, "passed", False),
+                    "score": getattr(rep, "score", 0.0),
+                    "reason": getattr(rep, "reason", ""),
+                    "suggested_fix": getattr(rep, "suggested_fix", ""),
+                })
+        _job_results[job.job_id] = {
+            "goal": job.goal[:1000],
+            "tasks": [
+                {
+                    "task_id": r.task_id,
+                    "skill": getattr(task_by_id.get(r.task_id), "required_skill", ""),
+                    "output": (r.output or "")[:100000],
+                    "success": r.success,
+                }
+                for r in results
+            ],
+            "combined_output": "\n\n---\n\n".join(r.output or "" for r in results)[:150000],
+            "audit_reports": audit_details,
+        }
+        try:
+            _save_job_results()
+        except Exception as e:
+            logger.warning("Save job results failed for job %s: %s", job.job_id, e)
         all_passed = all(getattr(r, "passed", False) for r in reports) if reports else True
         if not all_passed:
             job.status = "failed"
@@ -314,6 +444,14 @@ def _run_one_job(job: Job) -> None:
             if _job_store is not None:
                 _job_store.update_job(job.job_id, status="failed", error=job.error)
             _logs.append(("auditor_fail", f"Job {job.job_id} failed: audit did not pass."))
+            if job.job_id in _job_results:
+                _job_results[job.job_id]["status"] = "failed"
+                _job_results[job.job_id]["error"] = job.error
+                # Keep audit_reports so View result can show Judge reason/suggested_fix
+            try:
+                _save_job_results()
+            except Exception as e:
+                logger.warning("Save job results (audit failed) for job %s: %s", job.job_id, e)
             return
         if job.amount_cents <= 0:
             job.status = "completed"
@@ -364,7 +502,8 @@ def _run_one_job(job: Job) -> None:
         try:
             await _run_mission_and_settle()
         except Exception as e:
-            from sovereign_os.governance.exceptions import HumanApprovalRequiredError
+            from sovereign_os.governance.exceptions import HumanApprovalRequiredError, UnprofitableJobError
+            from sovereign_os.agents.auth import PermissionDeniedError
 
             if isinstance(e, HumanApprovalRequiredError):
                 job.status = "pending"
@@ -375,12 +514,46 @@ def _run_one_job(job: Job) -> None:
                 _logs.append(("cfo", f"Job {job.job_id}: human approval required for spend — {e}"))
                 logger.warning("Job %s: %s", job.job_id, e)
                 return
+            if isinstance(e, UnprofitableJobError):
+                job.status = "failed"
+                job.error = str(e)
+                job.updated_ts = time.time()
+                if _job_store is not None:
+                    _job_store.update_job(job.job_id, status="failed", error=job.error)
+                _job_results[job.job_id] = {
+                    "goal": job.goal[:1000],
+                    "tasks": [],
+                    "combined_output": "",
+                    "status": "failed",
+                    "error": job.error,
+                }
+                try:
+                    _save_job_results()
+                except Exception as save_err:
+                    logger.warning("Save job results (unprofitable) for job %s: %s", job.job_id, save_err)
+                _logs.append(("cfo", f"Job {job.job_id} rejected: unprofitable (est. cost > revenue margin floor). {e}"))
+                logger.warning("Job %s: CFO rejected unprofitable job. %s", job.job_id, e)
+                return
             job.status = "failed"
-            job.error = str(e)
+            job.error = "permission denied for a task" if isinstance(e, PermissionDeniedError) else str(e)
             job.updated_ts = time.time()
             if _job_store is not None:
                 _job_store.update_job(job.job_id, status="failed", error=job.error)
-            _logs.append(("auditor_fail", f"Mission error for Job {job.job_id}: {e}"))
+            _job_results[job.job_id] = {
+                "goal": job.goal[:1000],
+                "tasks": [],
+                "combined_output": "",
+                "status": "failed",
+                "error": job.error,
+            }
+            try:
+                _save_job_results()
+            except Exception as save_err:
+                logger.warning("Save job results (mission failed) for job %s: %s", job.job_id, save_err)
+            if isinstance(e, PermissionDeniedError):
+                _logs.append(("auditor_fail", f"Job {job.job_id} failed: permission denied (see Decision stream)."))
+            else:
+                _logs.append(("auditor_fail", f"Mission error for Job {job.job_id}: {e}"))
             logger.exception("Job %s mission failed", job.job_id)
 
     loop = asyncio.new_event_loop()
@@ -426,6 +599,7 @@ def _job_row_to_job(row: Any) -> Job:
         request_id=None,
         priority=getattr(row, "priority", 0),
         run_after_ts=getattr(row, "run_after_ts", None),
+        delivery_contact=getattr(row, "delivery_contact", None),
     )
 
 
@@ -1309,21 +1483,33 @@ def create_app(
         return {"logs": [{"source": s, "message": m} for s, m in _logs]}
 
     @app.get("/api/token_usage")
-    def api_token_usage():
-        """Token consumption per task and per agent (from Ledger token entries)."""
+    def api_token_usage(limit: int = 80):
+        """Token consumption per task and per agent (from Ledger). Returns newest first so recent runs show real API usage."""
         out: list[dict[str, Any]] = []
         if _ledger and hasattr(_ledger, "entries"):
-            for e in _ledger.entries():
-                if getattr(e, "token", None) is None:
-                    continue
-                t = e.token
+            token_entries = [
+                (e.seq, e.token)
+                for e in _ledger.entries()
+                if getattr(e, "token", None) is not None
+            ]
+            token_entries.sort(key=lambda x: -x[0])
+            cap = min(500, max(1, int(limit)))
+            for _seq, t in token_entries[:cap]:
+                aid = t.agent_id or "—"
+                if aid and "-" in aid:
+                    aid = aid.split("-")[0].strip() or aid
+                task_label = getattr(t, "task_display", "") or t.task_id or "—"
+                if not task_label.strip():
+                    task_label = t.task_id or "—"
                 out.append({
-                    "task_id": t.task_id or "—",
-                    "agent_id": t.agent_id or "—",
+                    "task_id": task_label,
+                    "task_id_full": t.task_id or task_label,
+                    "agent_id": aid,
                     "model_id": t.model_id,
                     "input_tokens": t.input_tokens,
                     "output_tokens": t.output_tokens,
                     "total_tokens": t.total_tokens,
+                    "estimated_usd_cents": getattr(t, "estimated_usd_cents", 0),
                 })
         return {"token_usage": out}
 
@@ -1340,6 +1526,12 @@ def create_app(
         entries = load_audit_trail(path, limit=min(500, max(1, limit)))
         for e in entries:
             e["verified"] = verify_report_integrity(e)
+            # Readable name: task-1-spec_writer -> "spec_writer", else keep task_id
+            tid = e.get("task_id", "")
+            if tid.startswith("task-") and "-" in tid[5:]:
+                e["task_display"] = tid.split("-", 2)[-1]
+            else:
+                e["task_display"] = tid or "—"
         return {"audit_trail": entries}
 
     @app.get("/api/audit_trail/export")
@@ -1623,6 +1815,34 @@ class {class_name}(BaseWorker):
                 return {"ok": True, "job_id": job_id}
         return JSONResponse(status_code=404, content={"error": "Job not found"})
 
+    @app.get("/api/jobs/{job_id}/result")
+    def api_jobs_result(job_id: int):
+        """Return stored worker delivery (output) for a completed/failed job. For expandable view in UI."""
+        key = int(job_id)
+        if key not in _job_results:
+            logger.info(
+                "Job result not found for job_id=%s (stored count=%d, sample ids=%s)",
+                job_id, len(_job_results), list(_job_results.keys())[:8],
+            )
+            return JSONResponse(status_code=404, content={"error": "No result stored for this job"})
+        return _job_results[key]
+
+    @app.get("/api/jobs/{job_id}/result/download")
+    def api_jobs_result_download(job_id: int):
+        """Return job combined_output as plain text file (for demo: 'Download result' link)."""
+        from fastapi.responses import PlainTextResponse
+        key = int(job_id)
+        if key not in _job_results:
+            return PlainTextResponse(content="No result stored for this job.", status_code=404)
+        data = _job_results[key]
+        text = data.get("combined_output") or ""
+        if data.get("goal"):
+            text = (data.get("goal", "")[:500] + "\n\n---\n\n") + text
+        return PlainTextResponse(
+            content=text,
+            headers={"Content-Disposition": f'attachment; filename="job-{job_id}-result.txt"'},
+        )
+
     @app.post("/api/jobs/clear-completed")
     def api_jobs_clear_completed():
         """Remove all completed, failed, and payment_failed jobs from the list and store."""
@@ -1675,17 +1895,20 @@ class {class_name}(BaseWorker):
         body = payload or {}
         goal = str(body.get("goal") or "Summarize the market in one paragraph.").strip()
         charter = str(body.get("charter") or _charter_name or "Default")
-        amount_cents = int(body.get("amount_cents") or 0)
+        amount_cents = _safe_int(body.get("amount_cents"), 0)
         currency = str(body.get("currency") or "USD")
         callback_url = (body.get("callback_url") or "").strip() or None
-        priority = int(body.get("priority") or 0)
-        run_after_ts = body.get("run_after_ts")
-        if run_after_ts is not None:
-            run_after_ts = float(run_after_ts)
-        elif body.get("run_after_sec") is not None:
-            run_after_ts = time.time() + float(body.get("run_after_sec"))
+        delivery_contact = body.get("delivery_contact")
+        if delivery_contact is not None and not isinstance(delivery_contact, dict):
+            delivery_contact = None
+        priority = _safe_int(body.get("priority"), 0)
+        run_after_ts = _safe_float(body.get("run_after_ts"), default=None)
+        if run_after_ts is None and body.get("run_after_sec") is not None:
+            sec = _safe_float(body.get("run_after_sec"), 0.0)
+            if sec is not None:
+                run_after_ts = time.time() + sec
         _validate_job_input(goal, amount_cents, callback_url)
-        job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url, priority=priority, run_after_ts=run_after_ts)
+        job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url, delivery_contact=delivery_contact, priority=priority, run_after_ts=run_after_ts)
         return {"job": asdict(job)}
 
     @app.post(
@@ -1712,17 +1935,20 @@ class {class_name}(BaseWorker):
                 raise HTTPException(status_code=400, detail=f"jobs[{i}] must be an object")
             goal = str(item.get("goal") or "").strip() or "Summarize the market in one paragraph."
             charter = str(item.get("charter") or charter_default).strip() or charter_default
-            amount_cents = int(item.get("amount_cents") or 0)
+            amount_cents = _safe_int(item.get("amount_cents"), 0)
             currency = str(item.get("currency") or "USD")
             callback_url = (item.get("callback_url") or "").strip() or None
-            priority = int(item.get("priority") or 0)
-            run_after_ts = item.get("run_after_ts")
-            if run_after_ts is not None:
-                run_after_ts = float(run_after_ts)
-            elif item.get("run_after_sec") is not None:
-                run_after_ts = time.time() + float(item.get("run_after_sec"))
+            delivery_contact = item.get("delivery_contact")
+            if delivery_contact is not None and not isinstance(delivery_contact, dict):
+                delivery_contact = None
+            priority = _safe_int(item.get("priority"), 0)
+            run_after_ts = _safe_float(item.get("run_after_ts"), default=None)
+            if run_after_ts is None and item.get("run_after_sec") is not None:
+                sec = _safe_float(item.get("run_after_sec"), 0.0)
+                if sec is not None:
+                    run_after_ts = time.time() + sec
             _validate_job_input(goal, amount_cents, callback_url)
-            job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url, priority=priority, run_after_ts=run_after_ts)
+            job = _enqueue_job(goal, charter, amount_cents=amount_cents, currency=currency, callback_url=callback_url, delivery_contact=delivery_contact, priority=priority, run_after_ts=run_after_ts)
             jobs_out.append(asdict(job))
         return {"jobs": jobs_out}
 
@@ -1844,7 +2070,14 @@ def run_web_ui(
     if ledger.total_usd_cents() == 0:
         ledger.record_usd(1000)  # 1000 cents = $10.00 demo balance (seed when empty)
     auth = SovereignAuth()
-    review = ReviewEngine(charter, audit_trail_path=os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH"))
+    audit_trail_path = os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH")
+    use_stub_audit = (os.getenv("SOVEREIGN_AUDIT_STUB") or "").strip().lower() in ("1", "true", "yes")
+    if use_stub_audit:
+        from sovereign_os.auditor.review_engine import StubAuditor
+        review = ReviewEngine(charter, judge=StubAuditor(), audit_trail_path=audit_trail_path)
+        logger.info("Sovereign-OS: audit uses StubAuditor (any non-empty output passes). Set SOVEREIGN_AUDIT_STUB=false for Judge LLM.")
+    else:
+        review = ReviewEngine(charter, audit_trail_path=audit_trail_path)
     compliance_hook = None
     spend_threshold_cents = 0
     try:
@@ -1905,6 +2138,7 @@ def run_web_ui(
                     request_id=None,
                     priority=getattr(row, "priority", 0),
                     run_after_ts=getattr(row, "run_after_ts", None),
+                    delivery_contact=getattr(row, "delivery_contact", None),
                 ))
             _next_job_id = max((j.job_id for j in _jobs), default=0) + 1
             logger.info("Sovereign-OS: Redis job store connected (%s jobs)", len(_jobs))
@@ -1932,36 +2166,60 @@ def run_web_ui(
                 request_id=getattr(row, "request_id", None),
                 priority=getattr(row, "priority", 0),
                 run_after_ts=getattr(row, "run_after_ts", None),
+                delivery_contact=getattr(row, "delivery_contact", None),
             ))
         _next_job_id = max((j.job_id for j in _jobs), default=0) + 1
         logger.info("Sovereign-OS: Job store loaded from %s (%s jobs)", job_db, len(_jobs))
+    _load_job_results()
     app = create_app(engine=engine, ledger=ledger, auth=auth, charter_name=charter_name, charter_path=path)
-    concurrency = max(1, int(os.getenv("SOVEREIGN_JOB_WORKER_CONCURRENCY", "1")))
-    if concurrency > 1:
-        import threading
-        global _job_concurrency_semaphore
-        _job_concurrency_semaphore = threading.Semaphore(concurrency)
-    job_worker_thread = Thread(target=_job_worker, daemon=False)
-    job_worker_thread.start()
+    job_worker_enabled = (os.getenv("SOVEREIGN_JOB_WORKER_ENABLED", "true").strip().lower() not in ("0", "false", "off", "no"))
+    job_worker_thread: Thread | None = None
+    if job_worker_enabled:
+        concurrency = max(1, int(os.getenv("SOVEREIGN_JOB_WORKER_CONCURRENCY", "1")))
+        if concurrency > 1:
+            import threading
+            global _job_concurrency_semaphore
+            _job_concurrency_semaphore = threading.Semaphore(concurrency)
+        job_worker_thread = Thread(target=_job_worker, daemon=False)
+        job_worker_thread.start()
+        logger.info("Sovereign-OS Web UI: job worker started (24/7). Open http://localhost:%s (or http://127.0.0.1:%s)", port, port)
+    else:
+        logger.warning("SOVEREIGN_JOB_WORKER_ENABLED=false: job worker NOT started. No jobs will run until you set it to true and restart.")
+    if _effective_auto_approve():
+        logger.warning("SOVEREIGN_AUTO_APPROVE_JOBS is ON: new jobs run immediately (higher API cost). Set to false in Settings or .env to approve manually.")
+    # Pause: no polling (data/PAUSE_INGEST file, or SOVEREIGN_PAUSE_INGEST=true, or SOVEREIGN_INGEST_ENABLED=false, or SOVEREIGN_INGEST_URL empty)
+    _data_dir = Path(os.getenv("SOVEREIGN_DATA_DIR", str(Path(__file__).resolve().parents[2] / "data")))
+    _pause_file = _data_dir / "PAUSE_INGEST"
+    _pause_ingest = _pause_file.exists() or os.getenv("SOVEREIGN_PAUSE_INGEST", "").strip().lower() in ("1", "true", "yes")
+    ingest_url = "" if _pause_ingest else os.getenv("SOVEREIGN_INGEST_URL", "").strip()
+    ingest_enabled = ingest_url and (os.getenv("SOVEREIGN_INGEST_ENABLED", "true").strip().lower() not in ("0", "false", "off", "no"))
+    if ingest_url and not ingest_enabled:
+        logger.warning("SOVEREIGN_INGEST_URL is set but SOVEREIGN_INGEST_ENABLED=false: ingest poller NOT started.")
     try:
-        from sovereign_os.ingest.poller import start_ingest_poller
-        def _enqueue_job_for_ingest(goal: str, charter: str, amount_cents: int, currency: str):
-            dedup_sec = 0
-            try:
-                raw = os.getenv("SOVEREIGN_INGEST_DEDUP_SEC", "").strip()
-                if raw:
-                    dedup_sec = max(0, int(raw))
-            except ValueError:
-                pass
-            return _enqueue_job(
-                goal, charter, amount_cents, currency,
-                dedup_within_seconds=dedup_sec or None,
-            )
-        if start_ingest_poller(_enqueue_job_for_ingest):
-            logger.info("Sovereign-OS Web UI: ingest poller started (SOVEREIGN_INGEST_URL).")
+        if ingest_enabled and ingest_url:
+            from sovereign_os.ingest.poller import start_ingest_poller
+            def _enqueue_job_for_ingest(goal: str, charter: str, amount_cents: int, currency: str, callback_url: str | None = None, delivery_contact: dict | None = None):
+                dedup_sec = 0
+                try:
+                    raw = os.getenv("SOVEREIGN_INGEST_DEDUP_SEC", "").strip()
+                    if raw:
+                        dedup_sec = max(0, int(raw))
+                except ValueError:
+                    pass
+                return _enqueue_job(
+                    goal, charter, amount_cents, currency,
+                    callback_url=callback_url,
+                    delivery_contact=delivery_contact,
+                    dedup_within_seconds=dedup_sec or None,
+                )
+            if start_ingest_poller(_enqueue_job_for_ingest):
+                logger.warning("Ingest poller started (SOVEREIGN_INGEST_URL). Jobs will be pulled automatically. Unset SOVEREIGN_INGEST_URL to stop and reduce API cost.")
+        elif ingest_url:
+            pass  # already logged above
     except Exception as e:
         logger.warning("INGEST: could not start poller: %s", e)
-    logger.info("Sovereign-OS Web UI: job worker started (24/7). Open http://localhost:%s (or http://127.0.0.1:%s)", port, port)
+    if job_worker_thread is None:
+        logger.info("Sovereign-OS Web UI: Open http://localhost:%s (job worker disabled).", port)
 
     def _sigterm_handler(*args: Any) -> None:
         global _shutdown_requested
@@ -1982,10 +2240,11 @@ def run_web_ui(
     while not _shutdown_requested:
         time.sleep(0.5)
     if _shutdown_requested:
-        logger.info("Shutdown requested; waiting for job worker (max %ss)...", shutdown_timeout)
-        job_worker_thread.join(timeout=shutdown_timeout)
-        if job_worker_thread.is_alive():
-            logger.warning("Job worker did not finish within %ss", shutdown_timeout)
+        if job_worker_thread is not None:
+            logger.info("Shutdown requested; waiting for job worker (max %ss)...", shutdown_timeout)
+            job_worker_thread.join(timeout=shutdown_timeout)
+            if job_worker_thread.is_alive():
+                logger.warning("Job worker did not finish within %ss", shutdown_timeout)
         # Wait for any in-flight jobs (when concurrency > 1) to finish
         for _ in range(shutdown_timeout):
             if sum(1 for j in _jobs if getattr(j, "status", "") == "running") == 0:

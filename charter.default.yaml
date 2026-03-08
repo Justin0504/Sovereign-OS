@@ -28,6 +28,9 @@ core_competencies:
   - name: write_post
     description: Draft social posts for platforms (X/LinkedIn/etc.) with variations and CTA
     priority: 6
+  - name: help_docs
+    description: "Help center and product docs: FAQ entries, in-app tooltips, getting started guides; tone helpful, no jargon"
+    priority: 6
   - name: meeting_minutes
     description: "Turn transcripts into meeting minutes: decisions, action items, risks, open questions"
     priority: 6
@@ -56,17 +59,20 @@ core_competencies:
     description: Review code for issues, style, and best practices; output only, no execution
     priority: 6
 
+# CFO profitability: reject jobs where estimated cost would exceed (1 - min_job_margin_ratio) of revenue.
+# 0.2 = 20% minimum gross margin (cost must be <= 80% of job price). Set to 0 to disable.
 fiscal_boundaries:
   daily_burn_max_usd: 50.00
   max_budget_usd: 2000.00
   currency: USD
+  min_job_margin_ratio: 0.2
 
 success_kpis:
   - name: task_completion_rate
     metric: tasks_verified_ok
     target_value: 0.95
     unit: ratio
-    verification_prompt: "Did the output satisfy the task success criteria?"
+    verification_prompt: "Is the output non-empty, on-topic, and a reasonable response to the task? Pass (true) unless the output is clearly off-topic, empty, or nonsensical."
   - name: cost_per_task
     metric: usd_cents_per_task
     target_value: 500

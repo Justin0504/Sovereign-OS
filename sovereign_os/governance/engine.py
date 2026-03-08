@@ -19,6 +19,7 @@ from sovereign_os.agents.content_workers import (
     ArticleWriterWorker,
     AssistantChatWorker,
     EmailWriterWorker,
+    HelpContentWorker,
     MeetingMinutesWorker,
     ProblemSolverWorker,
     RewritePolishWorker,
@@ -35,7 +36,7 @@ from sovereign_os.agents.reply_worker import ReplyWorker
 from sovereign_os.agents.research_worker import ResearchWorker
 from sovereign_os.agents.summarizer_worker import SummarizerWorker
 from sovereign_os.auditor.base import AuditReport
-from sovereign_os.governance.exceptions import AuditFailureError, FiscalInsolvencyError
+from sovereign_os.governance.exceptions import AuditFailureError, FiscalInsolvencyError, UnprofitableJobError
 
 if TYPE_CHECKING:
     from sovereign_os.auditor.review_engine import ReviewEngine
@@ -131,6 +132,7 @@ class GovernanceEngine:
         r.register("solve_problem", ProblemSolverWorker)
         r.register("write_email", EmailWriterWorker)
         r.register("write_post", SocialPostWorker)
+        r.register("help_docs", HelpContentWorker)
         r.register("meeting_minutes", MeetingMinutesWorker)
         r.register("translate", TranslateWorker)
         r.register("rewrite_polish", RewritePolishWorker)
@@ -150,13 +152,15 @@ class GovernanceEngine:
         r.set_default(StubWorker)
         return r
 
-    async def run_mission(self, goal_text: str) -> TaskPlan:
+    async def run_mission(self, goal_text: str, job_revenue_cents: int | None = None) -> TaskPlan:
         """
-        Execute the mission pipeline: plan -> fiscal clearance -> Strategic Intent.
+        Execute the mission pipeline: plan -> fiscal clearance (budget + profitability) -> Strategic Intent.
 
         1. CEO (Strategist) produces a TaskPlan.
         2. For each task, CFO (Treasury) approves budget; on first denial, aborts with FiscalInsolvencyError.
-        3. If all cleared, log Strategic Intent and return the plan for Agent Dispatch (Phase 3).
+        3. If job_revenue_cents is set and Charter has min_job_margin_ratio, CFO checks unit economics
+           (estimated cost must not exceed revenue * (1 - min_margin)); else UnprofitableJobError.
+        4. If all cleared, log Strategic Intent and return the plan for Agent Dispatch (Phase 3).
         """
         try:
             from sovereign_os.telemetry.tracer import span_governance
@@ -180,6 +184,16 @@ class GovernanceEngine:
                     logger.error(
                         "GOVERNANCE: Mission aborted — CFO denied budget for task %s. %s",
                         task.task_id,
+                        str(e),
+                    )
+                    raise
+
+            if job_revenue_cents is not None and job_revenue_cents > 0:
+                try:
+                    self._treasury.approve_job_profitability(job_revenue_cents, total_estimated_cents)
+                except UnprofitableJobError as e:
+                    logger.error(
+                        "GOVERNANCE: Mission aborted — CFO rejected unprofitable job. %s",
                         str(e),
                     )
                     raise
@@ -261,6 +275,17 @@ class GovernanceEngine:
         agent_id = (winner_by_task_id or {}).get(task.task_id) or f"{task.required_skill}-{task.task_id}"
         capability = self._required_capability_for_skill(task.required_skill)
         if not self._auth.check_permission(agent_id, capability):
+            score = self._auth.get_trust_score(agent_id)
+            threshold = self._auth.get_threshold(capability)
+            if self._on_event:
+                self._on_event("permission_denied", {
+                    "task_id": task.task_id,
+                    "agent_id": agent_id,
+                    "skill": task.required_skill,
+                    "capability": capability.value,
+                    "score": score,
+                    "threshold": threshold,
+                })
             lifecycle.set_failed(task.task_id, agent_id=agent_id, error="permission_denied")
             raise PermissionDeniedError(
                 agent_id,
@@ -273,7 +298,7 @@ class GovernanceEngine:
             await limiter.acquire()
         lifecycle.set_running(task.task_id, agent_id=agent_id)
         if self._on_event:
-            self._on_event("task_started", {"task_id": task.task_id, "agent_id": agent_id})
+            self._on_event("task_started", {"task_id": task.task_id, "agent_id": agent_id, "skill": task.required_skill})
         worker = self._registry.get_worker(
             task.required_skill,
             agent_id,
@@ -281,18 +306,47 @@ class GovernanceEngine:
             memory_manager=self._memory_manager,
         )
         tool_names = get_tools_for_skill(task.required_skill)
+        ctx: dict[str, Any] = {
+            "goal_summary": task_plan.goal_summary,
+            "mcp_tool_names": ",".join(tool_names) if isinstance(tool_names, list) else str(tool_names),
+        }
+        if getattr(task_plan, "original_goal", None):
+            ctx["original_goal"] = task_plan.original_goal
         task_input = TaskInput(
             task_id=task.task_id,
             description=task.description,
             required_skill=task.required_skill,
-            context={
-                "goal_summary": task_plan.goal_summary,
-                "mcp_tool_names": ",".join(tool_names) if isinstance(tool_names, list) else str(tool_names),
-            },
+            context=ctx,
         )
         try:
             result = await worker.execute(task_input)
             result_by_id[task.task_id] = result
+            if self._ledger and hasattr(self._ledger, "record_token") and result.success:
+                meta = result.metadata or {}
+                inp = meta.get("input_tokens")
+                out = meta.get("output_tokens")
+                if inp is None or out is None:
+                    bud = getattr(task, "estimated_token_budget", 2000)
+                    inp, out = bud // 2, bud - bud // 2
+                    est_cents = self._cost_converter(task)
+                else:
+                    inp, out = int(inp), int(out)
+                    # Rough cost from actual tokens: ~$0.01 per 1k tokens -> 1 cent per 1k
+                    est_cents = max(1, (inp + out) * 10 // 1000)
+                model_id = meta.get("model_id") or getattr(worker.llm, "model_name", None) or "default"
+                goal_abbr = (task_plan.goal_summary or "")[:36].strip()
+                if goal_abbr:
+                    goal_abbr = goal_abbr.replace("\n", " ").strip()
+                agent_display = (agent_id or "").split("-")[0].strip() if (agent_id and "-" in agent_id) else (agent_id or "")
+                self._ledger.record_token(
+                    model_id=model_id or "default",
+                    input_tokens=inp,
+                    output_tokens=out,
+                    agent_id=agent_display or agent_id,
+                    task_id=task.task_id,
+                    task_display=goal_abbr,
+                    estimated_usd_cents=est_cents,
+                )
             lifecycle.set_completed(task.task_id, agent_id=agent_id, success=result.success)
             _log_task_transition(task.task_id, TaskState.COMPLETED.value, agent_id=agent_id, success=result.success)
             if self._on_event:
@@ -359,13 +413,16 @@ class GovernanceEngine:
         goal_text: str,
         *,
         abort_on_audit_failure: bool = True,
+        job_revenue_cents: int | None = None,
     ) -> tuple[TaskPlan, list[TaskResult], list[AuditReport]]:
         """
-        Full pipeline: run_mission -> dispatch -> audit each result.
+        Full pipeline: run_mission (with optional profitability check) -> dispatch -> audit each result.
         On audit pass: SovereignAuth.record_audit_success(agent_id).
         On audit fail: SovereignAuth.record_audit_failure(agent_id); optionally abort (raise AuditFailureError).
+        When job_revenue_cents is set, CFO enforces min_job_margin_ratio (unit economics).
         """
-        plan = await self.run_mission(goal_text)
+        plan = await self.run_mission(goal_text, job_revenue_cents=job_revenue_cents)
+        plan.original_goal = goal_text  # So workers receive full client brief for industrial delivery
         winner_by_task_id = await self._run_auction(plan)
         results = await self.dispatch(plan, winner_by_task_id=winner_by_task_id)
         reports: list[AuditReport] = []

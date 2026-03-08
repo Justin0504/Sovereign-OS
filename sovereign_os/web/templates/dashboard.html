@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
   <title>Sovereign-OS · Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -171,7 +173,7 @@
     }
     .grid-2 {
       display: grid;
-      grid-template-columns: 1fr 380px;
+      grid-template-columns: 1fr 440px;
       gap: 0;
       align-items: stretch;
     }
@@ -181,7 +183,7 @@
       background: var(--bg-card);
     }
     .panel-section {
-      padding: 28px 32px;
+      padding: 28px 24px 28px 20px;
       border-bottom: 1px solid var(--border);
       transition: background var(--dur-fast);
     }
@@ -205,6 +207,12 @@
       margin-bottom: 6px;
       letter-spacing: -0.01em;
     }
+    .flow-summary {
+      font-size: 0.8125rem;
+      color: var(--accent);
+      margin-bottom: 0.25rem;
+      font-weight: 500;
+    }
     .card-desc, .section-desc {
       font-size: 0.9375rem;
       color: var(--text-muted);
@@ -215,10 +223,12 @@
       display: flex;
       gap: 10px;
       align-items: stretch;
+      margin-left: 0;
     }
     .prompt-row input {
       flex: 1;
-      padding: 12px 16px;
+      min-width: 0;
+      padding: 12px 14px;
       font-size: 1rem;
       font-family: inherit;
       background: var(--bg);
@@ -272,26 +282,43 @@
       border: none;
       border-radius: 0;
       padding: 0;
-      max-height: 280px;
+      max-height: 400px;
       overflow-y: auto;
     }
     .feed::-webkit-scrollbar { width: 6px; }
     .feed::-webkit-scrollbar-track { background: transparent; }
     .feed::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
     .feed-item {
-      padding: 10px 0;
+      padding: 10px 12px;
       font-size: 0.9375rem;
-      line-height: 1.5;
+      line-height: 1.55;
       border-bottom: 1px solid var(--border);
       color: var(--text-soft);
       transition: background var(--dur-fast), color var(--dur-fast);
+      word-wrap: break-word;
+      overflow-wrap: break-word;
     }
     .feed-item:hover { background: var(--accent-soft); }
     .feed-item:last-child { border-bottom: none; }
-    .feed-item.ceo { color: var(--black); font-weight: 500; }
-    .feed-item.cfo { color: var(--black); opacity: 0.9; }
+    .feed-item .feed-badge {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.04em;
+      padding: 2px 6px;
+      border-radius: 4px;
+      margin-right: 8px;
+      vertical-align: top;
+    }
+    .feed-item.ceo { color: var(--black); }
+    .feed-item.ceo .feed-badge { background: var(--accent-soft); color: var(--accent); }
+    .feed-item.cfo { color: var(--black); opacity: 0.95; }
+    .feed-item.cfo .feed-badge { background: rgba(0,0,0,0.06); color: var(--text); }
     .feed-item.auditor_pass { color: var(--success); }
+    .feed-item.auditor_pass .feed-badge { background: var(--success-soft); color: var(--success); }
     .feed-item.auditor_fail { color: var(--danger); }
+    .feed-item.auditor_fail .feed-badge { background: var(--danger-soft); color: var(--danger); }
+    .feed-item.system .feed-badge { background: rgba(0,0,0,0.05); color: var(--text-muted); }
     .tasks-row {
       display: flex;
       flex-wrap: wrap;
@@ -360,10 +387,25 @@
     .health-box .status.ok { color: var(--success); }
     .health-box .status.degraded, .health-box .status.error { color: var(--danger); }
     .health-box span + span { margin-left: 8px; }
-    .token-table { width: 100%; border-collapse: collapse; font-size: 0.9375rem; background: transparent; }
-    .token-table th, .token-table td { padding: 8px 0; text-align: left; border-bottom: 1px solid var(--border); }
+    .token-usage-scroll { max-height: 300px; overflow-x: auto; overflow-y: auto; margin-top: 8px; min-width: 0; -webkit-overflow-scrolling: touch; }
+    .token-usage-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
+    .token-usage-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+    .token-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; background: transparent; table-layout: fixed; }
+    .token-table th, .token-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .token-table th:nth-child(1), .token-table td:nth-child(1) { min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .token-table th:nth-child(2), .token-table td:nth-child(2) { min-width: 100px; max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+    .token-table th:nth-child(3), .token-table td:nth-child(3) { min-width: 72px; width: 72px; }
+    .token-table th:nth-child(4), .token-table td:nth-child(4) { min-width: 108px; width: 108px; padding-right: 14px; }
     .token-table th { background: transparent; font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; }
     .token-table tr:last-child td { border-bottom: none; }
+    .token-table tr.token-row { cursor: pointer; }
+    .token-table tr.token-row:hover { background: var(--accent-soft); }
+    .token-table tr.token-detail td { padding: 0; border-bottom: 1px solid var(--border); vertical-align: top; }
+    .token-table .expand-bubble { max-height: 0; opacity: 0; transform: scale(0.88); overflow: hidden; padding: 0 12px; margin: 0; background: var(--bg-elevated); font-size: 0.8125rem; white-space: normal; word-break: break-word; transition: max-height 0.35s ease-out, opacity 0.28s ease-out, transform 0.32s ease-out; transform-origin: top center; border-radius: var(--radius); }
+    .token-table tr.token-detail.open .expand-bubble { max-height: 220px; opacity: 1; transform: scale(1); padding: 12px 12px; overflow-y: auto; }
+    .job-pill-wrap { margin-bottom: 6px; }
+    .job-pill-expand { max-height: 0; opacity: 0; transform: scale(0.88); overflow: hidden; margin: 0; padding: 0 12px; background: var(--bg-elevated); border-radius: var(--radius); font-size: 0.8125rem; white-space: pre-wrap; word-break: break-word; border: 1px solid transparent; transition: max-height 0.35s ease-out, opacity 0.28s ease-out, transform 0.32s ease-out, padding 0.3s ease-out, margin 0.3s ease-out, border-color 0.2s; transform-origin: top center; }
+    .job-pill-expand.open { max-height: 200px; opacity: 1; transform: scale(1); padding: 10px 12px; margin-top: 8px; border-color: var(--border); overflow-y: auto; }
     .footer-strip {
       margin-top: 28px;
       padding-top: 20px;
@@ -378,6 +420,23 @@
     }
     @media (max-width: 900px) { .sidebar { border-left: none; border-top: 1px solid var(--border); } }
     .sidebar .panel-section { padding: 24px 28px; }
+    .job-queue-scroll { max-height: 260px; overflow-y: auto; margin-top: 8px; }
+    .job-queue-scroll::-webkit-scrollbar { width: 6px; }
+    .job-queue-scroll::-webkit-scrollbar-track { background: transparent; }
+    .job-queue-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 3px; }
+    .job-queue-list { flex-direction: column; flex-wrap: nowrap; }
+    .job-result-modal { display: none; position: fixed; inset: 0; z-index: 1000; align-items: center; justify-content: center; }
+    .job-result-modal.open { display: flex; }
+    .job-result-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,0.4); cursor: pointer; }
+    .job-result-content { position: relative; max-width: 90%; max-height: 85vh; width: 720px; background: var(--bg-card); border-radius: 12px; box-shadow: 0 12px 40px rgba(0,0,0,0.15); display: flex; flex-direction: column; overflow: hidden; }
+    .job-result-header { display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid var(--border); font-weight: 600; }
+    .job-result-body { padding: 20px; overflow-y: auto; font-size: 0.9375rem; }
+    .job-result-goal { color: var(--text-soft); margin-bottom: 16px; }
+    .job-result-task { margin-bottom: 20px; }
+    .job-result-output { white-space: pre-wrap; word-break: break-word; font-size: 0.875rem; max-height: 300px; overflow-y: auto; background: rgba(0,0,0,0.04); padding: 12px; border-radius: 6px; margin-top: 8px; }
+    .job-result-formatted { line-height: 1.5; }
+    .job-result-download a { text-decoration: none; color: var(--accent-link); }
+    .job-result-combined { margin-top: 16px; }
     .audit-trail-feed { max-height: 160px; overflow-y: auto; font-size: 0.9375rem; }
     .audit-trail-item { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--text-soft); }
     .audit-trail-item:last-child { border-bottom: none; }
@@ -386,8 +445,8 @@
     .audit-trail-item .unverified { color: var(--danger); }
     .app-layout { display: flex; min-height: calc(100vh - 52px); }
     .nav-sidebar {
-      width: 240px;
-      min-width: 240px;
+      width: 200px;
+      min-width: 200px;
       background: #fceee0;
       border-right: 1px solid var(--border);
       padding: 24px 0;
@@ -505,8 +564,9 @@
           <div class="tasks-row" id="tasks"></div>
         </section>
         <section class="panel-section">
-          <div class="card-title">Audit trail</div>
+          <div class="card-title">Decision stream</div>
           <div class="card-heading">Activity</div>
+          <p class="flow-summary">Order → Plan → Approve → Execute (permission check) → Audit → Deliver & pay.</p>
           <p class="card-desc">Plans, approvals, execution, and audit results in real time.</p>
           <div class="feed" id="logs"></div>
         </section>
@@ -523,14 +583,14 @@
         <section class="panel-section">
           <div class="card-title">Cost</div>
           <div class="card-heading">Token usage</div>
-          <p class="card-desc">Per task and per agent from the ledger.</p>
-          <div id="tokenUsage"><span class="empty-feed">No token records yet.</span></div>
+          <p class="card-desc">Newest first (last 80). Real API tokens when available — run a new job to see actual input/output/cost.</p>
+          <div class="token-usage-scroll"><div id="tokenUsage"><span class="empty-feed">No token records yet.</span></div></div>
         </section>
         <section class="panel-section">
           <div class="card-title">Operations</div>
           <div class="card-heading">Job queue</div>
           <p class="card-desc">External jobs; approve to run 24/7.</p>
-          <div class="tasks-row" id="jobs"></div>
+          <div class="job-queue-scroll"><div class="tasks-row job-queue-list" id="jobs"></div></div>
         </section>
         <section class="panel-section">
           <div class="card-title">Proof</div>
@@ -894,23 +954,41 @@
         }
         el.innerHTML = jobs.map(j => {
           const cls = 'task-pill job-' + j.status;
-          const label = 'job-' + j.job_id;
+          let goalAbbr = (j.goal && typeof j.goal === 'string') ? (j.goal.slice(0, 28).replace(/\s+/g, ' ').trim() + (j.goal.length > 28 ? '…' : '')) : '';
+          goalAbbr = goalAbbr.replace(/^Type:\s*/i, '').replace(/^Type：\s*/, '');
+          const label = goalAbbr || ('job-' + j.job_id);
           const amount = j.amount_cents ? ' · ' + (j.amount_cents/100).toFixed(2) + ' ' + (j.currency || 'USD') : '';
           const status = ' [' + j.status + ']';
           const approveBtn = j.status === 'pending'
-            ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="approveJob(' + j.job_id + ')">Approve</button>'
+            ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); approveJob(' + j.job_id + ')">Approve</button>'
             : '';
-          const deleteBtn = ' <button type="button" class="btn btn-delete" style="padding:6px 10px;font-size:0.8rem" onclick="deleteJob(' + j.job_id + ')">Delete</button>';
-          return '<div class=\"' + cls + '\"><span class=\"id\">' + label + '</span><span>' + amount + status + '</span>' + approveBtn + deleteBtn + '</div>';
+          const viewBtn = (j.status === 'completed' || j.status === 'failed' || j.status === 'payment_failed')
+            ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); viewJobResult(' + j.job_id + ')">View result</button>'
+            : '';
+          const deleteBtn = ' <button type="button" class="btn btn-delete" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); deleteJob(' + j.job_id + ')">Delete</button>';
+          const goalFull = (j.goal && typeof j.goal === 'string') ? escapeHtml(j.goal) : '';
+          const expandId = 'job-expand-' + j.job_id;
+          return '<div class="job-pill-wrap"><div class="' + cls + '" style="cursor:pointer" onclick="toggleJobExpand(\'' + expandId + '\')" title="Click to expand"><span class="id">' + escapeHtml(label) + '</span><span>' + amount + status + '</span>' + approveBtn + viewBtn + deleteBtn + '</div><div class="job-pill-expand" id="' + expandId + '">' + (goalFull ? '<strong>Goal</strong><br>' + goalFull : '') + '</div></div>';
         }).join('');
       }).catch(() => {});
     }
+    var _logsSnapshot = null;
     function fetchLogs() {
       fetch('/api/logs').then(x => x.json()).then(d => {
         const div = r('logs');
         const logs = (d.logs || []).slice(-50);
-        div.innerHTML = logs.length ? logs.map(l => '<div class="feed-item ' + l.source + '">' + escapeHtml(l.message) + '</div>').join('') : '<div class="empty-feed">When your company thinks, this stream becomes your audit trail.</div>';
-        div.scrollTop = div.scrollHeight;
+        const snapshot = logs.length ? logs.length + '\n' + (logs[logs.length - 1].message || '') : '0';
+        if (_logsSnapshot === snapshot) return;
+        _logsSnapshot = snapshot;
+        var savedScroll = div.scrollTop;
+        var badges = { ceo: 'CEO', cfo: 'CFO', auditor_pass: 'Audit ✓', auditor_fail: 'Audit ✗', system: 'System' };
+        div.innerHTML = logs.length ? logs.map(l => {
+          var badge = badges[l.source] || l.source;
+          return '<div class="feed-item ' + l.source + '"><span class="feed-badge">' + escapeHtml(badge) + '</span>' + escapeHtml(l.message) + '</div>';
+        }).join('') : '<div class="empty-feed">When your company thinks, this stream becomes your audit trail.</div>';
+        requestAnimationFrame(function() {
+          div.scrollTop = Math.min(savedScroll, Math.max(0, div.scrollHeight - div.clientHeight));
+        });
       }).catch(() => {});
     }
     function fetchHealth() {
@@ -935,9 +1013,21 @@
           el.innerHTML = '<span class="empty-feed">No token records yet. Run a mission to see usage.</span>';
           return;
         }
-        el.innerHTML = '<table class="token-table"><thead><tr><th>Task</th><th>Agent</th><th>Model</th><th>Input</th><th>Output</th><th>Total</th></tr></thead><tbody>' +
-          rows.map(u => '<tr><td>' + escapeHtml(u.task_id) + '</td><td>' + escapeHtml(u.agent_id) + '</td><td>' + escapeHtml(u.model_id) + '</td><td>' + (u.input_tokens || 0) + '</td><td>' + (u.output_tokens || 0) + '</td><td>' + (u.total_tokens || 0) + '</td></tr>').join('') +
+        el.innerHTML = '<table class="token-table"><thead><tr><th>Task</th><th>Agent</th><th>Token</th><th>Cost (est.)</th></tr></thead><tbody>' +
+          rows.map((u, idx) => {
+            var c = u.estimated_usd_cents != null ? '$' + (u.estimated_usd_cents / 100).toFixed(2) : '—';
+            var full = (u.task_id_full || u.task_id || '').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+            var taskFull = escapeHtml(u.task_id_full || u.task_id || '—');
+            return '<tr class="token-row" data-idx="' + idx + '"><td>' + escapeHtml(u.task_id) + '</td><td>' + escapeHtml(u.agent_id) + '</td><td>' + (u.total_tokens || 0) + '</td><td>' + c + '</td></tr><tr class="token-detail" id="token-detail-' + idx + '"><td colspan="4"><div class="expand-bubble"><strong>Task</strong> ' + taskFull + '<br><strong>Agent</strong> ' + escapeHtml(u.agent_id || '—') + ' · <strong>Token</strong> ' + (u.total_tokens || 0) + ' · <strong>Cost</strong> ' + c + '</div></td></tr>';
+          }).join('') +
           '</tbody></table>';
+        el.querySelectorAll('tr.token-row').forEach(function(tr) {
+          tr.addEventListener('click', function() {
+            var idx = tr.getAttribute('data-idx');
+            var detail = document.getElementById('token-detail-' + idx);
+            if (detail) detail.classList.toggle('open');
+          });
+        });
       }).catch(() => {});
     }
     function fetchAuditTrail() {
@@ -952,11 +1042,13 @@
         el.innerHTML = list.slice(0, 10).map(e => {
           const cls = e.verified ? 'verified' : 'unverified';
           const hash = (e.proof_hash || '').slice(0, 8);
-          return '<div class="audit-trail-item"><span class="task-id">' + escapeHtml(e.task_id) + '</span> ' + (e.passed ? 'PASS' : 'FAIL') + ' · ' + (e.score != null ? e.score : '') + ' <span class="' + cls + '">' + (e.verified ? '✓' : '✗') + '</span> ' + hash + '</div>';
+          var taskLabel = (e.task_display != null && e.task_display !== '') ? e.task_display : (e.task_id || '—');
+          return '<div class="audit-trail-item"><span class="task-id">' + escapeHtml(taskLabel) + '</span> ' + (e.passed ? 'PASS' : 'FAIL') + ' · ' + (e.score != null ? e.score : '') + ' <span class="' + cls + '">' + (e.verified ? '✓' : '✗') + '</span> ' + hash + '</div>';
         }).join('');
       }).catch(() => {});
     }
-    function escapeHtml(s) { const e = document.createElement('div'); e.textContent = s; return e.innerHTML; }
+    function escapeHtml(s) { if (s == null) return ''; const e = document.createElement('div'); e.textContent = s; return e.innerHTML; }
+    function toggleJobExpand(id) { var el = document.getElementById(id); if (el) el.classList.toggle('open'); }
     function runMission() {
       const goal = r('goal').value || 'Summarize the market in one paragraph.';
       fetch('/api/run', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ goal: goal }) }).then(x => x.json()).then(d => { if (d.status === 'started') fetchLogs(); }).catch(() => {});
@@ -969,6 +1061,55 @@
       fetch('/api/jobs/' + id, { method: 'DELETE' }).then(function(x) {
         if (x.ok) { fetchJobs(); var p = getPanel(); if (p === 'storage') fetchStorage(); }
       }).catch(function() {});
+    }
+    function formatOutputText(s) {
+      if (typeof s !== 'string') return '';
+      return escapeHtml(s).replace(/\n/g, '<br>');
+    }
+    function viewJobResult(jobId) {
+      fetch('/api/jobs/' + jobId + '/result').then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
+        var el = document.getElementById('jobResultModal');
+        if (!el) {
+          el = document.createElement('div');
+          el.id = 'jobResultModal';
+          el.className = 'job-result-modal';
+          el.innerHTML = '<div class="job-result-backdrop" onclick="closeJobResult()"></div><div class="job-result-content"><div class="job-result-header"><span>Job delivery</span><button type="button" class="btn" onclick="closeJobResult()">Close</button></div><div class="job-result-body"></div></div>';
+          document.body.appendChild(el);
+        }
+        var body = el.querySelector('.job-result-body');
+        if (!d) {
+          body.innerHTML = '<p class="empty-feed">No result stored for this job. Results are saved for jobs that completed in this session; they are also persisted to <code>data/job_results.json</code> so View result works after restart.</p>';
+          el.classList.add('open');
+          return;
+        }
+        var parts = [];
+        if (d.status === 'failed' && d.error) parts.push('<p class="job-result-status" style="background:var(--danger-soft);padding:10px 14px;border-radius:8px;margin-bottom:14px;"><strong>Job status:</strong> failed — ' + escapeHtml(d.error) + '</p>');
+        if (d.audit_reports && d.audit_reports.length) {
+          var failedAudits = d.audit_reports.filter(function(a) { return !a.passed; });
+          if (failedAudits.length) parts.push('<div class="job-result-audit" style="background:var(--bg-elevated);padding:12px 14px;border-radius:8px;margin-bottom:14px;border:1px solid var(--border);"><strong>Audit failure details (Judge)</strong><br>' + failedAudits.map(function(a) { return '<div style="margin-top:8px"><strong>Task ' + escapeHtml(a.task_id || '') + '</strong> score ' + (a.score != null ? a.score : '') + '<br><strong>Reason:</strong> ' + escapeHtml(a.reason || '') + (a.suggested_fix ? '<br><strong>Suggested fix:</strong> ' + escapeHtml(a.suggested_fix) : '') + '</div>'; }).join('') + '</div>');
+        }
+        if (d.goal) parts.push('<p class="job-result-goal"><strong>Goal:</strong> ' + escapeHtml(d.goal.slice(0, 500)) + (d.goal.length > 500 ? '…' : '') + '</p>');
+        parts.push('<p class="job-result-download"><a href="/api/jobs/' + jobId + '/result/download" target="_blank" rel="noopener" class="btn" style="display:inline-block;margin-bottom:12px">Download result (demo)</a></p>');
+        if (d.tasks && d.tasks.length) {
+          d.tasks.forEach(function(t, i) {
+            var out = (t.output || '').slice(0, 50000);
+            parts.push('<div class="job-result-task"><strong>Task ' + (i+1) + '</strong> ' + (t.skill ? '(' + escapeHtml(t.skill) + ')' : '') + ' ' + (t.success ? '✓' : '✗') + '<div class="job-result-output job-result-formatted">' + formatOutputText(out) + '</div></div>');
+          });
+        }
+        if (d.combined_output) parts.push('<div class="job-result-combined"><strong>Combined output</strong><div class="job-result-output job-result-formatted">' + formatOutputText(d.combined_output.slice(0, 80000)) + '</div></div>');
+        body.innerHTML = parts.length ? parts.join('') : '<p class="empty-feed">No delivery stored.</p>';
+        el.classList.add('open');
+      }).catch(function() {
+        var el = document.getElementById('jobResultModal');
+        if (el) {
+          el.querySelector('.job-result-body').innerHTML = '<p class="empty-feed">Failed to load result. Check console.</p>';
+          el.classList.add('open');
+        }
+      });
+    }
+    function closeJobResult() {
+      var el = document.getElementById('jobResultModal');
+      if (el) el.classList.remove('open');
     }
     setInterval(fetchStatus, 2000);
     setInterval(fetchTasks, 1500);

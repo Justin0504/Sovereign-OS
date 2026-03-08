@@ -17,7 +17,13 @@ from pydantic import BaseModel, Field, field_validator
 
 
 class FiscalBoundaries(BaseModel):
-    """Daily burn limit, max budget, and currency for the entity."""
+    """
+    Daily burn limit, max budget, currency, and profitability guardrails.
+
+    min_job_margin_ratio: Minimum gross margin (0–1) per paid job. CFO rejects the job if
+    estimated cost > job_revenue * (1 - min_job_margin_ratio). E.g. 0.2 = 20% margin floor
+    (cost must be ≤ 80% of revenue). Set to 0 to disable (accept any cost within balance).
+    """
 
     daily_burn_max_usd: Annotated[
         float,
@@ -28,8 +34,12 @@ class FiscalBoundaries(BaseModel):
         Field(ge=0, description="Total budget cap in USD (runway ceiling)"),
     ] = 0.0
     currency: Annotated[str, Field(min_length=1)] = "USD"
+    min_job_margin_ratio: Annotated[
+        float,
+        Field(ge=0, le=1, description="Minimum gross margin per job (0=disabled, 0.35=35%% margin floor)"),
+    ] = 0.35
 
-    @field_validator("daily_burn_max_usd", "max_budget_usd", mode="before")
+    @field_validator("daily_burn_max_usd", "max_budget_usd", "min_job_margin_ratio", mode="before")
     @classmethod
     def coerce_float(cls, v: object) -> float:
         if isinstance(v, (int, str)):

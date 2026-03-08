@@ -14,7 +14,7 @@ These are "LLM-only" workers designed to be useful out-of-the-box:
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from sovereign_os.agents.base import BaseWorker, TaskInput, TaskResult
 
@@ -32,7 +32,24 @@ def _ctx(task: TaskInput, key: str, default: str = "") -> str:
         return default
 
 
-async def _chat(worker: BaseWorker, system: str, user: str) -> str:
+def _full_brief(task: TaskInput) -> str:
+    """Primary client brief: original_goal (full job spec) or task description. For industrial delivery."""
+    brief = _ctx(task, "original_goal", "").strip()
+    if not brief:
+        brief = (task.description or "").strip() or (task.task_id or "")
+    return brief
+
+
+# Shared rules for industrial-grade deliverables: parseable structure, no hallucination, client scope.
+_DELIVERABLE_RULES = (
+    "Use Markdown with ## for main sections and ### for subsections. "
+    "Do not invent statistics, quotes, or studies; if you use an example, label it as illustrative or placeholder. "
+    "Respect the client's requested word counts, scope, and tone."
+)
+
+
+async def _chat(worker: BaseWorker, system: str, user: str) -> tuple[str, dict[str, int] | None]:
+    """Return (content, usage_dict). usage_dict has input_tokens, output_tokens from API if available."""
     assert worker.llm is not None
     content = await worker.llm.chat(
         [
@@ -40,45 +57,58 @@ async def _chat(worker: BaseWorker, system: str, user: str) -> str:
             {"role": "user", "content": user},
         ]
     )
-    return (content or "").strip()
+    usage = getattr(worker.llm, "_last_usage", None)
+    return (content or "").strip(), usage
+
+
+def _metadata_with_usage(base: dict, usage: dict[str, int] | None, llm: Any) -> dict:
+    out = dict(base)
+    if usage:
+        out["input_tokens"] = usage.get("input_tokens", 0)
+        out["output_tokens"] = usage.get("output_tokens", 0)
+    out["model_id"] = getattr(llm, "model_name", "default")
+    return out
 
 
 class ArticleWriterWorker(BaseWorker):
-    """Write a structured article draft (outline + draft + suggested title)."""
+    """Write a structured article draft (outline + draft + title). Industrial delivery with fixed section shape."""
 
     async def execute(self, task: TaskInput) -> TaskResult:
-        desc = (task.description or "").strip() or task.task_id
+        brief = _full_brief(task)
         if not self.llm:
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
-                output=f"[ArticleWriterWorker] No LLM; echo: {desc[:200]}",
+                output=f"[ArticleWriterWorker] No LLM; echo: {brief[:200]}",
                 metadata={"worker": "ArticleWriterWorker", "deliverable_type": "markdown"},
             )
-        topic = _ctx(task, "topic") or desc
-        audience = _ctx(task, "audience", "general audience")
-        tone = _ctx(task, "tone", "professional, clear")
-        length = _ctx(task, "length", "800-1200 words")
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You write high-quality deliverables.").strip()
+        system = (self.system_prompt or "You write publication-ready long-form content. Follow the client brief exactly; respect word counts and section list.").strip()
         user = (
-            f"Write an article in {language}.\n"
-            f"Topic: {topic}\nAudience: {audience}\nTone: {tone}\nLength: {length}\n\n"
-            "Output in Markdown with these sections:\n"
-            "1) Title (3 options)\n2) Outline\n3) Draft\n4) 5-bullet takeaway summary\n"
-            "Rules: do not invent quotes or statistics; if facts are uncertain, mark them as assumptions."
+            "Client request (follow exactly):\n\n"
+            f"{brief}\n\n"
+            f"Language: {language}. {_DELIVERABLE_RULES}\n\n"
+            "**Required output shape** (use these exact section headings so the deliverable is parseable):\n"
+            "- ## Title(s) — 2–3 headline options\n"
+            "- ## Outline — bullet list of sections\n"
+            "- ## Draft — full body with ### subheads; meet the client's word count\n"
+            "- ## Takeaway summary — 3–5 bullets\n"
+            "If the client also asks for: **Meta description** (add ## Meta description, 1–2 sentences); "
+            "**Social captions** (add ## Social captions with 2–3 short variants); "
+            "**Checklist** (add ## Checklist with actionable bullets). "
+            "Output only the Markdown document, no preamble."
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No article produced]")[:65536],
-                metadata={
-                    "worker": "ArticleWriterWorker",
-                    "deliverable_type": "markdown",
-                    "topic": topic[:200],
-                },
+                metadata=_metadata_with_usage(
+                    {"worker": "ArticleWriterWorker", "deliverable_type": "markdown"},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("ArticleWriterWorker failed: %s", e)
@@ -105,7 +135,7 @@ class ArticleWriterWorker(BaseWorker):
 
 
 class ProblemSolverWorker(BaseWorker):
-    """Solve a problem/question with steps, then final answer."""
+    """Solve a problem with steps and final answer. Output shape: ## Understanding, ## Solution, ## Answer."""
 
     async def execute(self, task: TaskInput) -> TaskResult:
         desc = (task.description or "").strip() or task.task_id
@@ -116,21 +146,25 @@ class ProblemSolverWorker(BaseWorker):
                 output=f"[ProblemSolverWorker] No LLM; echo: {desc[:200]}",
                 metadata={"worker": "ProblemSolverWorker", "deliverable_type": "markdown"},
             )
-        system = (self.system_prompt or "You solve problems accurately and clearly.").strip()
+        system = (self.system_prompt or "You solve problems accurately. State assumptions when information is missing.").strip()
         user = (
-            "Solve the following problem.\n\n"
-            f"Problem:\n{desc}\n\n"
-            "Output in Markdown with:\n"
-            "- Understanding\n- Step-by-step solution\n- Final answer\n"
-            "If information is missing, ask up to 5 clarifying questions first, then provide a best-effort solution with explicit assumptions."
+            f"Problem:\n\n{desc}\n\n"
+            f"{_DELIVERABLE_RULES}\n\n"
+            "**Output shape**: ## Understanding (what the problem asks), ## Solution (step-by-step), ## Answer (final result). "
+            "If information is missing, list up to 5 clarifying questions, then give a best-effort solution with explicit assumptions. "
+            "Output only the Markdown document, no preamble."
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No solution produced]")[:65536],
-                metadata={"worker": "ProblemSolverWorker", "deliverable_type": "markdown"},
+                metadata=_metadata_with_usage(
+                    {"worker": "ProblemSolverWorker", "deliverable_type": "markdown"},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("ProblemSolverWorker failed: %s", e)
@@ -157,36 +191,40 @@ class ProblemSolverWorker(BaseWorker):
 
 
 class EmailWriterWorker(BaseWorker):
-    """Draft an email (subjects + body)."""
+    """Draft email(s): single or sequence. Fixed deliverable shape: Subject, Body, CTA; optional Timing section."""
 
     async def execute(self, task: TaskInput) -> TaskResult:
-        desc = (task.description or "").strip() or task.task_id
+        brief = _full_brief(task)
         if not self.llm:
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
-                output=f"[EmailWriterWorker] No LLM; echo: {desc[:200]}",
+                output=f"[EmailWriterWorker] No LLM; echo: {brief[:200]}",
                 metadata={"worker": "EmailWriterWorker", "deliverable_type": "markdown"},
             )
-        to = _ctx(task, "to", "customer")
-        purpose = _ctx(task, "purpose", "follow up")
-        tone = _ctx(task, "tone", "professional, friendly")
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You write clear, polite emails.").strip()
+        system = (self.system_prompt or "You write concise, professional emails. One clear CTA per email; no fluff.").strip()
         user = (
-            f"Write an email in {language}.\n"
-            f"To: {to}\nPurpose: {purpose}\nTone: {tone}\n\n"
-            f"Context:\n{desc}\n\n"
-            "Output in Markdown:\n- Subject (3 options)\n- Email body\n- One short follow-up message (optional)\n"
-            "Rules: avoid making promises that are not stated; if policy is unknown, ask clarifying questions."
+            "Client request (follow exactly):\n\n"
+            f"{brief}\n\n"
+            f"Language: {language}. {_DELIVERABLE_RULES} "
+            "Do not make promises not stated in the request. Keep each email body under 150 words unless the client asks for longer.\n\n"
+            "**Output shape — email sequence:** For each email use: ## Email N (e.g. ## Email 1), then ### Subject line, ### Body, ### CTA. "
+            "If the client asks for timing or personalization, add a final section: ## Timing and personalization (bullets or short paragraph).\n"
+            "**Output shape — single email:** ## Subject lines (2–3 options), ## Body, ## Follow-up (optional). "
+            "Output only the Markdown document, no preamble."
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No email produced]")[:65536],
-                metadata={"worker": "EmailWriterWorker", "deliverable_type": "markdown"},
+                metadata=_metadata_with_usage(
+                    {"worker": "EmailWriterWorker", "deliverable_type": "markdown"},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("EmailWriterWorker failed: %s", e)
@@ -213,39 +251,39 @@ class EmailWriterWorker(BaseWorker):
 
 
 class SocialPostWorker(BaseWorker):
-    """Draft short social posts."""
+    """Draft short social posts. Output shape: ## Variations, ## Hashtags, ## CTA."""
 
     async def execute(self, task: TaskInput) -> TaskResult:
-        desc = (task.description or "").strip() or task.task_id
+        brief = _full_brief(task)
         if not self.llm:
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
-                output=f"[SocialPostWorker] No LLM; echo: {desc[:200]}",
+                output=f"[SocialPostWorker] No LLM; echo: {brief[:200]}",
                 metadata={"worker": "SocialPostWorker", "deliverable_type": "markdown"},
             )
         platform = _ctx(task, "platform", "X")
         audience = _ctx(task, "audience", "general audience")
         tone = _ctx(task, "tone", "clear, confident")
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You write concise posts with strong hooks.").strip()
+        system = (self.system_prompt or "You write concise posts with strong hooks. Respect platform length limits.").strip()
         user = (
-            f"Write social posts in {language} for platform: {platform}.\n"
-            f"Audience: {audience}\nTone: {tone}\n\n"
-            f"Topic/context:\n{desc}\n\n"
-            "Output in Markdown:\n"
-            "- 5 variations (A/B/C/D/E)\n"
-            "- 5 hashtags (if appropriate)\n"
-            "- A short CTA line\n"
-            "Rules: respect platform length norms; do not invent numbers."
+            f"Client request or topic:\n\n{brief}\n\n"
+            f"Language: {language}. Platform: {platform}. Audience: {audience}. Tone: {tone}. {_DELIVERABLE_RULES} Do not invent numbers.\n\n"
+            "**Output shape**: ## Variations (4–5 short variants, e.g. A/B/C), ## Hashtags (4–5 if appropriate), ## CTA (one line). "
+            "Output only the Markdown document, no preamble."
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No post produced]")[:65536],
-                metadata={"worker": "SocialPostWorker", "deliverable_type": "markdown", "platform": platform},
+                metadata=_metadata_with_usage(
+                    {"worker": "SocialPostWorker", "deliverable_type": "markdown", "platform": platform},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("SocialPostWorker failed: %s", e)
@@ -271,8 +309,68 @@ class SocialPostWorker(BaseWorker):
             return None
 
 
+class HelpContentWorker(BaseWorker):
+    """Write help center / product docs. Fixed shape: ## FAQ (Q/A), ## Tooltips (screen | text), ## Getting started."""
+
+    async def execute(self, task: TaskInput) -> TaskResult:
+        brief = _full_brief(task)
+        if not self.llm:
+            return TaskResult(
+                task_id=task.task_id,
+                success=True,
+                output=f"[HelpContentWorker] No LLM; echo: {brief[:200]}",
+                metadata={"worker": "HelpContentWorker", "deliverable_type": "markdown"},
+            )
+        language = _ctx(task, "language", "English")
+        system = (self.system_prompt or "You write clear, jargon-free help content. One question per FAQ; tooltips under 15 words unless client says otherwise.").strip()
+        user = (
+            "Client request (follow exactly):\n\n"
+            f"{brief}\n\n"
+            f"Language: {language}. {_DELIVERABLE_RULES} "
+            "Avoid US-only assumptions (taxes, currency) if the client mentions international users.\n\n"
+            "**Required output shape** (use these section headings):\n"
+            "- ## FAQ — for each entry: ### Topic or **Q:** question / **A:** answer (2–4 sentences). Use the exact count and topics the client asked for.\n"
+            "- ## Tooltips — list or table: screen/location | tooltip text (under 15 words each unless client specifies otherwise).\n"
+            "- ## Getting started — numbered steps (e.g. 1. … 2. …), 2–3 sentences per step if the client asks for a guide.\n"
+            "Omit a section only if the client did not ask for it. Output only the Markdown document, no preamble."
+        )
+        try:
+            out, usage = await _chat(self, system, user)
+            return TaskResult(
+                task_id=task.task_id,
+                success=True,
+                output=(out or "[No help content produced]")[:65536],
+                metadata=_metadata_with_usage(
+                    {"worker": "HelpContentWorker", "deliverable_type": "markdown"},
+                    usage,
+                    self.llm,
+                ),
+            )
+        except Exception as e:
+            logger.exception("HelpContentWorker failed: %s", e)
+            return TaskResult(
+                task_id=task.task_id,
+                success=False,
+                output=f"[HelpContentWorker] Error: {e}",
+                metadata={"worker": "HelpContentWorker", "error": str(e)},
+            )
+
+    async def get_bid(self, rfp: "RequestForProposal") -> "Bid | None":
+        try:
+            from sovereign_os.governance.auction import Bid
+            return Bid(
+                agent_id=self.agent_id,
+                estimated_cost_cents=max(1, (rfp.estimated_token_budget * 18) // 1000),
+                estimated_time_seconds=15.0,
+                confidence_score=0.8,
+                model_id=getattr(self.llm, "model_name", "help_docs") if self.llm else "help_docs",
+            )
+        except Exception:
+            return None
+
+
 class MeetingMinutesWorker(BaseWorker):
-    """Turn a transcript into decisions + action items."""
+    """Turn a transcript into minutes. Output shape: ## Summary, ## Decisions, ## Action items, ## Risks, ## Open questions."""
 
     async def execute(self, task: TaskInput) -> TaskResult:
         desc = (task.description or "").strip() or task.task_id
@@ -284,24 +382,23 @@ class MeetingMinutesWorker(BaseWorker):
                 metadata={"worker": "MeetingMinutesWorker", "deliverable_type": "markdown"},
             )
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You create crisp meeting minutes.").strip()
+        system = (self.system_prompt or "You create crisp, scannable meeting minutes. Preserve who said what and deadlines.").strip()
         user = (
-            f"Create meeting minutes in {language} from the transcript below.\n\n"
-            f"Transcript:\n{desc}\n\n"
-            "Output in Markdown with:\n"
-            "- Summary (3–6 bullets)\n"
-            "- Decisions\n"
-            "- Action items (Owner, Due date if present)\n"
-            "- Risks / blockers\n"
-            "- Open questions\n"
+            f"Create meeting minutes in {language} from the transcript below.\n\nTranscript:\n{desc}\n\n"
+            "**Output shape** (use these section headings): ## Summary (3–6 bullets), ## Decisions, ## Action items (owner | due date if present), ## Risks / blockers, ## Open questions. "
+            "Output only the Markdown document, no preamble."
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No minutes produced]")[:65536],
-                metadata={"worker": "MeetingMinutesWorker", "deliverable_type": "markdown"},
+                metadata=_metadata_with_usage(
+                    {"worker": "MeetingMinutesWorker", "deliverable_type": "markdown"},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("MeetingMinutesWorker failed: %s", e)
@@ -336,12 +433,16 @@ class TranslateWorker(BaseWorker):
             f"Text:\n{desc}"
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No translation produced]")[:65536],
-                metadata={"worker": "TranslateWorker", "deliverable_type": "text", "target_language": target_language},
+                metadata=_metadata_with_usage(
+                    {"worker": "TranslateWorker", "deliverable_type": "text", "target_language": target_language},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("TranslateWorker failed: %s", e)
@@ -377,12 +478,16 @@ class RewritePolishWorker(BaseWorker):
             "Output in Markdown:\n- Rewritten version\n- 3–6 bullet change notes (what improved)\n"
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No rewrite produced]")[:65536],
-                metadata={"worker": "RewritePolishWorker", "deliverable_type": "markdown"},
+                metadata=_metadata_with_usage(
+                    {"worker": "RewritePolishWorker", "deliverable_type": "markdown"},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("RewritePolishWorker failed: %s", e)
@@ -412,12 +517,16 @@ class AssistantChatWorker(BaseWorker):
         ).strip()
         user = f"Request:\n{desc}\n\nRespond clearly. If the request is a question, answer it. If it is a task, complete it briefly or outline next steps."
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No response]")[:65536],
-                metadata={"worker": "AssistantChatWorker", "deliverable_type": "text"},
+                metadata=_metadata_with_usage(
+                    {"worker": "AssistantChatWorker", "deliverable_type": "text"},
+                    usage,
+                    self.llm,
+                ),
             )
         except Exception as e:
             logger.exception("AssistantChatWorker failed: %s", e)

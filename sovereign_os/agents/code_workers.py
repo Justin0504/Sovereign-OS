@@ -23,7 +23,7 @@ def _ctx(task: TaskInput, key: str, default: str = "") -> str:
         return default
 
 
-async def _chat(worker: BaseWorker, system: str, user: str) -> str:
+async def _chat(worker: BaseWorker, system: str, user: str) -> tuple[str, dict[str, int] | None]:
     assert worker.llm is not None
     content = await worker.llm.chat(
         [
@@ -31,7 +31,8 @@ async def _chat(worker: BaseWorker, system: str, user: str) -> str:
             {"role": "user", "content": user},
         ]
     )
-    return (content or "").strip()
+    usage = getattr(worker.llm, "_last_usage", None)
+    return (content or "").strip(), usage
 
 
 class CodeAssistantWorker(BaseWorker):
@@ -57,12 +58,15 @@ class CodeAssistantWorker(BaseWorker):
             + (f"Code ({language}):\n```\n{code}\n```\n" if code else "No code snippet provided.")
         )
         try:
-            out = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user)
+            meta = {"worker": "CodeAssistantWorker", "deliverable_type": "markdown", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=(out or "[No analysis]")[:65536],
-                metadata={"worker": "CodeAssistantWorker", "deliverable_type": "markdown"},
+                metadata=meta,
             )
         except Exception as e:
             logger.exception("CodeAssistantWorker failed: %s", e)
@@ -111,13 +115,11 @@ class CodeReviewWorker(BaseWorker):
             + (f"Code ({language}):\n```\n{code}\n```" if code else "No code provided.")
         )
         try:
-            out = await _chat(self, system, user)
-            return TaskResult(
-                task_id=task.task_id,
-                success=True,
-                output=(out or "[No review]")[:65536],
-                metadata={"worker": "CodeReviewWorker", "deliverable_type": "markdown"},
-            )
+            out, usage = await _chat(self, system, user)
+            meta = {"worker": "CodeReviewWorker", "deliverable_type": "markdown", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            return TaskResult(task_id=task.task_id, success=True, output=(out or "[No review]")[:65536], metadata=meta)
         except Exception as e:
             logger.exception("CodeReviewWorker failed: %s", e)
             return TaskResult(

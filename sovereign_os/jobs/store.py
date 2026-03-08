@@ -4,6 +4,7 @@ SQLite-backed Job store: persist job queue and approval state across restarts.
 
 from __future__ import annotations
 
+import json
 import sqlite3
 import time
 from dataclasses import asdict, dataclass
@@ -29,6 +30,7 @@ class JobRow:
     retry_count: int = 0
     priority: int = 0
     run_after_ts: float | None = None
+    delivery_contact: dict | None = None  # JSON; for Reddit reply/DM etc. after completion
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -68,7 +70,8 @@ class JobStore:
                     callback_url TEXT,
                     retry_count INTEGER NOT NULL DEFAULT 0,
                     priority INTEGER NOT NULL DEFAULT 0,
-                    run_after_ts REAL
+                    run_after_ts REAL,
+                    delivery_contact TEXT
                 )
                 """
             )
@@ -93,12 +96,26 @@ class JobStore:
                     c.execute("ALTER TABLE jobs ADD COLUMN run_after_ts REAL")
                 except sqlite3.OperationalError:
                     pass
+                try:
+                    c.execute("ALTER TABLE jobs ADD COLUMN delivery_contact TEXT")
+                except sqlite3.OperationalError:
+                    pass
+
+    def _deserialize_delivery_contact(self, raw: Any) -> dict | None:
+        if raw is None or raw == "":
+            return None
+        try:
+            if isinstance(raw, dict):
+                return raw
+            return json.loads(raw) if isinstance(raw, str) else None
+        except (json.JSONDecodeError, TypeError):
+            return None
 
     def list_jobs(self) -> list[JobRow]:
         with self._conn() as c:
             c.row_factory = sqlite3.Row
             rows = c.execute(
-                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error, callback_url, retry_count, priority, run_after_ts FROM jobs ORDER BY job_id"
+                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error, callback_url, retry_count, priority, run_after_ts, delivery_contact FROM jobs ORDER BY job_id"
             ).fetchall()
         def _row(r: Any) -> JobRow:
             keys = r.keys() if hasattr(r, "keys") else []
@@ -117,6 +134,7 @@ class JobStore:
                 retry_count=int(r["retry_count"]) if "retry_count" in keys else 0,
                 priority=int(r["priority"]) if "priority" in keys else 0,
                 run_after_ts=float(r["run_after_ts"]) if "run_after_ts" in keys and r["run_after_ts"] is not None else None,
+                delivery_contact=self._deserialize_delivery_contact(r["delivery_contact"]) if "delivery_contact" in keys else None,
             )
         return [_row(r) for r in rows]
 
@@ -132,17 +150,19 @@ class JobStore:
         amount_cents: int = 0,
         currency: str = "USD",
         callback_url: str | None = None,
+        delivery_contact: dict | None = None,
         priority: int = 0,
         run_after_ts: float | None = None,
     ) -> JobRow:
         now = time.time()
+        dc_json = json.dumps(delivery_contact) if isinstance(delivery_contact, dict) else None
         with self._conn() as conn:
             cur = conn.execute(
                 """
-                INSERT INTO jobs (goal, charter, amount_cents, currency, status, created_ts, updated_ts, callback_url, retry_count, priority, run_after_ts)
-                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?)
+                INSERT INTO jobs (goal, charter, amount_cents, currency, status, created_ts, updated_ts, callback_url, retry_count, priority, run_after_ts, delivery_contact)
+                VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, 0, ?, ?, ?)
                 """,
-                (goal, charter, amount_cents, currency, now, now, callback_url or None, priority, run_after_ts),
+                (goal, charter, amount_cents, currency, now, now, callback_url or None, priority, run_after_ts, dc_json),
             )
             job_id = cur.lastrowid if cur.lastrowid else self.next_job_id()
         return JobRow(
@@ -160,13 +180,14 @@ class JobStore:
             retry_count=0,
             priority=priority,
             run_after_ts=run_after_ts,
+            delivery_contact=delivery_contact,
         )
 
     def get_job(self, job_id: int) -> JobRow | None:
         with self._conn() as c:
             c.row_factory = sqlite3.Row
             r = c.execute(
-                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error, callback_url, retry_count, priority, run_after_ts FROM jobs WHERE job_id = ?",
+                "SELECT job_id, goal, charter, amount_cents, currency, status, created_ts, updated_ts, payment_id, error, callback_url, retry_count, priority, run_after_ts, delivery_contact FROM jobs WHERE job_id = ?",
                 (job_id,),
             ).fetchone()
         if r is None:
@@ -187,6 +208,7 @@ class JobStore:
             retry_count=int(r["retry_count"]) if "retry_count" in keys else 0,
             priority=int(r["priority"]) if "priority" in keys else 0,
             run_after_ts=float(r["run_after_ts"]) if "run_after_ts" in keys and r["run_after_ts"] is not None else None,
+            delivery_contact=self._deserialize_delivery_contact(r["delivery_contact"]) if "delivery_contact" in keys else None,
         )
 
     def update_job(
@@ -225,3 +247,13 @@ class JobStore:
         with self._conn() as conn:
             cur = conn.execute("DELETE FROM jobs WHERE job_id = ?", (job_id,))
             return cur.rowcount > 0
+
+    def clear_all(self) -> int:
+        """Delete all jobs (for demo reset). Returns number of rows deleted."""
+        if self._path == ":memory:":
+            with self._conn() as conn:
+                cur = conn.execute("DELETE FROM jobs")
+                return cur.rowcount
+        with self._conn() as conn:
+            cur = conn.execute("DELETE FROM jobs")
+            return cur.rowcount

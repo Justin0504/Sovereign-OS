@@ -53,7 +53,7 @@ def _default_provider() -> str:
 def _default_model(provider: str) -> str:
     """Default model per provider when SOVEREIGN_LLM_MODEL not set."""
     if provider in ("anthropic", "claude"):
-        return "claude-3-5-sonnet-20241022"
+        return "claude-sonnet-4-20250514"
     return "gpt-4o"
 
 
@@ -95,17 +95,25 @@ class OpenAIChatLLM:
             )
         self._client = AsyncOpenAI(api_key=key)
         self._model = model
+        self._last_usage: dict[str, int] | None = None
 
     @property
     def model_name(self) -> str:
         return self._model
 
     async def chat(self, messages: list[dict[str, Any]]) -> str:
+        self._last_usage = None
         response = await self._client.chat.completions.create(
             model=self._model,
             messages=messages,
         )
         content = getattr(response.choices[0].message, "content", "") or ""
+        usage = getattr(response, "usage", None)
+        if usage is not None:
+            self._last_usage = {
+                "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
+                "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
+            }
         return str(content)
 
 
@@ -128,12 +136,14 @@ class AnthropicChatLLM:
             )
         self._client = AsyncAnthropic(api_key=key)
         self._model = model
+        self._last_usage: dict[str, int] | None = None
 
     @property
     def model_name(self) -> str:
         return self._model
 
     async def chat(self, messages: list[dict[str, Any]]) -> str:
+        self._last_usage = None
         # Split system vs user/assistant messages for Anthropic API.
         system_parts: list[str] = []
         convo: list[dict[str, Any]] = []
@@ -163,7 +173,42 @@ class AnthropicChatLLM:
             system=system_text,
             messages=convo,
         )
-        # message.content is a list of content blocks; concatenate text parts.
+        usage = getattr(message, "usage", None)
+        if usage is None and hasattr(message, "model_dump"):
+            try:
+                raw = message.model_dump()
+                usage = raw.get("usage") if isinstance(raw.get("usage"), dict) else None
+                if usage is not None:
+                    usage = type("Usage", (), usage)()  # simple namespace for getattr below
+            except Exception:
+                pass
+        inp, out_tok = None, None
+        if usage is not None:
+            inp = getattr(usage, "input_tokens", None)
+            out_tok = getattr(usage, "output_tokens", None)
+            if inp is None or out_tok is None:
+                try:
+                    d = usage.model_dump() if hasattr(usage, "model_dump") else (vars(usage) if hasattr(usage, "__dict__") else {})
+                    if not isinstance(d, dict):
+                        d = {}
+                    inp = inp if inp is not None else d.get("input_tokens")
+                    out_tok = out_tok if out_tok is not None else d.get("output_tokens")
+                except Exception:
+                    pass
+            if inp is None:
+                inp = getattr(usage, "prompt_tokens", 0) or 0
+            if out_tok is None:
+                out_tok = getattr(usage, "completion_tokens", 0) or 0
+            self._last_usage = {
+                "input_tokens": int(inp) if inp is not None else 0,
+                "output_tokens": int(out_tok) if out_tok is not None else 0,
+            }
+        else:
+            self._last_usage = None
+            logger.info(
+                "Anthropic response had no message.usage; token table will show estimated 2000/2000. "
+                "Check anthropic SDK version (pip show anthropic) and API response."
+            )
         parts = []
         for block in getattr(message, "content", []) or []:
             if getattr(block, "type", "") == "text":

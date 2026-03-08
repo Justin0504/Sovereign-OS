@@ -38,6 +38,31 @@ class TaskPlan(BaseModel):
 
     goal_summary: str = ""
     tasks: list[PlannedTask] = Field(default_factory=list)
+    original_goal: str | None = None  # Set by engine so workers receive full client brief
+
+
+def _normalize_plan_task_ids(plan: TaskPlan) -> TaskPlan:
+    """
+    Ensure every task has a unique, readable task_id (e.g. task-1-spec_writer, task-2-reply).
+    Remaps dependencies so they refer to the new ids. Fixes audit trail showing all 'task-1'.
+    """
+    if not plan.tasks:
+        return plan
+    new_ids = [f"task-{i + 1}-{t.required_skill}" for i, t in enumerate(plan.tasks)]
+    # Map old task_id at position i -> new_ids[i] (handles LLM returning duplicate "task-1")
+    new_tasks = []
+    for i, t in enumerate(plan.tasks):
+        new_deps = []
+        for d in t.dependencies:
+            for j, t2 in enumerate(plan.tasks):
+                if t2.task_id == d:
+                    new_deps.append(new_ids[j])
+                    break
+        new_deps = list(dict.fromkeys(new_deps))
+        new_tasks.append(
+            t.model_copy(update={"task_id": new_ids[i], "dependencies": new_deps})
+        )
+    return plan.model_copy(update={"tasks": new_tasks})
 
 
 # ---------------------------------------------------------------------------
@@ -137,24 +162,42 @@ class Strategist:
         """
         if self._llm is not None:
             plan = await self._llm.plan_from_goal(goal_text, self._charter)
+            plan = _normalize_plan_task_ids(plan)
             logger.info(
                 "GOVERNANCE CEO: Strategic plan produced: %d tasks for goal (summary=%s).",
                 len(plan.tasks),
                 (plan.goal_summary or goal_text)[:80],
             )
             return plan
-        # Fallback: minimal plan when no LLM is configured (e.g. tests / dry run)
+        # Fallback: infer skill from goal text so the right worker runs (not always first competency)
         competency_names = [c.name for c in self._charter.core_competencies]
-        skill = competency_names[0] if competency_names else "general"
+        goal_lower = goal_text.lower()
+        skill = "summarize"
+        if any(k in goal_lower for k in ("market research", "competitive", "bnpl", "competitor", "landscape", "comparison table")):
+            skill = "research" if "research" in competency_names else skill
+        elif any(k in goal_lower for k in ("blog", "article", "long-form", "1000-word", "word post", "b2b")):
+            skill = "write_article" if "write_article" in competency_names else skill
+        elif any(k in goal_lower for k in ("email", "cold outreach", "sequence", "d2c", "subject line")):
+            skill = "write_email" if "write_email" in competency_names else skill
+        elif any(k in goal_lower for k in ("faq", "tooltip", "documentation", "getting started", "help center")):
+            skill = "help_docs" if "help_docs" in competency_names else skill
+        elif any(k in goal_lower for k in ("launch", "onboarding", "hero", "landing page", "content pack")):
+            skill = "write_post" if "write_post" in competency_names else skill
+        elif any(k in goal_lower for k in ("strategy", "sow", "template", "exec summary", "decisions log", "workshop")):
+            skill = "spec_writer" if "spec_writer" in competency_names else skill
+        elif any(k in goal_lower for k in ("solve", "question", "answer", "step")):
+            skill = "solve_problem" if "solve_problem" in competency_names else skill
+        if skill not in competency_names:
+            skill = competency_names[0] if competency_names else "summarize"
         plan = TaskPlan(
             goal_summary=goal_text[:200],
             tasks=[
                 PlannedTask(
-                    task_id="task-1",
+                    task_id=f"task-1-{skill}",
                     description=goal_text[:500],
                     dependencies=[],
                     required_skill=skill,
-                    estimated_token_budget=2000,
+                    estimated_token_budget=4000,
                     priority="high",
                 ),
             ],

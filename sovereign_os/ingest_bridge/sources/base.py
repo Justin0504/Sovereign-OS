@@ -16,6 +16,8 @@ class RawOrder:
     currency: str = "USD"
     charter: str = "Default"
     meta: dict | None = None
+    # Optional: so we can "contact" the client after delivery (e.g. Reddit reply/DM).
+    contact: dict | None = None  # e.g. {"platform": "reddit", "username": "op", "post_id": "abc", "permalink": "/r/..."}
 
 
 class OrderSource:

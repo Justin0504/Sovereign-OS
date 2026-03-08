@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
 
-from sovereign_os.governance.exceptions import FiscalInsolvencyError, HumanApprovalRequiredError
+from sovereign_os.governance.exceptions import FiscalInsolvencyError, HumanApprovalRequiredError, UnprofitableJobError
 from sovereign_os.ledger.unified_ledger import UnifiedLedger
 from sovereign_os.models.charter import Charter
 
@@ -122,6 +122,44 @@ class Treasury:
             usd,
             task_id or "unknown",
             purpose or "unspecified",
+        )
+
+    def approve_job_profitability(self, job_revenue_cents: int, total_estimated_cost_cents: int) -> None:
+        """
+        Unit economics check: reject job if estimated cost would exceed allowed share of revenue
+        (min margin floor). Top-company CFO practice: do not accept unprofitable deals.
+        Raises UnprofitableJobError when cost > revenue * (1 - min_job_margin_ratio).
+        Skips when min_job_margin_ratio is 0 or job_revenue_cents <= 0.
+        """
+        if job_revenue_cents <= 0:
+            return
+        ratio = getattr(
+            self._charter.fiscal_boundaries,
+            "min_job_margin_ratio",
+            0.0,
+        )
+        if ratio <= 0:
+            return
+        max_cost_cents = int(job_revenue_cents * (1.0 - ratio))
+        if total_estimated_cost_cents > max_cost_cents:
+            margin_pct = ratio * 100
+            msg = (
+                f"CFO denied job: estimated cost {total_estimated_cost_cents} cents exceeds "
+                f"max allowed {max_cost_cents} cents (job revenue {job_revenue_cents} cents, "
+                f"min margin {margin_pct:.0f}%). Unprofitable deal rejected."
+            )
+            logger.warning("GOVERNANCE CFO: %s", msg)
+            raise UnprofitableJobError(
+                msg,
+                job_revenue_cents=job_revenue_cents,
+                estimated_cost_cents=total_estimated_cost_cents,
+                min_margin_ratio=ratio,
+            )
+        logger.info(
+            "GOVERNANCE CFO: Job profitability OK (revenue=%d, cost=%d, margin >= %.0f%%).",
+            job_revenue_cents,
+            total_estimated_cost_cents,
+            ratio * 100,
         )
 
     def get_optimal_model(self, task_complexity: str) -> str:

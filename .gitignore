@@ -18,12 +18,20 @@ build/
 .DS_Store
 Thumbs.db
 
-# Ledger / local data
+# Runtime data — never commit
 data/
 *.jsonl
+*.db
+
+# Environment — never commit
 .env
 .env.local
 
-# Do not commit secrets
+# Secrets
 *.pem
 *.key
+
+# Build artifacts
+sovereign_os.egg-info/
+dist/
+build/

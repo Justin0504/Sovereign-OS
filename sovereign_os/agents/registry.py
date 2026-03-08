@@ -6,12 +6,50 @@ When MemoryManager is provided, top-3 similar past lessons are injected into the
 """
 
 import logging
+import os
+from pathlib import Path
 from typing import TYPE_CHECKING, Type
 
 from sovereign_os.agents.base import BaseWorker, TaskInput, TaskResult
 from sovereign_os.models.charter import Charter
 
 logger = logging.getLogger(__name__)
+
+_env_loaded = False
+
+
+def _load_env_once() -> None:
+    """Load .env from project root and cwd so ANTHROPIC_API_KEY etc. are set (e.g. in job worker thread)."""
+    global _env_loaded
+    if _env_loaded:
+        return
+    _env_loaded = True
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(Path.cwd() / ".env")
+        load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+        return
+    except Exception:
+        pass
+    # Fallback: read .env manually so workers get API keys even without python-dotenv
+    for base in (Path.cwd(), Path(__file__).resolve().parents[2]):
+        p = base / ".env"
+        if not p.is_file():
+            continue
+        try:
+            with open(p, encoding="utf-8", errors="replace") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line or line.startswith("#"):
+                        continue
+                    if "=" in line and not line.split("=", 1)[0].strip().startswith("#"):
+                        k, v = line.split("=", 1)
+                        k = k.strip()
+                        v = v.strip().strip('"').strip("'")
+                        if k and k not in os.environ:
+                            os.environ[k] = v
+        except Exception:
+            pass
 
 if TYPE_CHECKING:
     from sovereign_os.memory.manager import MemoryManager
@@ -140,10 +178,16 @@ class WorkerRegistry:
 
         llm_client = None
         try:  # pragma: no cover - optional LLM path
+            _load_env_once()
             from sovereign_os.llm.providers import create_llm_client
 
             llm_client = create_llm_client(f"worker_{key}")
-        except Exception:
+        except Exception as e:
+            logger.warning(
+                "Worker LLM creation failed for skill %r: %s. Ensure .env in project root has ANTHROPIC_API_KEY=sk-ant-... and restart.",
+                key,
+                e,
+            )
             llm_client = None
 
         return worker_class(agent_id=agent_id, system_prompt=system_prompt, llm=llm_client)

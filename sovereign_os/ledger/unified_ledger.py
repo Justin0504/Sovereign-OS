@@ -47,6 +47,7 @@ class TokenEntry(BaseModel):
     output_tokens: Annotated[int, Field(ge=0)] = 0
     agent_id: str | None = None
     task_id: str = ""
+    task_display: str = ""  # Optional short label from goal (e.g. "Cold outreach copy") for UI
     estimated_usd_cents: Annotated[int, Field(ge=0)] = 0  # Optional cost tracking
     timestamp_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
@@ -152,6 +153,7 @@ class UnifiedLedger:
         *,
         agent_id: str | None = None,
         task_id: str = "",
+        task_display: str = "",
         estimated_usd_cents: int = 0,
     ) -> LedgerEntry:
         """Record token consumption."""
@@ -163,6 +165,7 @@ class UnifiedLedger:
                 output_tokens=output_tokens,
                 agent_id=agent_id,
                 task_id=task_id,
+                task_display=task_display,
                 estimated_usd_cents=estimated_usd_cents,
             ),
         )

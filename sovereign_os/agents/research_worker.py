@@ -16,30 +16,47 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
+def _full_brief(task: TaskInput) -> str:
+    """Primary client brief: original_goal or task description. For industrial delivery."""
+    try:
+        brief = (task.context or {}).get("original_goal", "") or ""
+        brief = str(brief).strip()
+    except Exception:
+        brief = ""
+    if not brief:
+        brief = (task.description or "").strip() or (task.task_id or "")
+    return brief
+
+
 class ResearchWorker(BaseWorker):
     """
-    Worker that calls an LLM to produce short research: 3–5 bullet points + one paragraph summary.
-    Requires self.llm (ChatLLM) to be set by the registry.
+    Worker that produces research: bullets + conclusion, or comparison tables + differentiators when requested.
+    Follows full client brief for industrial delivery.
     """
 
     async def execute(self, task: TaskInput) -> TaskResult:
-        desc = (task.description or "").strip() or task.task_id
+        brief = _full_brief(task)
         if not self.llm:
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
-                output=f"[ResearchWorker] No LLM; echo: {desc[:200]}",
+                output=f"[ResearchWorker] No LLM; echo: {brief[:200]}",
                 metadata={"worker": "ResearchWorker"},
             )
         prompt = (
-            "Based on the following topic or question, provide:\n"
-            "1. Three to five bullet points (key facts or findings).\n"
-            "2. One short paragraph (2–4 sentences) as a conclusion.\n\n"
-            f"Topic/Question: {desc}"
+            "Client request (follow exactly):\n\n"
+            f"{brief}\n\n"
+            "Use Markdown with ## for main sections and ### for subsections. Do not invent data; use only public information—if a figure is estimated, say 'estimated' or cite 'public sources'.\n\n"
+            "**If the request asks for competitive landscape, comparison table, or differentiators**, use this output shape:\n"
+            "- ## Overview — 2–4 sentences on the space and the client's position\n"
+            "- ## Comparison — a Markdown table with columns the client asked for (e.g. Feature, Pricing, Geography); one row per competitor plus the client\n"
+            "- ## Differentiators (or ## Recommendations) — 2–4 bullets with short rationale\n"
+            "**Otherwise** (short research): ## Key findings (3–5 bullets), ## Conclusion (one short paragraph).\n"
+            "Output only the Markdown document, no preamble."
         )
         try:
             system = (
-                (self.system_prompt or "You are a concise researcher.").strip()
+                (self.system_prompt or "You are a factual researcher. Output slide-ready, scannable content; tables in Markdown.").strip()
                 or "You are a concise researcher. Be factual and brief."
             )
             messages = [
@@ -48,11 +65,16 @@ class ResearchWorker(BaseWorker):
             ]
             content = await self.llm.chat(messages)
             output = (content or "").strip() or "[No research produced]"
+            usage = getattr(self.llm, "_last_usage", None)
+            meta = {"worker": "ResearchWorker", "model_id": getattr(self.llm, "model_name", "default")}
+            if usage:
+                meta["input_tokens"] = usage.get("input_tokens", 0)
+                meta["output_tokens"] = usage.get("output_tokens", 0)
             return TaskResult(
                 task_id=task.task_id,
                 success=True,
                 output=output[:65536],
-                metadata={"worker": "ResearchWorker"},
+                metadata=meta,
             )
         except Exception as e:
             logger.exception("ResearchWorker execute failed: %s", e)
