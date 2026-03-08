@@ -40,11 +40,21 @@ def _full_brief(task: TaskInput) -> str:
     return brief
 
 
-# Shared rules for industrial-grade deliverables: parseable structure, no hallucination, client scope.
+# Shared rules for professional deliverables.
 _DELIVERABLE_RULES = (
-    "Use Markdown with ## for main sections and ### for subsections. "
-    "Do not invent statistics, quotes, or studies; if you use an example, label it as illustrative or placeholder. "
-    "Respect the client's requested word counts, scope, and tone."
+    "Use clean Markdown: ## for main sections, ### for subsections, **bold** for key terms. "
+    "Do not invent statistics, quotes, or named studies — if data is estimated, say 'estimated' or 'based on public trends'. "
+    "Respect the client's requested word counts and tone. "
+    "Open with a clear executive summary or key point — do not bury the lead. "
+    "End with actionable takeaways or next steps unless the client specifies otherwise."
+)
+
+# System prompt shared across writing workers — establishes professional baseline.
+_WRITER_SYSTEM = (
+    "You are a senior professional writer with experience in B2B content, thought leadership, and client deliverables. "
+    "You write with clarity, precision, and a confident voice. "
+    "Always follow the client brief exactly. Prioritize substance over length — every sentence must add value. "
+    "Format output for immediate use: well-structured, professional, ready to publish or send."
 )
 
 
@@ -83,20 +93,19 @@ class ArticleWriterWorker(BaseWorker):
                 metadata={"worker": "ArticleWriterWorker", "deliverable_type": "markdown"},
             )
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You write publication-ready long-form content. Follow the client brief exactly; respect word counts and section list.").strip()
+        system = (self.system_prompt or _WRITER_SYSTEM).strip()
         user = (
             "Client request (follow exactly):\n\n"
             f"{brief}\n\n"
             f"Language: {language}. {_DELIVERABLE_RULES}\n\n"
-            "**Required output shape** (use these exact section headings so the deliverable is parseable):\n"
-            "- ## Title(s) — 2–3 headline options\n"
-            "- ## Outline — bullet list of sections\n"
-            "- ## Draft — full body with ### subheads; meet the client's word count\n"
-            "- ## Takeaway summary — 3–5 bullets\n"
-            "If the client also asks for: **Meta description** (add ## Meta description, 1–2 sentences); "
-            "**Social captions** (add ## Social captions with 2–3 short variants); "
-            "**Checklist** (add ## Checklist with actionable bullets). "
-            "Output only the Markdown document, no preamble."
+            "**Deliverable structure** (use these exact section headings):\n"
+            "- ## Title Options — 3 compelling headline choices with a one-line rationale each\n"
+            "- ## Executive Summary — 2–3 sentences capturing the core argument\n"
+            "- ## Draft — full article body with ### subheadings; match the client's word count exactly\n"
+            "- ## Key Takeaways — 4–6 punchy bullets readers can act on immediately\n"
+            "Optional additions if requested: ## Meta Description (1–2 SEO sentences), "
+            "## Social Captions (3 platform-ready variants), ## Content Checklist (actionable bullets). "
+            "Output only the Markdown document."
         )
         try:
             out, usage = await _chat(self, system, user)
@@ -146,13 +155,22 @@ class ProblemSolverWorker(BaseWorker):
                 output=f"[ProblemSolverWorker] No LLM; echo: {desc[:200]}",
                 metadata={"worker": "ProblemSolverWorker", "deliverable_type": "markdown"},
             )
-        system = (self.system_prompt or "You solve problems accurately. State assumptions when information is missing.").strip()
+        system = (self.system_prompt or (
+            "You are an expert consultant and problem solver. "
+            "Provide rigorous, actionable analysis. Show your reasoning step-by-step. "
+            "Be direct and specific — avoid vague platitudes."
+        )).strip()
         user = (
-            f"Problem:\n\n{desc}\n\n"
+            f"Problem to solve:\n\n{desc}\n\n"
             f"{_DELIVERABLE_RULES}\n\n"
-            "**Output shape**: ## Understanding (what the problem asks), ## Solution (step-by-step), ## Answer (final result). "
-            "If information is missing, list up to 5 clarifying questions, then give a best-effort solution with explicit assumptions. "
-            "Output only the Markdown document, no preamble."
+            "**Output shape**: \n"
+            "## Problem Statement — restate the core challenge in 1–2 sentences\n"
+            "## Analysis — break down key factors, constraints, and considerations\n"
+            "## Solution — step-by-step approach with concrete recommendations\n"
+            "## Answer — clear final answer or decision\n"
+            "## Next Steps — 3–5 immediate actions to implement the solution\n"
+            "If information is missing, note assumptions made and give your best-effort solution. "
+            "Output only the Markdown document."
         )
         try:
             out, usage = await _chat(self, system, user)
@@ -203,16 +221,24 @@ class EmailWriterWorker(BaseWorker):
                 metadata={"worker": "EmailWriterWorker", "deliverable_type": "markdown"},
             )
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You write concise, professional emails. One clear CTA per email; no fluff.").strip()
+        system = (self.system_prompt or (
+            "You are an expert email copywriter. "
+            "You write emails that get opened, read, and acted on. "
+            "Every subject line must earn the open; every body must earn the click. "
+            "Be direct, personal, and specific — no corporate jargon or empty phrases."
+        )).strip()
         user = (
             "Client request (follow exactly):\n\n"
             f"{brief}\n\n"
-            f"Language: {language}. {_DELIVERABLE_RULES} "
-            "Do not make promises not stated in the request. Keep each email body under 150 words unless the client asks for longer.\n\n"
-            "**Output shape — email sequence:** For each email use: ## Email N (e.g. ## Email 1), then ### Subject line, ### Body, ### CTA. "
-            "If the client asks for timing or personalization, add a final section: ## Timing and personalization (bullets or short paragraph).\n"
-            "**Output shape — single email:** ## Subject lines (2–3 options), ## Body, ## Follow-up (optional). "
-            "Output only the Markdown document, no preamble."
+            f"Language: {language}. {_DELIVERABLE_RULES}\n\n"
+            "**Output shape — single email:**\n"
+            "## Subject Lines — 3 options (A/B/C) with a one-word descriptor (e.g. 'Direct', 'Curiosity', 'Value')\n"
+            "## Email Body — ready-to-send, conversational tone, ≤150 words unless longer requested\n"
+            "## CTA — the one specific action you want the reader to take\n"
+            "## Why It Works — 2–3 bullets explaining the persuasion strategy\n\n"
+            "**Output shape — email sequence:** For each email: ## Email N, ### Subject, ### Body, ### CTA. "
+            "Add ## Timing Strategy at the end (when to send each email). "
+            "Output only the Markdown document."
         )
         try:
             out, usage = await _chat(self, system, user)
@@ -266,12 +292,23 @@ class SocialPostWorker(BaseWorker):
         audience = _ctx(task, "audience", "general audience")
         tone = _ctx(task, "tone", "clear, confident")
         language = _ctx(task, "language", "English")
-        system = (self.system_prompt or "You write concise posts with strong hooks. Respect platform length limits.").strip()
+        system = (self.system_prompt or (
+            "You are a social media strategist and copywriter. "
+            "You write posts that stop the scroll. "
+            "Every post must open with a hook, deliver value, and drive engagement. "
+            "Match the platform's culture and character limits precisely."
+        )).strip()
+        char_limits = {"x": "≤280 chars", "twitter": "≤280 chars", "linkedin": "≤3000 chars, use line breaks", "instagram": "≤2200 chars"}
+        char_note = char_limits.get(platform.lower(), "appropriate length for platform")
         user = (
             f"Client request or topic:\n\n{brief}\n\n"
-            f"Language: {language}. Platform: {platform}. Audience: {audience}. Tone: {tone}. {_DELIVERABLE_RULES} Do not invent numbers.\n\n"
-            "**Output shape**: ## Variations (4–5 short variants, e.g. A/B/C), ## Hashtags (4–5 if appropriate), ## CTA (one line). "
-            "Output only the Markdown document, no preamble."
+            f"Platform: {platform} ({char_note}). Audience: {audience}. Tone: {tone}. Language: {language}.\n\n"
+            "**Output shape**:\n"
+            "## Post Variants — 5 distinct versions (label A–E, vary hook style: question/stat/story/bold claim/insight)\n"
+            "## Hashtags — 5–8 relevant hashtags with brief rationale\n"
+            "## Best Pick — recommend one variant and explain why in 1–2 sentences\n"
+            "## Engagement Tip — one tactical suggestion to boost reach (timing, format, reply strategy)\n"
+            "Output only the Markdown document."
         )
         try:
             out, usage = await _chat(self, system, user)

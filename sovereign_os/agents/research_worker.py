@@ -46,17 +46,30 @@ class ResearchWorker(BaseWorker):
         prompt = (
             "Client request (follow exactly):\n\n"
             f"{brief}\n\n"
-            "Use Markdown with ## for main sections and ### for subsections. Do not invent data; use only public information—if a figure is estimated, say 'estimated' or cite 'public sources'.\n\n"
-            "**If the request asks for competitive landscape, comparison table, or differentiators**, use this output shape:\n"
-            "- ## Overview — 2–4 sentences on the space and the client's position\n"
-            "- ## Comparison — a Markdown table with columns the client asked for (e.g. Feature, Pricing, Geography); one row per competitor plus the client\n"
-            "- ## Differentiators (or ## Recommendations) — 2–4 bullets with short rationale\n"
-            "**Otherwise** (short research): ## Key findings (3–5 bullets), ## Conclusion (one short paragraph).\n"
-            "Output only the Markdown document, no preamble."
+            "Use clean Markdown: ## for main sections, ### for subsections, **bold** for key terms. "
+            "Do not invent data — all figures must be public information; label estimates as 'estimated' or 'circa'. "
+            "Open with the most important finding. Be specific and scannable.\n\n"
+            "**For competitive landscape / comparison requests**, use:\n"
+            "- ## Executive Summary — 2–3 sentences on the market and key insight\n"
+            "- ## Market Overview — size, trends, and key dynamics (bullets)\n"
+            "- ## Competitive Comparison — Markdown table with relevant columns; include a 'Verdict' column\n"
+            "- ## Key Differentiators — 3–5 specific, actionable differentiators\n"
+            "- ## Recommendations — 2–4 strategic bullets\n\n"
+            "**For general research requests**, use:\n"
+            "- ## Summary — 3–5 bullet findings (most important first)\n"
+            "- ## Deep Dive — supporting analysis with examples\n"
+            "- ## Conclusion — one clear paragraph\n"
+            "- ## Actionable Next Steps — 3 concrete steps based on the research\n\n"
+            "Output only the Markdown document."
         )
         try:
             system = (
-                (self.system_prompt or "You are a factual researcher. Output slide-ready, scannable content; tables in Markdown.").strip()
+                (self.system_prompt or (
+                    "You are a senior research analyst. "
+                    "You synthesize public information into clear, actionable intelligence. "
+                    "Your output should be slide-ready and executive-facing: no filler, maximum insight. "
+                    "Always cite the type of source when referencing data (e.g. 'industry report', 'company announcement', 'analyst estimate')."
+                )).strip()
                 or "You are a concise researcher. Be factual and brief."
             )
             messages = [

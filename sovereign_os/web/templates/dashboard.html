@@ -1089,7 +1089,7 @@
           if (failedAudits.length) parts.push('<div class="job-result-audit" style="background:var(--bg-elevated);padding:12px 14px;border-radius:8px;margin-bottom:14px;border:1px solid var(--border);"><strong>Audit failure details (Judge)</strong><br>' + failedAudits.map(function(a) { return '<div style="margin-top:8px"><strong>Task ' + escapeHtml(a.task_id || '') + '</strong> score ' + (a.score != null ? a.score : '') + '<br><strong>Reason:</strong> ' + escapeHtml(a.reason || '') + (a.suggested_fix ? '<br><strong>Suggested fix:</strong> ' + escapeHtml(a.suggested_fix) : '') + '</div>'; }).join('') + '</div>');
         }
         if (d.goal) parts.push('<p class="job-result-goal"><strong>Goal:</strong> ' + escapeHtml(d.goal.slice(0, 500)) + (d.goal.length > 500 ? '…' : '') + '</p>');
-        parts.push('<p class="job-result-download"><a href="/api/jobs/' + jobId + '/result/download" target="_blank" rel="noopener" class="btn" style="display:inline-block;margin-bottom:12px">Download result (demo)</a></p>');
+        parts.push('<p class="job-result-download"><a href="/api/jobs/' + jobId + '/result/download" target="_blank" rel="noopener" class="btn" style="display:inline-block;margin-bottom:12px;margin-right:8px">&#8659; Download result</a><a href="/api/jobs/' + jobId + '/result/download?fmt=md" target="_blank" rel="noopener" class="btn" style="display:inline-block;margin-bottom:12px;opacity:0.75">&#8659; .md</a></p>');
         if (d.tasks && d.tasks.length) {
           d.tasks.forEach(function(t, i) {
             var out = (t.output || '').slice(0, 50000);

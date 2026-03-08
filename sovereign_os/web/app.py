@@ -1828,19 +1828,51 @@ class {class_name}(BaseWorker):
         return _job_results[key]
 
     @app.get("/api/jobs/{job_id}/result/download")
-    def api_jobs_result_download(job_id: int):
-        """Return job combined_output as plain text file (for demo: 'Download result' link)."""
+    def api_jobs_result_download(job_id: int, fmt: str = "txt"):
+        """Return job result as a downloadable file. fmt=txt (default) or fmt=md."""
         from fastapi.responses import PlainTextResponse
+        import re as _re
         key = int(job_id)
         if key not in _job_results:
             return PlainTextResponse(content="No result stored for this job.", status_code=404)
         data = _job_results[key]
-        text = data.get("combined_output") or ""
-        if data.get("goal"):
-            text = (data.get("goal", "")[:500] + "\n\n---\n\n") + text
+        goal = data.get("goal", "") or ""
+        combined = data.get("combined_output") or ""
+
+        # Build a clean readable filename from goal (first 6 words, slug-ified)
+        words = _re.sub(r"[^\w\s]", "", goal).split()[:6]
+        slug = "-".join(w.lower() for w in words if w) or f"job-{job_id}"
+        slug = _re.sub(r"-+", "-", slug)[:48]
+        ext = "md" if fmt == "md" else "txt"
+        filename = f"{slug}.{ext}"
+
+        # Compose content with header
+        header = f"# {goal[:200]}\n\nJob #{job_id}\n\n---\n\n" if fmt == "md" else f"{goal[:200]}\n\n---\n\n"
+        # Include per-task outputs if available
+        tasks = data.get("tasks") or []
+        body_parts = []
+        if tasks:
+            for i, t in enumerate(tasks, 1):
+                skill = t.get("skill", "")
+                out = (t.get("output") or "").strip()
+                if out:
+                    if fmt == "md":
+                        body_parts.append(f"## Task {i}" + (f" — {skill}" if skill else "") + f"\n\n{out}")
+                    else:
+                        body_parts.append(f"=== Task {i}" + (f" ({skill})" if skill else "") + f" ===\n\n{out}")
+        if combined and combined not in "\n".join(body_parts):
+            if fmt == "md":
+                body_parts.append(f"## Delivery\n\n{combined}")
+            else:
+                body_parts.append(f"=== Delivery ===\n\n{combined}")
+
+        separator = "\n\n---\n\n" if fmt == "md" else "\n\n" + "="*60 + "\n\n"
+        text = header + separator.join(body_parts) if body_parts else header + "(no output)"
+        media_type = "text/markdown" if fmt == "md" else "text/plain"
         return PlainTextResponse(
             content=text,
-            headers={"Content-Disposition": f'attachment; filename="job-{job_id}-result.txt"'},
+            media_type=f"{media_type}; charset=utf-8",
+            headers={"Content-Disposition": f'attachment; filename="{filename}"'},
         )
 
     @app.post("/api/jobs/clear-completed")
