@@ -5,23 +5,28 @@
 </p>
 
 <pre align="center">
-  _____  ______      ________ _____  ______ _____ _____ _   _
- / ____|/ __ \ \    / /  ____|  __ \|  ____|_   _/ ____| \ | |
-| (___ | |  | \ \  / /| |__  | |__) | |__    | || |  __|  \| |
- \___ \| |  | |\ \/ / |  __| |  _  /|  __|   | || | |_ | . ` |
- ____) | |__| | \  /  | |____| | \ \| |____ _| || |__| | |\  |
-|_____/ \____/   \/   |______|_|  \_\______|_____\_____|_| \_|
+███████╗ ██████╗ ██╗   ██╗███████╗██████╗ ███████╗██╗ ██████╗ ███╗   ██╗
+██╔════╝██╔═══██╗██║   ██║██╔════╝██╔══██╗██╔════╝██║██╔════╝ ████╗  ██║
+███████╗██║   ██║██║   ██║█████╗  ██████╔╝█████╗  ██║██║  ███╗██╔██╗ ██║
+╚════██║██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██╔══╝  ██║██║   ██║██║╚██╗██║
+███████║╚██████╔╝ ╚████╔╝ ███████╗██║  ██║███████╗██║╚██████╔╝██║ ╚████║
+╚══════╝ ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
 
-          ____   _____
-         / __ \ / ____|
-        | |  | | (___
-        | |  | |\___ \
-        | |__| |____) |
-         \____/|_____/
+                    ██████╗ ███████╗
+                   ██╔═══██╗██╔════╝
+                   ██║   ██║███████╗
+                   ██║   ██║╚════██║
+                   ╚██████╔╝███████║
+                    ╚═════╝ ╚══════╝
 </pre>
 
 <p align="center">
-  <strong>Constitution-first AI orchestration. One YAML defines who the agent is, what it may spend, and how success is measured.</strong>
+  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard" width="760" style="max-width:100%"/>
+</p>
+
+<p align="center">
+  <strong>A governed AI workforce, ready to deploy on day one.<br>
+  Submit a goal — Sovereign-OS plans it, approves the budget, executes with built-in workers, and delivers a cryptographically verified result.</strong>
 </p>
 
 <p align="center">
@@ -32,10 +37,6 @@
   <a href="#configuration">Configuration</a> &bull;
   <a href="#custom-workers">Custom Workers</a> &bull;
   <a href="#docs">Docs</a>
-</p>
-
-<p align="center">
-  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard" width="760" style="max-width:100%"/>
 </p>
 
 ---
