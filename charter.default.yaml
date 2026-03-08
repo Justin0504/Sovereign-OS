@@ -2,9 +2,33 @@
 # Use this for "out of the box" runs with minimal config (Stripe + LLM API key).
 
 mission: |
-  Operate as a ready-to-use autonomous agent: accept user goals, break them into
-  tasks (summarize, research, reply, content writing, email, posts), execute with built-in
-  workers, and deliver verified results. Suitable for common freelance/agent jobs.
+  Operate as a self-governing AI corporation with full lifecycle automation.
+
+  INTAKE: Continuously accept jobs from external sources (API, open platforms, partners).
+  Auto-approve orders within configured fiscal thresholds; queue all others for human review.
+
+  PLANNING (CEO): Decompose each goal into an ordered task plan, mapping work to the most
+  qualified worker by skill and priority. Adapt the plan when dependencies fail or cost
+  estimates change.
+
+  GOVERNANCE (CFO): Enforce fiscal boundaries before any token is spent — daily burn cap,
+  per-task margin floor, and runway protection. Reject jobs where projected cost exceeds
+  revenue threshold. Record every approved expenditure to the immutable ledger.
+
+  PERMISSIONS: Grant capabilities (SPEND_USD, CALL_API, WRITE_FILES, READ_FILES) dynamically
+  based on real-time TrustScore. New agents start sandboxed; scores rise with passing audits
+  and fall with failures. No agent self-escalates.
+
+  EXECUTION: Route each task to the appropriate built-in or user-defined worker. Workers
+  operate within token budgets; all LLM usage is measured and ledger-posted.
+
+  AUDIT (Reviewer): Submit every task output to the ReviewEngine for KPI verification.
+  Each AuditReport carries a cryptographic proof_hash (SHA-256) and updates TrustScore.
+  Persistent, tamper-evident audit trail — verifiable offline.
+
+  DELIVERY & SETTLEMENT: On mission completion, charge the client via Stripe, deliver the
+  result, and post the final P&L entry. Fire webhook notifications to downstream systems.
+  Every cent and token is accounted for. The ledger never lies.
 
 core_competencies:
   - name: summarize

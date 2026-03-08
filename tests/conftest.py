@@ -54,5 +54,6 @@ def auth():
 
 @pytest.fixture
 def review_engine(charter):
-    """ReviewEngine with StubAuditor (no LLM)."""
-    return ReviewEngine(charter, judge=None)
+    """ReviewEngine with StubAuditor (no LLM calls in tests)."""
+    from sovereign_os.auditor.review_engine import StubAuditor
+    return ReviewEngine(charter, judge=StubAuditor())

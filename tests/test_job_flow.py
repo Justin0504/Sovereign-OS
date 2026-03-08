@@ -39,10 +39,13 @@ def test_get_tasks_empty(client):
 
 
 def test_post_job_creates_pending(client):
-    r = client.post(
-        "/api/jobs",
-        json={"goal": "Do something", "charter": "Test", "amount_cents": 100},
-    )
+    import os
+    from unittest.mock import patch
+    with patch.dict(os.environ, {"SOVEREIGN_AUTO_APPROVE_JOBS": "false"}, clear=False):
+        r = client.post(
+            "/api/jobs",
+            json={"goal": "Do something", "charter": "Test", "amount_cents": 100},
+        )
     assert r.status_code == 200
     job = r.json()["job"]
     assert job["status"] == "pending"

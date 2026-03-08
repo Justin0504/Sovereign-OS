@@ -52,10 +52,11 @@ async def test_e2e_full_pipeline_with_mock_strategist(charter, ledger, auth, rev
     )
     assert plan.goal_summary == goal[:80]
     assert len(plan.tasks) == 1
-    assert plan.tasks[0].task_id == "task-1"
+    # _normalize_plan_task_ids rewrites task_id to "task-{n}-{skill}"
+    assert plan.tasks[0].task_id == "task-1-research"
     assert plan.tasks[0].required_skill == "research"
     assert len(results) == 1
-    assert results[0].task_id == "task-1"
+    assert results[0].task_id == "task-1-research"
     assert results[0].success is True
     assert len(results[0].output) > 0
     assert len(reports) == 1
@@ -86,7 +87,8 @@ async def test_e2e_audit_trail_persisted(charter, ledger, auth, tmp_path):
     assert len(lines) == 1
     import json
     entry = json.loads(lines[0])
-    assert entry["task_id"] == "task-1"
+    # _normalize_plan_task_ids rewrites task_id to "task-{n}-{skill}"
+    assert entry["task_id"] == "task-1-research"
     assert entry["proof_hash"]
     from sovereign_os.auditor.trail import verify_report_integrity
     assert verify_report_integrity(entry) is True
