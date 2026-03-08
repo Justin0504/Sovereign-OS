@@ -4,24 +4,12 @@
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-green.svg" alt="Python 3.12+"/></a>
 </p>
 
-<pre align="center">
-███████╗ ██████╗ ██╗   ██╗███████╗██████╗ ███████╗██╗ ██████╗ ███╗   ██╗
-██╔════╝██╔═══██╗██║   ██║██╔════╝██╔══██╗██╔════╝██║██╔════╝ ████╗  ██║
-███████╗██║   ██║██║   ██║█████╗  ██████╔╝█████╗  ██║██║  ███╗██╔██╗ ██║
-╚════██║██║   ██║╚██╗ ██╔╝██╔══╝  ██╔══██╗██╔══╝  ██║██║   ██║██║╚██╗██║
-███████║╚██████╔╝ ╚████╔╝ ███████╗██║  ██║███████╗██║╚██████╔╝██║ ╚████║
-╚══════╝ ╚═════╝   ╚═══╝  ╚══════╝╚═╝  ╚═╝╚══════╝╚═╝ ╚═════╝ ╚═╝  ╚═══╝
-
-                    ██████╗ ███████╗
-                   ██╔═══██╗██╔════╝
-                   ██║   ██║███████╗
-                   ██║   ██║╚════██║
-                   ╚██████╔╝███████║
-                    ╚═════╝ ╚══════╝
-</pre>
+<p align="center">
+  <img src="readme_images/sovereign_logo.png" alt="Sovereign-OS" width="720" style="max-width:100%"/>
+</p>
 
 <p align="center">
-  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard" width="760" style="max-width:100%"/>
+  <img src="readme_images/demo.mp4" alt="Sovereign-OS dashboard demo" width="760" style="max-width:100%"/>
 </p>
 
 <p align="center">
@@ -108,7 +96,8 @@ Charter (YAML)
 ```
 
 <p align="center">
-  <img src="readme_images/charter.png" alt="Charter YAML anatomy" width="600" style="max-width:100%"/>
+  <img src="readme_images/overview.png" alt="System overview" width="380" style="max-width:48%"/>&nbsp;&nbsp;
+  <img src="readme_images/charter.png" alt="Charter panel" width="380" style="max-width:48%"/>
 </p>
 
 <details>
