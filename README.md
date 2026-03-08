@@ -96,8 +96,7 @@ Charter (YAML)
 ```
 
 <p align="center">
-  <img src="readme_images/overview.png" alt="System overview" width="380" style="max-width:48%"/>&nbsp;&nbsp;
-  <img src="readme_images/charter.png" alt="Charter panel" width="380" style="max-width:48%"/>
+  <img src="readme_images/overview.png" alt="System overview" width="720" style="max-width:100%"/>
 </p>
 
 <details>
@@ -117,10 +116,16 @@ flowchart LR
 
 **Key design decisions:**
 
+<table><tr><td valign="top" width="55%">
+
 - The Charter is the single source of truth. Changing runtime behavior means changing the Charter, not the code.
 - The Ledger is append-only JSONL. No delete, no update. Every entry carries a sequence number.
 - TrustScore gates capability grants. A new agent cannot spend USD or write files until it earns them through passing audits.
 - Workers are pluggable. The 16 built-in workers cover common content and code tasks. You can add your own in a single Python file.
+
+</td><td valign="top" width="45%">
+<img src="readme_images/charter.png" alt="Charter panel" width="100%"/>
+</td></tr></table>
 
 ---
 
