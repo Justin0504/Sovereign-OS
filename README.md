@@ -9,7 +9,7 @@
 </p>
 
 <p align="center">
-  <img src="readme_images/demo.mp4" alt="Sovereign-OS dashboard demo" width="760" style="max-width:100%"/>
+  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard demo" width="760" style="max-width:100%"/>
 </p>
 
 <p align="center">
