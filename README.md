@@ -9,10 +9,6 @@
 </p>
 
 <p align="center">
-  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard demo" width="760" style="max-width:100%"/>
-</p>
-
-<p align="center">
   <strong>A governed AI workforce, ready to deploy on day one.<br>
   Submit a goal — Sovereign-OS plans it, approves the budget, executes with built-in workers, and delivers a cryptographically verified result.</strong>
 </p>
@@ -25,6 +21,10 @@
   <a href="#configuration">Configuration</a> &bull;
   <a href="#custom-workers">Custom Workers</a> &bull;
   <a href="#docs">Docs</a>
+</p>
+
+<p align="center">
+  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard demo" width="760" style="max-width:100%"/>
 </p>
 
 ---
