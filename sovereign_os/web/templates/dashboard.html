@@ -9,6 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
       /* Orange-white theme */
@@ -437,6 +438,42 @@
     .job-result-formatted { line-height: 1.5; }
     .job-result-download a { text-decoration: none; color: var(--accent-link); }
     .job-result-combined { margin-top: 16px; }
+    /* Markdown rendered output */
+    .job-result-md h1,.job-result-md h2,.job-result-md h3 { margin: 16px 0 8px; color: var(--black); }
+    .job-result-md h1 { font-size: 1.25rem; } .job-result-md h2 { font-size: 1.1rem; } .job-result-md h3 { font-size: 1rem; }
+    .job-result-md p { margin: 8px 0; } .job-result-md ul,.job-result-md ol { margin: 8px 0 8px 20px; }
+    .job-result-md table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 0.85rem; }
+    .job-result-md th,.job-result-md td { border: 1px solid var(--border); padding: 6px 10px; text-align: left; }
+    .job-result-md th { background: var(--accent-soft); font-weight: 600; }
+    .job-result-md code { background: rgba(0,0,0,0.06); padding: 2px 5px; border-radius: 3px; font-size: 0.85em; }
+    .job-result-md pre { background: rgba(0,0,0,0.05); padding: 12px; border-radius: 6px; overflow-x: auto; }
+    .job-result-md blockquote { border-left: 3px solid var(--accent); padding-left: 12px; color: var(--text-soft); margin: 8px 0; }
+    .job-result-md strong { color: var(--black); }
+    /* Job progress bar */
+    .job-progress { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); }
+    .job-progress-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .job-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent) 0%, #e87c1e 100%); border-radius: 3px; transition: width 0.5s var(--ease-out); }
+    .job-progress-label { min-width: 90px; font-weight: 500; }
+    /* Batch select */
+    .batch-bar { display: none; align-items: center; gap: 10px; padding: 8px 12px; background: var(--accent-soft); border-radius: 8px; margin-bottom: 10px; font-size: 0.85rem; }
+    .batch-bar.active { display: flex; }
+    .batch-bar .btn { padding: 4px 10px; font-size: 0.8rem; }
+    .batch-check { margin-right: 4px; vertical-align: middle; accent-color: var(--accent); }
+    /* Template picker */
+    .tpl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 10px; margin-top: 12px; }
+    .tpl-card { padding: 12px; background: var(--bg-card); border: 1px solid var(--border); border-radius: 8px; cursor: pointer; transition: all var(--dur-fast) var(--ease-out); }
+    .tpl-card:hover { border-color: var(--accent); box-shadow: var(--shadow-hover); transform: translateY(-1px); }
+    .tpl-card-name { font-weight: 600; font-size: 0.9rem; margin-bottom: 4px; }
+    .tpl-card-cat { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 6px; }
+    .tpl-card-desc { font-size: 0.8rem; color: var(--text-soft); }
+    /* Worker stats */
+    .worker-stat-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0; }
+    .worker-stat-fill { height: 8px; border-radius: 4px; background: var(--accent); transition: width 0.3s; }
+    /* Edit modal */
+    .edit-modal { display: none; position: fixed; inset: 0; z-index: 200; align-items: center; justify-content: center; }
+    .edit-modal.open { display: flex; }
+    .edit-modal-bg { position: absolute; inset: 0; background: rgba(0,0,0,0.35); }
+    .edit-modal-box { position: relative; background: var(--bg-card); border-radius: 12px; padding: 24px; width: 480px; max-width: 90%; box-shadow: 0 12px 40px rgba(0,0,0,0.15); }
     .audit-trail-feed { max-height: 160px; overflow-y: auto; font-size: 0.9375rem; }
     .audit-trail-item { padding: 6px 0; border-bottom: 1px solid var(--border); color: var(--text-soft); }
     .audit-trail-item:last-child { border-bottom: none; }
@@ -556,6 +593,10 @@
             <input type="text" id="goal" placeholder="e.g. Summarize the market in one paragraph" value="Summarize the market in one paragraph." />
             <button class="btn" onclick="runMission()">Run</button>
           </div>
+          <details style="margin-top:12px">
+            <summary style="cursor:pointer;font-size:0.85rem;font-weight:600;color:var(--text-soft)">Quick templates</summary>
+            <div class="tpl-grid" id="templateGrid"></div>
+          </details>
         </section>
         <section class="panel-section">
           <div class="card-title">Task DAG</div>
@@ -590,6 +631,13 @@
           <div class="card-title">Operations</div>
           <div class="card-heading">Job queue</div>
           <p class="card-desc">External jobs; approve to run 24/7.</p>
+          <div class="batch-bar" id="batchBar">
+            <span id="batchCount">0 selected</span>
+            <button class="btn" onclick="batchApprove()">Approve</button>
+            <button class="btn" onclick="batchRetry()">Retry</button>
+            <button class="btn" style="background:rgba(0,0,0,0.08);color:var(--black);border:none" onclick="batchDelete()">Delete</button>
+            <button class="btn" style="background:none;color:var(--text-muted);border:none;padding:2px 6px" onclick="clearBatchSelection()">Cancel</button>
+          </div>
           <div class="job-queue-scroll"><div class="tasks-row job-queue-list" id="jobs"></div></div>
         </section>
         <section class="panel-section">
@@ -696,6 +744,19 @@
     </div>
   </div>
   </main>
+  </div>
+  <div class="edit-modal" id="editJobModal">
+    <div class="edit-modal-bg" onclick="closeEditJob()"></div>
+    <div class="edit-modal-box">
+      <h3 style="margin-bottom:16px">Edit & Retry Job</h3>
+      <input type="hidden" id="editJobId" />
+      <div class="form-group"><label>Goal</label><textarea id="editJobGoal" rows="4" style="width:100%;resize:vertical"></textarea></div>
+      <div class="form-group" style="margin-top:12px"><label>Amount (cents)</label><input type="number" id="editJobAmount" min="0" style="width:140px" /></div>
+      <div style="margin-top:16px;display:flex;gap:10px">
+        <button class="btn" onclick="submitEditJob()">Save & Retry</button>
+        <button class="btn" style="background:rgba(0,0,0,0.08);color:var(--black);border:none" onclick="closeEditJob()">Cancel</button>
+      </div>
+    </div>
   </div>
   <script>
     function r(id) { return document.getElementById(id); }
@@ -944,6 +1005,7 @@
         ).join('') : '<span class="task-pill" style="color:var(--text-muted)">No tasks yet. Launch a mission to see your DAG.</span>';
       }).catch(() => {});
     }
+    var _batchSelected = new Set();
     function fetchJobs() {
       fetch('/api/jobs').then(x => x.json()).then(d => {
         const el = r('jobs');
@@ -959,8 +1021,13 @@
           const label = goalAbbr || ('job-' + j.job_id);
           const amount = j.amount_cents ? ' · ' + (j.amount_cents/100).toFixed(2) + ' ' + (j.currency || 'USD') : '';
           const status = ' [' + j.status + ']';
+          const chk = '<input type="checkbox" class="batch-check" data-jid="' + j.job_id + '" data-status="' + j.status + '" onclick="event.stopPropagation();updateBatchBar()" ' + (_batchSelected.has(j.job_id) ? 'checked' : '') + ' />';
           const approveBtn = j.status === 'pending'
             ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); approveJob(' + j.job_id + ')">Approve</button>'
+            : '';
+          const retryBtn = (j.status === 'failed' || j.status === 'payment_failed')
+            ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); retryJob(' + j.job_id + ')">Retry</button>'
+            + ' <button class="btn" style="padding:6px 10px;font-size:0.8rem;background:rgba(0,0,0,0.06);color:var(--black);border:none" onclick="event.stopPropagation(); openEditJob(' + j.job_id + ',\'' + escapeAttr(j.goal || '') + '\',' + (j.amount_cents||0) + ')">Edit</button>'
             : '';
           const viewBtn = (j.status === 'completed' || j.status === 'failed' || j.status === 'payment_failed')
             ? ' <button class="btn" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); viewJobResult(' + j.job_id + ')">View result</button>'
@@ -968,9 +1035,70 @@
           const deleteBtn = ' <button type="button" class="btn btn-delete" style="padding:6px 10px;font-size:0.8rem" onclick="event.stopPropagation(); deleteJob(' + j.job_id + ')">Delete</button>';
           const goalFull = (j.goal && typeof j.goal === 'string') ? escapeHtml(j.goal) : '';
           const expandId = 'job-expand-' + j.job_id;
-          return '<div class="job-pill-wrap"><div class="' + cls + '" style="cursor:pointer" onclick="toggleJobExpand(\'' + expandId + '\')" title="Click to expand"><span class="id">' + escapeHtml(label) + '</span><span>' + amount + status + '</span>' + approveBtn + viewBtn + deleteBtn + '</div><div class="job-pill-expand" id="' + expandId + '">' + (goalFull ? '<strong>Goal</strong><br>' + goalFull : '') + '</div></div>';
+          let progressHtml = '';
+          if (j.status === 'running') {
+            progressHtml = '<div class="job-progress" id="jprog-' + j.job_id + '"><span class="job-progress-label">Starting...</span><div class="job-progress-bar"><div class="job-progress-fill" style="width:5%"></div></div></div>';
+          }
+          return '<div class="job-pill-wrap"><div class="' + cls + '" style="cursor:pointer" onclick="toggleJobExpand(\'' + expandId + '\')" title="Click to expand">' + chk + '<span class="id">' + escapeHtml(label) + '</span><span>' + amount + status + '</span>' + approveBtn + retryBtn + viewBtn + deleteBtn + '</div>' + progressHtml + '<div class="job-pill-expand" id="' + expandId + '">' + (goalFull ? '<strong>Goal</strong><br>' + goalFull : '') + '</div></div>';
         }).join('');
+        // Fetch progress for running jobs
+        jobs.filter(j => j.status === 'running').forEach(j => {
+          fetch('/api/jobs/' + j.job_id + '/progress').then(x => x.json()).then(p => {
+            var el = document.getElementById('jprog-' + j.job_id);
+            if (!el) return;
+            var stages = {planning:'Planning...',approving:'CFO Approving...',executing:'Executing...',auditing:'Auditing...',settling:'Payment...',done:'Done'};
+            var lbl = stages[p.stage] || p.stage;
+            if (p.tasks_total > 0 && p.stage === 'executing') lbl = 'Task ' + p.tasks_done + '/' + p.tasks_total;
+            if (p.current_task) lbl = p.current_task.slice(0,30);
+            el.querySelector('.job-progress-label').textContent = lbl;
+            el.querySelector('.job-progress-fill').style.width = (p.pct || 0) + '%';
+          }).catch(function(){});
+        });
       }).catch(() => {});
+    }
+    function retryJob(id) {
+      fetch('/api/jobs/' + id + '/retry', { method: 'POST' }).then(() => { fetchJobs(); fetchLogs(); }).catch(() => {});
+    }
+    function openEditJob(id, goal, amount) {
+      r('editJobId').value = id;
+      r('editJobGoal').value = decodeURIComponent(goal.replace(/&#(\d+);/g, function(m,n){return String.fromCharCode(n)}).replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&quot;/g,'"'));
+      r('editJobAmount').value = amount;
+      document.getElementById('editJobModal').classList.add('open');
+    }
+    function closeEditJob() { document.getElementById('editJobModal').classList.remove('open'); }
+    function submitEditJob() {
+      var id = r('editJobId').value;
+      fetch('/api/jobs/' + id, {
+        method: 'PUT', headers: {'Content-Type':'application/json'},
+        body: JSON.stringify({ goal: r('editJobGoal').value, amount_cents: parseInt(r('editJobAmount').value) || 0 })
+      }).then(function(x) { return x.json(); }).then(function(d) {
+        if (d.ok) {
+          closeEditJob();
+          fetch('/api/jobs/' + id + '/retry', { method: 'POST' }).then(() => { fetchJobs(); fetchLogs(); });
+        }
+      }).catch(function(){});
+    }
+    // Batch operations
+    function updateBatchBar() {
+      _batchSelected = new Set();
+      document.querySelectorAll('.batch-check:checked').forEach(function(c) { _batchSelected.add(parseInt(c.dataset.jid)); });
+      var bar = r('batchBar');
+      if (_batchSelected.size > 0) { bar.classList.add('active'); r('batchCount').textContent = _batchSelected.size + ' selected'; }
+      else { bar.classList.remove('active'); }
+    }
+    function clearBatchSelection() { _batchSelected.clear(); document.querySelectorAll('.batch-check').forEach(c => c.checked = false); updateBatchBar(); }
+    function batchApprove() {
+      fetch('/api/jobs/batch-approve', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: Array.from(_batchSelected)}) })
+        .then(() => { clearBatchSelection(); fetchJobs(); fetchLogs(); });
+    }
+    function batchRetry() {
+      fetch('/api/jobs/batch-retry', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: Array.from(_batchSelected)}) })
+        .then(() => { clearBatchSelection(); fetchJobs(); fetchLogs(); });
+    }
+    function batchDelete() {
+      if (!confirm('Delete ' + _batchSelected.size + ' jobs?')) return;
+      fetch('/api/jobs/batch-delete', { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify({job_ids: Array.from(_batchSelected)}) })
+        .then(() => { clearBatchSelection(); fetchJobs(); });
     }
     var _logsSnapshot = null;
     function fetchLogs() {
@@ -1064,6 +1192,9 @@
     }
     function formatOutputText(s) {
       if (typeof s !== 'string') return '';
+      if (typeof marked !== 'undefined' && typeof marked.parse === 'function') {
+        try { return '<div class="job-result-md">' + marked.parse(s) + '</div>'; } catch(e) {}
+      }
       return escapeHtml(s).replace(/\n/g, '<br>');
     }
     function viewJobResult(jobId) {
@@ -1111,6 +1242,47 @@
       var el = document.getElementById('jobResultModal');
       if (el) el.classList.remove('open');
     }
+    // Template picker
+    function loadTemplates() {
+      fetch('/api/templates').then(x => x.json()).then(d => {
+        var grid = r('templateGrid');
+        if (!grid || !d.templates) return;
+        grid.innerHTML = d.templates.map(t =>
+          '<div class="tpl-card" onclick="useTemplate(\'' + t.id + '\',\'' + escapeAttr(t.goal) + '\',' + t.default_amount + ')">' +
+          '<div class="tpl-card-name">' + escapeHtml(t.name) + '</div>' +
+          '<div class="tpl-card-cat">' + escapeHtml(t.category) + '</div>' +
+          '<div class="tpl-card-desc">' + escapeHtml(t.description) + '</div></div>'
+        ).join('');
+      }).catch(function(){});
+    }
+    function useTemplate(id, goalTpl, amount) {
+      var goal = prompt('Fill in the template goal:\n\n' + goalTpl.replace(/&quot;/g,'"').replace(/&amp;/g,'&'), goalTpl.replace(/\{[^}]+\}/g, '...'));
+      if (!goal) return;
+      r('goal').value = goal;
+    }
+    loadTemplates();
+
+    // Worker stats in Workers panel
+    var _origFetchWorkers = fetchWorkers;
+    fetchWorkers = function() {
+      _origFetchWorkers();
+      fetch('/api/workers/stats').then(x => x.json()).then(d => {
+        var list = r('workersListRegistered');
+        if (!list || !d.stats || !d.stats.length) return;
+        var existing = list.innerHTML;
+        var statsHtml = '<div style="margin-top:16px;border-top:1px solid var(--border);padding-top:12px"><div style="font-size:0.8rem;font-weight:600;color:var(--text-muted);margin-bottom:8px">PERFORMANCE</div>';
+        d.stats.forEach(function(s) {
+          var pct = s.success_rate || 0;
+          var color = pct >= 80 ? 'var(--accent)' : pct >= 50 ? '#d97706' : '#dc2626';
+          statsHtml += '<div class="worker-stat-bar"><span style="min-width:110px;font-size:0.8rem;font-weight:500">' + escapeHtml(s.skill) + '</span>' +
+            '<div style="flex:1;height:8px;background:var(--border);border-radius:4px;overflow:hidden"><div class="worker-stat-fill" style="width:' + pct + '%;background:' + color + '"></div></div>' +
+            '<span style="font-size:0.75rem;color:var(--text-muted);min-width:80px;text-align:right">' + s.success + '/' + s.total + ' (' + pct + '%)</span></div>';
+        });
+        statsHtml += '</div>';
+        list.insertAdjacentHTML('afterend', statsHtml);
+      }).catch(function(){});
+    };
+
     setInterval(fetchStatus, 2000);
     setInterval(fetchTasks, 1500);
     setInterval(fetchLogs, 1000);

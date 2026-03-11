@@ -153,6 +153,21 @@ class Job:
 _jobs: list[Job] = []
 _next_job_id: int = 1
 _job_results: dict[int, dict[str, Any]] = {}  # job_id -> {goal, tasks: [{task_id, skill, output, success}], combined_output}
+_job_progress: dict[int, dict[str, Any]] = {}  # job_id -> {stage, tasks_total, tasks_done, current_task, pct}
+
+# Built-in job templates
+_JOB_TEMPLATES = [
+    {"id": "blog_post", "name": "Blog Post", "goal": "Write a 500-word blog post about {topic}", "default_amount": 1500, "category": "Writing", "description": "Professional blog post with SEO-ready structure"},
+    {"id": "research_brief", "name": "Research Brief", "goal": "Produce a research brief on {topic} with key findings and recommendations", "default_amount": 1800, "category": "Research", "description": "Executive-facing research with actionable insights"},
+    {"id": "competitive_analysis", "name": "Competitive Analysis", "goal": "Create a one-page competitive snapshot of {topic}", "default_amount": 2000, "category": "Research", "description": "Comparison table with differentiators"},
+    {"id": "cold_email", "name": "Cold Outreach Email", "goal": "Draft a cold outreach email to {target} offering {service}", "default_amount": 1000, "category": "Sales", "description": "3 subject line variants + body + CTA"},
+    {"id": "social_post", "name": "Social Media Post", "goal": "Write a {platform} post announcing {topic}", "default_amount": 700, "category": "Marketing", "description": "5 hook variants + hashtags + engagement tips"},
+    {"id": "translate", "name": "Translation", "goal": "Translate the following to {language}: {text}", "default_amount": 600, "category": "Translation", "description": "Accurate translation preserving formatting"},
+    {"id": "meeting_minutes", "name": "Meeting Minutes", "goal": "Write meeting minutes for: {topic}", "default_amount": 900, "category": "Operations", "description": "Decisions, action items, and follow-ups"},
+    {"id": "strategy_doc", "name": "Strategy Template", "goal": "Create a strategy document for {topic}", "default_amount": 2000, "category": "Strategy", "description": "Go-to-market plan with actionable steps"},
+    {"id": "code_review", "name": "Code Review", "goal": "Review this code and suggest improvements: {description}", "default_amount": 1200, "category": "Engineering", "description": "Security, performance, and maintainability review"},
+    {"id": "problem_solving", "name": "Problem Analysis", "goal": "Analyze and solve: {problem}", "default_amount": 1300, "category": "Consulting", "description": "Structured analysis with actionable recommendations"},
+]
 
 
 def _job_results_path() -> Path:
@@ -402,12 +417,19 @@ def _run_one_job(job: Job) -> None:
         _job_store.update_job(job.job_id, status="running")
     req_id = getattr(job, "request_id", None) or ""
     _logs.append(("ceo", f"Job {job.job_id} running: {job.goal[:80]}{'…' if len(job.goal) > 80 else ''}" + (f" [request_id={req_id}]" if req_id else "")))
+    _job_progress[job.job_id] = {"stage": "planning", "tasks_total": 0, "tasks_done": 0, "current_task": "", "pct": 5}
 
     async def _run_mission_and_settle() -> None:
+        _job_progress[job.job_id] = {"stage": "planning", "tasks_total": 0, "tasks_done": 0, "current_task": "CEO decomposing goal...", "pct": 10}
         plan, results, reports = await _engine.run_mission_with_audit(
             job.goal, abort_on_audit_failure=False, job_revenue_cents=job.amount_cents
         )
         task_by_id = {t.task_id: t for t in plan.tasks} if plan else {}
+        n_tasks = len(results) if results else 0
+        _job_progress[job.job_id] = {
+            "stage": "auditing", "tasks_total": n_tasks, "tasks_done": n_tasks,
+            "current_task": "Verifying deliverables...", "pct": 85,
+        }
         audit_details = []
         if reports:
             for rep in reports:
@@ -437,6 +459,8 @@ def _run_one_job(job: Job) -> None:
         except Exception as e:
             logger.warning("Save job results failed for job %s: %s", job.job_id, e)
         all_passed = all(getattr(r, "passed", False) for r in reports) if reports else True
+        if all_passed:
+            _job_progress[job.job_id] = {"stage": "settling", "tasks_total": n_tasks, "tasks_done": n_tasks, "current_task": "Processing payment...", "pct": 95}
         if not all_passed:
             job.status = "failed"
             job.error = "One or more tasks failed audit"
@@ -487,7 +511,14 @@ def _run_one_job(job: Job) -> None:
             if _job_store is not None:
                 _job_store.update_job(job.job_id, status="completed", payment_id=pid)
             _logs.append(("auditor_pass", f"Job {job.job_id} completed. Charged {job.amount_cents/100:.2f} {job.currency} (ref={pid})."))
+            _job_progress[job.job_id] = {"stage": "done", "tasks_total": n_tasks, "tasks_done": n_tasks, "current_task": "", "pct": 100}
             _fire_job_webhook(job, "completed", results, reports)
+            try:
+                from sovereign_os.notifications import notify_job_event
+                avg_score = sum(getattr(r, "score", 0) for r in reports) / len(reports) if reports else None
+                notify_job_event("job_completed", job.job_id, job.goal, "completed", job.amount_cents, job.currency or "USD", "\n".join(r.output or "" for r in results)[:1000], avg_score)
+            except Exception:
+                pass
         except Exception as e:
             job.status = "payment_failed"
             job.error = str(e)
@@ -1888,6 +1919,205 @@ class {class_name}(BaseWorker):
                 except Exception:
                     pass
         return {"ok": True, "removed": len(to_remove)}
+
+    # --- Job Progress ---
+    @app.get("/api/jobs/{job_id}/progress")
+    def api_job_progress(job_id: int):
+        """Real-time progress for a running job."""
+        key = int(job_id)
+        job = next((j for j in _jobs if j.job_id == key), None)
+        if not job:
+            return JSONResponse(status_code=404, content={"error": "Job not found"})
+        if key in _job_progress:
+            return {**_job_progress[key], "status": job.status}
+        stage_map = {"pending": ("queued", 0), "approved": ("queued", 0), "running": ("executing", 50), "completed": ("done", 100), "failed": ("failed", 100), "payment_failed": ("failed", 100)}
+        s, p = stage_map.get(job.status, ("unknown", 0))
+        return {"stage": s, "tasks_total": 0, "tasks_done": 0, "current_task": "", "pct": p, "status": job.status}
+
+    # --- Task Retry / Edit ---
+    @app.post("/api/jobs/{job_id}/retry")
+    def api_job_retry(job_id: int):
+        """Re-queue a failed job for execution."""
+        key = int(job_id)
+        job = next((j for j in _jobs if j.job_id == key), None)
+        if not job:
+            return JSONResponse(status_code=404, content={"error": "Job not found"})
+        if job.status not in ("failed", "payment_failed"):
+            return JSONResponse(status_code=400, content={"error": f"Cannot retry job in status '{job.status}'"})
+        job.status = "approved"
+        job.error = None
+        job.updated_ts = time.time()
+        retry_count = getattr(job, "retry_count", 0) or 0
+        job.retry_count = retry_count + 1
+        if _job_store is not None:
+            _job_store.update_job(job.job_id, status="approved", error=None)
+        _logs.append(("system", f"Job {job.job_id} queued for retry (attempt #{job.retry_count})."))
+        return {"ok": True, "job_id": key, "retry_count": job.retry_count}
+
+    @app.put("/api/jobs/{job_id}")
+    def api_job_edit(job_id: int, body: dict):
+        """Edit a failed/pending job's goal or amount before retrying."""
+        key = int(job_id)
+        job = next((j for j in _jobs if j.job_id == key), None)
+        if not job:
+            return JSONResponse(status_code=404, content={"error": "Job not found"})
+        if job.status not in ("failed", "payment_failed", "pending"):
+            return JSONResponse(status_code=400, content={"error": f"Cannot edit job in status '{job.status}'"})
+        if "goal" in body and body["goal"]:
+            job.goal = str(body["goal"])[:8000]
+        if "amount_cents" in body:
+            job.amount_cents = int(body["amount_cents"])
+        job.updated_ts = time.time()
+        if _job_store is not None:
+            _job_store.update_job(job.job_id, status=job.status)
+        return {"ok": True, "job": {"job_id": key, "goal": job.goal, "amount_cents": job.amount_cents, "status": job.status}}
+
+    # --- Batch Operations ---
+    @app.post("/api/jobs/batch-approve")
+    def api_batch_approve(body: dict):
+        """Approve multiple jobs at once. body: {job_ids: [1,2,3]}"""
+        ids = body.get("job_ids", [])
+        approved = []
+        for jid in ids:
+            job = next((j for j in _jobs if j.job_id == int(jid)), None)
+            if job and job.status == "pending":
+                job.status = "approved"
+                job.updated_ts = time.time()
+                if _job_store is not None:
+                    _job_store.update_job(job.job_id, status="approved")
+                approved.append(job.job_id)
+        _logs.append(("system", f"Batch approved {len(approved)} jobs."))
+        return {"ok": True, "approved": approved, "count": len(approved)}
+
+    @app.post("/api/jobs/batch-retry")
+    def api_batch_retry(body: dict):
+        """Retry multiple failed jobs at once. body: {job_ids: [1,2,3]}"""
+        ids = body.get("job_ids", [])
+        retried = []
+        for jid in ids:
+            job = next((j for j in _jobs if j.job_id == int(jid)), None)
+            if job and job.status in ("failed", "payment_failed"):
+                job.status = "approved"
+                job.error = None
+                job.updated_ts = time.time()
+                rc = getattr(job, "retry_count", 0) or 0
+                job.retry_count = rc + 1
+                if _job_store is not None:
+                    _job_store.update_job(job.job_id, status="approved", error=None)
+                retried.append(job.job_id)
+        _logs.append(("system", f"Batch retried {len(retried)} jobs."))
+        return {"ok": True, "retried": retried, "count": len(retried)}
+
+    @app.post("/api/jobs/batch-delete")
+    def api_batch_delete(body: dict):
+        """Delete multiple jobs at once. body: {job_ids: [1,2,3]}"""
+        ids = [int(x) for x in body.get("job_ids", [])]
+        deleted = []
+        for jid in ids:
+            job = next((j for j in _jobs if j.job_id == jid), None)
+            if job:
+                _jobs.remove(job)
+                if _job_store is not None and hasattr(_job_store, "delete_job"):
+                    try:
+                        _job_store.delete_job(jid)
+                    except Exception:
+                        pass
+                deleted.append(jid)
+        return {"ok": True, "deleted": deleted, "count": len(deleted)}
+
+    @app.post("/api/jobs/batch")
+    def api_batch_submit(body: dict):
+        """Submit multiple jobs at once. body: {jobs: [{goal, amount_cents, charter?}, ...]}"""
+        global _next_job_id
+        items = body.get("jobs", [])
+        created = []
+        for item in items[:50]:
+            goal = str(item.get("goal", "")).strip()
+            if not goal:
+                continue
+            amount = int(item.get("amount_cents", 0))
+            charter = str(item.get("charter", "Default"))
+            job = Job(job_id=_next_job_id, goal=goal, charter=charter, amount_cents=amount, currency=item.get("currency", "USD"))
+            _next_job_id += 1
+            auto = os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS", "true").lower() in ("true", "1", "yes")
+            if auto:
+                job.status = "approved"
+            _jobs.append(job)
+            if _job_store is not None:
+                try:
+                    _job_store.add_job(goal=job.goal, charter=job.charter, amount_cents=job.amount_cents, currency=job.currency, status=job.status)
+                except Exception:
+                    pass
+            created.append({"job_id": job.job_id, "goal": goal[:80], "status": job.status})
+        _logs.append(("system", f"Batch submitted {len(created)} jobs."))
+        return {"ok": True, "jobs": created, "count": len(created)}
+
+    # --- Templates ---
+    @app.get("/api/templates")
+    def api_templates():
+        """Return built-in job templates."""
+        return {"templates": _JOB_TEMPLATES}
+
+    @app.post("/api/jobs/from-template")
+    def api_job_from_template(body: dict):
+        """Create a job from a template. body: {template_id, variables: {topic: ..., ...}, amount_cents?}"""
+        global _next_job_id
+        tid = body.get("template_id", "")
+        tpl = next((t for t in _JOB_TEMPLATES if t["id"] == tid), None)
+        if not tpl:
+            return JSONResponse(status_code=404, content={"error": f"Template '{tid}' not found"})
+        variables = body.get("variables", {})
+        goal = tpl["goal"]
+        for k, v in variables.items():
+            goal = goal.replace("{" + k + "}", str(v))
+        amount = int(body.get("amount_cents", tpl["default_amount"]))
+        job = Job(job_id=_next_job_id, goal=goal, charter="Default", amount_cents=amount, currency="USD")
+        _next_job_id += 1
+        auto = os.getenv("SOVEREIGN_AUTO_APPROVE_JOBS", "true").lower() in ("true", "1", "yes")
+        if auto:
+            job.status = "approved"
+        _jobs.append(job)
+        if _job_store is not None:
+            try:
+                _job_store.add_job(goal=job.goal, charter=job.charter, amount_cents=job.amount_cents, currency=job.currency, status=job.status)
+            except Exception:
+                pass
+        _logs.append(("system", f"Job {job.job_id} created from template '{tpl['name']}'."))
+        return {"ok": True, "job": {"job_id": job.job_id, "goal": goal, "status": job.status, "amount_cents": amount}}
+
+    # --- Worker Stats ---
+    @app.get("/api/workers/stats")
+    def api_worker_stats():
+        """Return per-worker performance stats from recent job results."""
+        stats: dict[str, dict] = {}
+        for jid, data in _job_results.items():
+            for t in (data.get("tasks") or []):
+                skill = t.get("skill", "unknown")
+                if skill not in stats:
+                    stats[skill] = {"skill": skill, "total": 0, "success": 0, "fail": 0, "avg_output_len": 0, "_output_lens": []}
+                stats[skill]["total"] += 1
+                if t.get("success"):
+                    stats[skill]["success"] += 1
+                else:
+                    stats[skill]["fail"] += 1
+                stats[skill]["_output_lens"].append(len(t.get("output", "") or ""))
+        for s in stats.values():
+            lens = s.pop("_output_lens", [])
+            s["avg_output_len"] = int(sum(lens) / len(lens)) if lens else 0
+            s["success_rate"] = round(s["success"] / s["total"] * 100, 1) if s["total"] else 0
+        return {"stats": list(stats.values())}
+
+    # --- Notifications ---
+    @app.get("/api/notifications/config")
+    def api_notifications_config():
+        """Return current notification config."""
+        return {
+            "email_enabled": bool(os.getenv("SOVEREIGN_SMTP_HOST")),
+            "slack_enabled": bool(os.getenv("SOVEREIGN_SLACK_WEBHOOK_URL")),
+            "webhook_enabled": bool(os.getenv("SOVEREIGN_WEBHOOK_URL")),
+            "email_to": os.getenv("SOVEREIGN_NOTIFY_EMAIL", ""),
+            "slack_url": os.getenv("SOVEREIGN_SLACK_WEBHOOK_URL", "")[:30] + "..." if os.getenv("SOVEREIGN_SLACK_WEBHOOK_URL") else "",
+        }
 
     @app.get("/api/storage")
     def api_storage():
