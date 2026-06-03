@@ -17,6 +17,25 @@ from pathlib import Path
 from sovereign_os import __version__
 
 
+def _print_cost_trace(ledger) -> None:
+    """Print a compact per-model / per-agent cost trace after a mission."""
+    summary = ledger.cost_summary()
+    cost_cents = summary["token_cost_cents"]
+    print(
+        f"Cost: ${cost_cents / 100:.4f} "
+        f"({summary['total_input_tokens']} in + {summary['total_output_tokens']} out tokens)"
+    )
+    by_model = summary["by_model_cents"]
+    if by_model:
+        for model, cents in sorted(by_model.items(), key=lambda kv: -kv[1]):
+            print(f"    {model}: ${cents / 100:.4f}")
+    by_agent = summary["by_agent_cents"]
+    if by_agent:
+        print("  By agent:")
+        for agent, cents in sorted(by_agent.items(), key=lambda kv: -kv[1]):
+            print(f"    {agent}: ${cents / 100:.4f}")
+
+
 def _run_mission(
     charter_path: str,
     goal: str,
@@ -48,6 +67,7 @@ def _run_mission(
             out = (r.output or "").strip()
             preview = out[:80] + ("..." if len(out) > 80 else "")
             print(f"  {r.task_id}: {'OK' if r.success else 'FAIL'} — {preview}")
+        _print_cost_trace(ledger)
         return 0 if passed == len(reports) and reports else 1
 
     return asyncio.run(_run())

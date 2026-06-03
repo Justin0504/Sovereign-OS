@@ -33,13 +33,52 @@ class FiscalBoundaries(BaseModel):
         float,
         Field(ge=0, description="Total budget cap in USD (runway ceiling)"),
     ] = 0.0
+    max_task_cost_usd: Annotated[
+        float,
+        Field(
+            ge=0,
+            description=(
+                "Hard per-task spend ceiling in USD. The CFO rejects any single task whose "
+                "estimated cost exceeds this. 0=disabled."
+            ),
+        ),
+    ] = 0.0
     currency: Annotated[str, Field(min_length=1)] = "USD"
     min_job_margin_ratio: Annotated[
         float,
         Field(ge=0, le=1, description="Minimum gross margin per job (0=disabled, 0.35=35%% margin floor)"),
     ] = 0.35
+    settlement_fee_ratio: Annotated[
+        float,
+        Field(
+            ge=0,
+            le=1,
+            description=(
+                "Fraction of job revenue lost to settlement (e.g. x402 facilitator + network "
+                "fees, Stripe fees). Subtracted from revenue before the margin check so the "
+                "CFO reasons about funds that actually land. 0=disabled."
+            ),
+        ),
+    ] = 0.0
+    runway_floor_days: Annotated[
+        int,
+        Field(
+            ge=0,
+            description=(
+                "Minimum projected runway (days) the CFO must preserve. When >0, a task is "
+                "denied if approving it would push projected runway below this floor. 0=disabled."
+            ),
+        ),
+    ] = 0
 
-    @field_validator("daily_burn_max_usd", "max_budget_usd", "min_job_margin_ratio", mode="before")
+    @field_validator(
+        "daily_burn_max_usd",
+        "max_budget_usd",
+        "max_task_cost_usd",
+        "min_job_margin_ratio",
+        "settlement_fee_ratio",
+        mode="before",
+    )
     @classmethod
     def coerce_float(cls, v: object) -> float:
         if isinstance(v, (int, str)):

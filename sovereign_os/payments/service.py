@@ -134,9 +134,37 @@ def create_payment_service() -> PaymentService:
     """
     Best-effort payment service factory.
 
-    If STRIPE_API_KEY is set and `stripe` is installed -> StripePaymentService.
-    Otherwise -> DummyPaymentService (for demos and tests).
+    Selection order:
+    1. PAYMENT_PROVIDER env explicitly set to "x402" / "stripe" / "dummy".
+    2. Auto: x402 if X402_PAY_TO is set; else Stripe if STRIPE_API_KEY is set;
+       else Dummy.
+
+    The x402 rail defaults to sandbox (testnet) — it never moves real funds
+    unless X402_SANDBOX=false AND X402_FACILITATOR_URL is configured.
     """
+    provider = (os.getenv("PAYMENT_PROVIDER") or "").strip().lower()
+
+    def _make_x402() -> PaymentService:
+        from sovereign_os.payments.x402 import X402PaymentService
+
+        svc = X402PaymentService.from_env()
+        logger.warning(
+            "PAYMENTS: Using X402PaymentService (%s mode, network=%s, pay_to=%s).",
+            "live" if svc.is_live else "sandbox",
+            svc.network,
+            svc.pay_to or "(unset)",
+        )
+        return svc
+
+    if provider == "x402":
+        return _make_x402()
+    if provider == "dummy":
+        logger.warning("PAYMENTS: PAYMENT_PROVIDER=dummy — using DummyPaymentService.")
+        return DummyPaymentService()
+    if provider != "stripe" and os.getenv("X402_PAY_TO"):
+        # Auto-select x402 when a payout address is configured (and Stripe wasn't forced).
+        return _make_x402()
+
     key = os.getenv("STRIPE_API_KEY")
     logger.warning("PAYMENTS: create_payment_service called. STRIPE_API_KEY set=%s", bool(key))
     if key:

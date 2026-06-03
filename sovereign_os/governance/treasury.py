@@ -61,6 +61,10 @@ class Treasury:
     def _daily_burn_max_cents(self) -> int:
         return int(self._charter.fiscal_boundaries.daily_burn_max_usd * 100)
 
+    @property
+    def _max_task_cost_cents(self) -> int:
+        return int(getattr(self._charter.fiscal_boundaries, "max_task_cost_usd", 0.0) * 100)
+
     def approve_task(self, estimated_cost_cents: int, *, task_id: str = "", purpose: str = "") -> None:
         """
         Check fiscal constraints for a task. Raises FiscalInsolvencyError if denied.
@@ -69,6 +73,18 @@ class Treasury:
         - Ensures daily_spend + estimated_cost <= charter.fiscal_boundaries.daily_burn_max_usd (in cents).
         """
         balance_cents = self._ledger.total_usd_cents()
+        max_task_cents = self._max_task_cost_cents
+        if max_task_cents > 0 and estimated_cost_cents > max_task_cents:
+            msg = (
+                f"CFO denied budget: estimated task cost {estimated_cost_cents} cents exceeds "
+                f"per-task ceiling {max_task_cents} cents."
+            )
+            logger.warning("GOVERNANCE CFO: %s", msg)
+            raise FiscalInsolvencyError(
+                msg,
+                balance_cents=balance_cents,
+                requested_cents=estimated_cost_cents,
+            )
         if balance_cents - estimated_cost_cents < self._min_reserve_cents:
             msg = (
                 f"CFO denied budget: balance {balance_cents} cents - estimated cost {estimated_cost_cents} cents "
@@ -93,6 +109,21 @@ class Treasury:
                 balance_cents=balance_cents,
                 requested_cents=estimated_cost_cents,
             )
+
+        floor_days = getattr(self._charter.fiscal_boundaries, "runway_floor_days", 0)
+        if floor_days and floor_days > 0:
+            projected = self.projected_runway_days(after_spend_cents=estimated_cost_cents)
+            if projected is not None and projected < floor_days:
+                msg = (
+                    f"CFO denied budget: approving {estimated_cost_cents} cents would cut projected "
+                    f"runway to {projected} day(s), below the {floor_days}-day floor."
+                )
+                logger.warning("GOVERNANCE CFO: %s", msg)
+                raise FiscalInsolvencyError(
+                    msg,
+                    balance_cents=balance_cents,
+                    requested_cents=estimated_cost_cents,
+                )
 
         if self._compliance_hook and estimated_cost_cents >= self._spend_threshold_cents and self._spend_threshold_cents > 0:
             from sovereign_os.compliance.hooks import ComplianceResult
@@ -138,14 +169,33 @@ class Treasury:
             "min_job_margin_ratio",
             0.0,
         )
+        # Net the revenue down by settlement fees (x402 facilitator/network, Stripe, etc.)
+        # so the margin check reasons about funds that actually land in the treasury.
+        fee_ratio = getattr(self._charter.fiscal_boundaries, "settlement_fee_ratio", 0.0)
+        fee_ratio = min(1.0, max(0.0, fee_ratio))
+        net_revenue_cents = int(job_revenue_cents * (1.0 - fee_ratio))
         if ratio <= 0:
+            # Margin floor disabled, but a settlement fee can still make a job lose money.
+            if fee_ratio > 0 and total_estimated_cost_cents > net_revenue_cents:
+                msg = (
+                    f"CFO denied job: estimated cost {total_estimated_cost_cents} cents exceeds "
+                    f"net revenue {net_revenue_cents} cents after {fee_ratio * 100:.1f}% settlement fee."
+                )
+                logger.warning("GOVERNANCE CFO: %s", msg)
+                raise UnprofitableJobError(
+                    msg,
+                    job_revenue_cents=job_revenue_cents,
+                    estimated_cost_cents=total_estimated_cost_cents,
+                    min_margin_ratio=ratio,
+                )
             return
-        max_cost_cents = int(job_revenue_cents * (1.0 - ratio))
+        max_cost_cents = int(net_revenue_cents * (1.0 - ratio))
         if total_estimated_cost_cents > max_cost_cents:
             margin_pct = ratio * 100
+            fee_note = f" after {fee_ratio * 100:.1f}% settlement fee" if fee_ratio > 0 else ""
             msg = (
                 f"CFO denied job: estimated cost {total_estimated_cost_cents} cents exceeds "
-                f"max allowed {max_cost_cents} cents (job revenue {job_revenue_cents} cents, "
+                f"max allowed {max_cost_cents} cents (net revenue {net_revenue_cents} cents{fee_note}, "
                 f"min margin {margin_pct:.0f}%). Unprofitable deal rejected."
             )
             logger.warning("GOVERNANCE CFO: %s", msg)
@@ -156,11 +206,35 @@ class Treasury:
                 min_margin_ratio=ratio,
             )
         logger.info(
-            "GOVERNANCE CFO: Job profitability OK (revenue=%d, cost=%d, margin >= %.0f%%).",
+            "GOVERNANCE CFO: Job profitability OK (revenue=%d, net=%d, cost=%d, margin >= %.0f%%).",
             job_revenue_cents,
+            net_revenue_cents,
             total_estimated_cost_cents,
             ratio * 100,
         )
+
+    def projected_runway_days(
+        self, *, window_days: int = 7, after_spend_cents: int = 0
+    ) -> int | None:
+        """
+        Project remaining runway (days) from the *actual* recent burn rate.
+
+        Burn rate = total USD debits over the trailing `window_days`, averaged per day.
+        Returns balance (minus an optional pending spend) divided by that daily burn.
+        Returns None when there is no measurable burn yet (infinite/undefined runway).
+        """
+        from datetime import timedelta
+
+        window_days = max(1, window_days)
+        since = datetime.now(timezone.utc) - timedelta(days=window_days)
+        window_burn_cents = self._ledger.usd_debits_since(since)
+        if window_burn_cents <= 0:
+            return None
+        daily_burn = window_burn_cents / window_days
+        balance = self._ledger.total_usd_cents() - max(0, after_spend_cents)
+        if balance <= 0:
+            return 0
+        return int(balance / daily_burn)
 
     def get_optimal_model(self, task_complexity: str) -> str:
         """
