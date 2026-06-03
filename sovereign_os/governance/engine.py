@@ -365,6 +365,32 @@ class GovernanceEngine:
                 self._auth.get_trust_score(agent_id),
                 self._auth.get_threshold(capability),
             )
+        # Graduated spend ceiling: for tasks that actually spend USD, the boolean
+        # SPEND_USD grant is necessary but not sufficient — the estimated cost must
+        # also fit the agent's trust-scaled ceiling. Ordinary token-burning tasks
+        # (research/code/etc.) are governed by the CFO treasury budget, not this.
+        if capability == Capability.SPEND_USD:
+            spend_cents = self._task_estimate_cents.get(task.task_id) or self._cost_converter(task)
+            if not self._auth.can_spend(agent_id, spend_cents):
+                ceiling = self._auth.max_spend_cents_for(agent_id)
+                logger.warning(
+                    "GOVERNANCE: Agent [%s] spend %d cents exceeds graduated ceiling %d cents (task %s).",
+                    agent_id, spend_cents, ceiling, task.task_id,
+                )
+                if self._on_event:
+                    self._on_event("spend_limit_exceeded", {
+                        "task_id": task.task_id,
+                        "agent_id": agent_id,
+                        "requested_cents": spend_cents,
+                        "ceiling_cents": ceiling,
+                    })
+                lifecycle.set_failed(task.task_id, agent_id=agent_id, error="spend_limit_exceeded")
+                raise PermissionDeniedError(
+                    agent_id,
+                    capability,
+                    self._auth.get_trust_score(agent_id),
+                    self._auth.get_threshold(capability),
+                )
         limiter = get_global_rate_limiter()
         if limiter is not None:
             await limiter.acquire()

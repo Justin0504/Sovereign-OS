@@ -141,3 +141,41 @@ async def test_dispatch_halts_when_mission_budget_exhausted(auth):
     assert by_id["task-1"].success is True                         # first task ran
     assert by_id["task-2"].metadata.get("error") == "budget_halt"  # second halted
     assert any(ev == "mission_budget_exhausted" for ev, _ in events)
+
+
+# --------------------------------------------- graduated spend gate in dispatch
+def _spend_plan():
+    from sovereign_os.governance.strategist import PlannedTask, TaskPlan
+    return TaskPlan(
+        goal_summary="buy",
+        tasks=[PlannedTask(task_id="task-1", description="purchase", dependencies=[],
+                           required_skill="spend", estimated_token_budget=500, priority="high")],
+    )
+
+
+@pytest.mark.asyncio
+async def test_dispatch_denies_spend_over_graduated_ceiling(charter, ledger):
+    from sovereign_os.agents.auth import PermissionDeniedError
+
+    auth = SovereignAuth(autonomous_spend_min_cents=100, autonomous_spend_max_cents=5000)
+    while auth.get_trust_score("buyer") < 80:   # clear SPEND_USD boolean gate; ceiling=100c
+        auth.record_audit_success("buyer")
+    events: list[tuple[str, dict]] = []
+    engine = GovernanceEngine(
+        charter, ledger, auth=auth,
+        cost_converter=lambda t: 500,  # $5.00 task vs $1.00 ceiling at trust 80
+        on_event=lambda ev, data: events.append((ev, data)),
+    )
+    with pytest.raises(PermissionDeniedError):
+        await engine.dispatch(_spend_plan(), winner_by_task_id={"task-1": "buyer"})
+    assert any(ev == "spend_limit_exceeded" for ev, _ in events)
+
+
+@pytest.mark.asyncio
+async def test_dispatch_allows_spend_within_ceiling(charter, ledger):
+    auth = SovereignAuth(autonomous_spend_min_cents=100, autonomous_spend_max_cents=5000)
+    while auth.get_trust_score("buyer") < 100:  # max trust -> ceiling 5000c
+        auth.record_audit_success("buyer")
+    engine = GovernanceEngine(charter, ledger, auth=auth, cost_converter=lambda t: 500)
+    results = await engine.dispatch(_spend_plan(), winner_by_task_id={"task-1": "buyer"})
+    assert results[0].success is True  # $5.00 task fits the $50.00 ceiling
