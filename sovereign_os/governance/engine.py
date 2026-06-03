@@ -114,9 +114,7 @@ class GovernanceEngine:
             spend_threshold_cents=spend_threshold_cents,
             compliance_auto_proceed=compliance_auto_proceed,
         )
-        self._cost_converter = cost_converter or (
-            lambda t: _task_estimated_cost_cents(t, DEFAULT_CENTS_PER_THOUSAND_TOKENS)
-        )
+        self._cost_converter = cost_converter or self._default_cost_converter
         self._auth = auth or SovereignAuth()
         self._registry = registry or self._default_registry()
         self._review_engine = review_engine
@@ -286,6 +284,20 @@ class GovernanceEngine:
                     },
                 )
             return plan
+
+    def _default_cost_converter(self, task: PlannedTask) -> int:
+        """
+        Pre-flight cost estimate via per-model pricing.
+
+        The CFO budgets on the same basis the ledger later records actuals (the
+        model Treasury would pick for this task's priority), so over/under-budget
+        is meaningful instead of a flat ~20x over-estimate.
+        """
+        from sovereign_os.governance.pricing import estimate_budget_cost_cents
+
+        model_id = self._treasury.get_optimal_model(getattr(task, "priority", "low"))
+        budget = getattr(task, "estimated_token_budget", 2000) or 2000
+        return estimate_budget_cost_cents(model_id, budget)
 
     def _required_capability_for_skill(self, required_skill: str) -> Capability:
         """Map task skill to the capability checked before execution."""

@@ -100,3 +100,21 @@ def estimate_cost_usd(model_id: str, input_tokens: int, output_tokens: int) -> f
     """Precise estimated USD cost (no rounding) for sub-cent aggregation."""
     price_in, price_out = get_model_pricing(model_id)
     return (max(0, input_tokens) / 1_000_000.0) * price_in + (max(0, output_tokens) / 1_000_000.0) * price_out
+
+
+def estimate_budget_cost_cents(
+    model_id: str, token_budget: int, *, output_ratio: float = 0.5, floor_cents: int = 1
+) -> int:
+    """
+    Pre-flight cost estimate (cents) for a task with only a total token budget.
+
+    Splits the budget into input/output by `output_ratio` and prices it with the
+    model's real rates, so the CFO budgets on the same basis the ledger later
+    records actuals — keeping the estimate→actual overrun loop meaningful.
+    `floor_cents` keeps a minimum so a task is never costed as entirely free.
+    """
+    ratio = min(1.0, max(0.0, output_ratio))
+    out_tokens = int(max(0, token_budget) * ratio)
+    in_tokens = max(0, token_budget) - out_tokens
+    cents = round(estimate_cost_usd(model_id, in_tokens, out_tokens) * 100)
+    return max(floor_cents, cents)

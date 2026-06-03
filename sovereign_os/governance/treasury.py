@@ -240,13 +240,19 @@ class Treasury:
         """
         Return the most cost-effective model ID for the given complexity.
 
-        - High priority / complex -> reasoning model (e.g. o1-preview).
-        - Low priority / simple -> low-latency cheap model (e.g. gpt-4o-mini).
+        Returns real, priced model ids (present in the pricing table) so the same
+        value can be used for pre-flight cost estimates. Overridable per deployment
+        via SOVEREIGN_COST_MODEL_HIGH / SOVEREIGN_COST_MODEL_LOW.
+
+        - High priority / complex -> capable model (default gpt-4o).
+        - Low priority / simple   -> cheap model (default gpt-4o-mini).
         """
-        c = task_complexity.strip().lower()
+        import os
+
+        c = (task_complexity or "").strip().lower()
         if c in ("high", "complex", "critical", "reasoning"):
-            return "o1-preview"
-        return "gpt-4o-mini"
+            return os.getenv("SOVEREIGN_COST_MODEL_HIGH", "gpt-4o")
+        return os.getenv("SOVEREIGN_COST_MODEL_LOW", "gpt-4o-mini")
 
     # -------------------------------------------------------------------------
     # Auction: winner determination and dynamic budgeting
