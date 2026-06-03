@@ -121,6 +121,10 @@ class GovernanceEngine:
         self._registry = registry or self._default_registry()
         self._review_engine = review_engine
         self._bidding_engine = bidding_engine
+        # Per-task CFO pre-estimate (cents), used to reconcile actual vs budgeted spend.
+        self._task_estimate_cents: dict[str, int] = {}
+        # Cumulative actual spend within the current dispatch run (cents), for budget halt.
+        self._mission_spent_cents: int = 0
 
     def _default_registry(self) -> WorkerRegistry:
         r = WorkerRegistry(self._charter, mcp_tool_graph=self._mcp_tool_graph)
@@ -152,6 +156,73 @@ class GovernanceEngine:
         r.set_default(StubWorker)
         return r
 
+    # Actual spend may exceed the CFO estimate by this fraction before it counts
+    # as an overrun (estimates are approximate; small drift is expected).
+    BUDGET_OVERRUN_TOLERANCE = 0.25
+
+    def _mission_cost_cap_cents(self) -> int:
+        """Per-mission cumulative spend ceiling in cents (0 = disabled)."""
+        return int(getattr(self._charter.fiscal_boundaries, "max_mission_cost_usd", 0.0) * 100)
+
+    def _halt_remaining_for_budget(
+        self,
+        task_plan: TaskPlan,
+        lifecycle: TaskLifecycleManager,
+        result_by_id: dict[str, TaskResult],
+        cap_cents: int,
+    ) -> None:
+        """Stop the mission: mark every not-yet-completed task as halted and emit an event."""
+        completed = lifecycle.completed_ids()
+        halted: list[str] = []
+        for t in task_plan.tasks:
+            if t.task_id in completed or t.task_id in result_by_id:
+                continue
+            result_by_id[t.task_id] = TaskResult(
+                task_id=t.task_id, success=False, output="",
+                metadata={"error": "budget_halt"},
+            )
+            lifecycle.set_failed(t.task_id, error="budget_halt")
+            halted.append(t.task_id)
+        logger.warning(
+            "GOVERNANCE CFO: Mission budget exhausted — spent %d cents >= cap %d cents. Halted %d task(s): %s",
+            self._mission_spent_cents, cap_cents, len(halted), ", ".join(halted) or "(none)",
+        )
+        if self._on_event:
+            self._on_event(
+                "mission_budget_exhausted",
+                {"spent_cents": self._mission_spent_cents, "cap_cents": cap_cents, "halted_task_ids": halted},
+            )
+
+    def _reconcile_cost(self, task_id: str, agent_id: str, actual_cents: int) -> None:
+        """
+        Compare actual token cost against the CFO's pre-approved estimate.
+
+        When actual materially exceeds the estimate, dock the agent's TrustScore
+        (record_budget_overrun) and emit a `budget_overrun` event. This closes the
+        estimate→actual loop so chronic over-spenders lose autonomy over time.
+        """
+        estimate = self._task_estimate_cents.get(task_id)
+        if not estimate or estimate <= 0:
+            return
+        threshold = estimate * (1.0 + self.BUDGET_OVERRUN_TOLERANCE)
+        if actual_cents > threshold:
+            logger.warning(
+                "GOVERNANCE CFO: Task [%s] overran budget — actual %d cents vs estimate %d cents (+%.0f%% tolerance).",
+                task_id, actual_cents, estimate, self.BUDGET_OVERRUN_TOLERANCE * 100,
+            )
+            if self._auth is not None and agent_id:
+                self._auth.record_budget_overrun(agent_id)
+            if self._on_event:
+                self._on_event(
+                    "budget_overrun",
+                    {
+                        "task_id": task_id,
+                        "agent_id": agent_id,
+                        "estimate_cents": estimate,
+                        "actual_cents": actual_cents,
+                    },
+                )
+
     async def run_mission(self, goal_text: str, job_revenue_cents: int | None = None) -> TaskPlan:
         """
         Execute the mission pipeline: plan -> fiscal clearance (budget + profitability) -> Strategic Intent.
@@ -174,6 +245,7 @@ class GovernanceEngine:
             for task in plan.tasks:
                 estimated_cents = self._cost_converter(task)
                 total_estimated_cents += estimated_cents
+                self._task_estimate_cents[task.task_id] = estimated_cents
                 try:
                     self._treasury.approve_task(
                         estimated_cents,
@@ -293,6 +365,32 @@ class GovernanceEngine:
                 self._auth.get_trust_score(agent_id),
                 self._auth.get_threshold(capability),
             )
+        # Graduated spend ceiling: for tasks that actually spend USD, the boolean
+        # SPEND_USD grant is necessary but not sufficient — the estimated cost must
+        # also fit the agent's trust-scaled ceiling. Ordinary token-burning tasks
+        # (research/code/etc.) are governed by the CFO treasury budget, not this.
+        if capability == Capability.SPEND_USD:
+            spend_cents = self._task_estimate_cents.get(task.task_id) or self._cost_converter(task)
+            if not self._auth.can_spend(agent_id, spend_cents):
+                ceiling = self._auth.max_spend_cents_for(agent_id)
+                logger.warning(
+                    "GOVERNANCE: Agent [%s] spend %d cents exceeds graduated ceiling %d cents (task %s).",
+                    agent_id, spend_cents, ceiling, task.task_id,
+                )
+                if self._on_event:
+                    self._on_event("spend_limit_exceeded", {
+                        "task_id": task.task_id,
+                        "agent_id": agent_id,
+                        "requested_cents": spend_cents,
+                        "ceiling_cents": ceiling,
+                    })
+                lifecycle.set_failed(task.task_id, agent_id=agent_id, error="spend_limit_exceeded")
+                raise PermissionDeniedError(
+                    agent_id,
+                    capability,
+                    self._auth.get_trust_score(agent_id),
+                    self._auth.get_threshold(capability),
+                )
         limiter = get_global_rate_limiter()
         if limiter is not None:
             await limiter.acquire()
@@ -321,19 +419,24 @@ class GovernanceEngine:
         try:
             result = await worker.execute(task_input)
             result_by_id[task.task_id] = result
-            if self._ledger and hasattr(self._ledger, "record_token") and result.success:
-                meta = result.metadata or {}
+            # Record token cost whenever usage is reported — including failed tasks, which
+            # still burn tokens. (Gating on success previously leaked the cost of failures.)
+            meta = result.metadata or {}
+            has_usage = meta.get("input_tokens") is not None and meta.get("output_tokens") is not None
+            if self._ledger and hasattr(self._ledger, "record_token") and (result.success or has_usage):
+                from sovereign_os.governance.pricing import estimate_cost_cents
+
                 inp = meta.get("input_tokens")
                 out = meta.get("output_tokens")
+                model_id = meta.get("model_id") or getattr(getattr(worker, "llm", None), "model_name", None) or "default"
                 if inp is None or out is None:
                     bud = getattr(task, "estimated_token_budget", 2000)
                     inp, out = bud // 2, bud - bud // 2
                     est_cents = self._cost_converter(task)
                 else:
                     inp, out = int(inp), int(out)
-                    # Rough cost from actual tokens: ~$0.01 per 1k tokens -> 1 cent per 1k
-                    est_cents = max(1, (inp + out) * 10 // 1000)
-                model_id = meta.get("model_id") or getattr(worker.llm, "model_name", None) or "default"
+                    # Accurate per-model cost (input/output priced separately).
+                    est_cents = estimate_cost_cents(model_id, inp, out)
                 goal_abbr = (task_plan.goal_summary or "")[:36].strip()
                 if goal_abbr:
                     goal_abbr = goal_abbr.replace("\n", " ").strip()
@@ -347,6 +450,8 @@ class GovernanceEngine:
                     task_display=goal_abbr,
                     estimated_usd_cents=est_cents,
                 )
+                self._reconcile_cost(task.task_id, agent_id, est_cents)
+                self._mission_spent_cents += est_cents
             lifecycle.set_completed(task.task_id, agent_id=agent_id, success=result.success)
             _log_task_transition(task.task_id, TaskState.COMPLETED.value, agent_id=agent_id, success=result.success)
             if self._on_event:
@@ -377,8 +482,13 @@ class GovernanceEngine:
             lifecycle = TaskLifecycleManager([t.task_id for t in task_plan.tasks])
             result_by_id: dict[str, TaskResult] = {}
             wbt = winner_by_task_id or {}
+            self._mission_spent_cents = 0  # reset cumulative spend for this dispatch run
 
             while not lifecycle.all_done():
+                cap = self._mission_cost_cap_cents()
+                if cap > 0 and self._mission_spent_cents >= cap:
+                    self._halt_remaining_for_budget(task_plan, lifecycle, result_by_id, cap)
+                    break
                 completed = lifecycle.completed_ids()
                 ready_ids = self._ready_task_ids(task_plan, completed)
                 if not ready_ids:
@@ -435,14 +545,19 @@ class GovernanceEngine:
             from sovereign_os.telemetry.tracer import record_mission_success
         except ImportError:
             record_mission_success = lambda *a, **k: None
+        # Value-aware quality bar: higher-paid jobs are held to a stricter audit score.
+        from sovereign_os.auditor.review_engine import value_aware_min_score
+
+        job_min_score = value_aware_min_score(job_revenue_cents)
         for task, result in zip(plan.tasks, results, strict=True):
-            report = await self._review_engine.audit_task(task, result)
+            report = await self._review_engine.audit_task(task, result, min_score=job_min_score)
             reports.append(report)
             agent_id = winner_by_task_id.get(task.task_id) or f"{task.required_skill}-{task.task_id}"
             judge_model = getattr(self._review_engine, "judge_model", "audit")
+            # Quality-scaled trust: a strong pass earns more than a marginal one.
+            self._auth.record_audit(agent_id, passed=report.passed, score=report.score)
             if report.passed:
                 record_mission_success(judge_model, True)
-                self._auth.record_audit_success(agent_id)
                 if self._memory_manager is not None:
                     self._memory_manager.add_success(
                         task_id=task.task_id,
@@ -460,7 +575,6 @@ class GovernanceEngine:
                 )
             else:
                 record_mission_success(judge_model, False)
-                self._auth.record_audit_failure(agent_id)
                 logger.critical(
                     "AUDIT CRITICAL: Task [%s] failed verification. Reason: %s",
                     task.task_id,

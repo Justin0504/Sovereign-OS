@@ -391,6 +391,8 @@
     .token-usage-scroll { max-height: 300px; overflow-x: auto; overflow-y: auto; margin-top: 8px; min-width: 0; -webkit-overflow-scrolling: touch; }
     .token-usage-scroll::-webkit-scrollbar { width: 8px; height: 8px; }
     .token-usage-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
+    .cost-total { font-size: 0.875rem; margin-bottom: 8px; color: var(--text); }
+    #costSummary .token-table { margin-bottom: 10px; }
     .token-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; background: transparent; table-layout: fixed; }
     .token-table th, .token-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     .token-table th:nth-child(1), .token-table td:nth-child(1) { min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -626,6 +628,12 @@
           <div class="card-heading">Token usage</div>
           <p class="card-desc">Newest first (last 80). Real API tokens when available — run a new job to see actual input/output/cost.</p>
           <div class="token-usage-scroll"><div id="tokenUsage"><span class="empty-feed">No token records yet.</span></div></div>
+        </section>
+        <section class="panel-section">
+          <div class="card-title">Cost</div>
+          <div class="card-heading">Cost breakdown</div>
+          <p class="card-desc">Estimated spend by model and by agent (per-model pricing).</p>
+          <div id="costSummary"><span class="empty-feed">No cost recorded yet.</span></div>
         </section>
         <section class="panel-section">
           <div class="card-title">Operations</div>
@@ -1158,6 +1166,23 @@
         });
       }).catch(() => {});
     }
+    function fetchCostSummary() {
+      fetch('/api/cost_summary').then(x => x.json()).then(d => {
+        const el = r('costSummary');
+        if (!el) return;
+        const byModel = d.by_model || [];
+        const byAgent = d.by_agent || [];
+        if (!byModel.length && !byAgent.length) {
+          el.innerHTML = '<span class="empty-feed">No cost recorded yet. Run a mission to see spend.</span>';
+          return;
+        }
+        const usd = c => '$' + ((c || 0) / 100).toFixed(4);
+        const tbl = (title, rows) => '<table class="token-table"><thead><tr><th>' + title + '</th><th>Cost</th></tr></thead><tbody>' +
+          rows.map(x => '<tr><td>' + escapeHtml(x.key) + '</td><td>' + usd(x.cost_cents) + '</td></tr>').join('') + '</tbody></table>';
+        el.innerHTML = '<div class="cost-total">Total: <strong>' + usd(d.token_cost_cents) + '</strong> · ' +
+          (d.total_tokens || 0) + ' tokens</div>' + tbl('Model', byModel) + tbl('Agent', byAgent);
+      }).catch(() => {});
+    }
     function fetchAuditTrail() {
       fetch('/api/audit_trail?limit=10').then(x => x.json()).then(d => {
         const el = r('auditTrail');
@@ -1289,8 +1314,9 @@
     setInterval(fetchJobs, 5000);
     setInterval(fetchHealth, 10000);
     setInterval(fetchTokenUsage, 3000);
+    setInterval(fetchCostSummary, 3000);
     setInterval(fetchAuditTrail, 8000);
-    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchAuditTrail();
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchAuditTrail();
   </script>
 </body>
 </html>

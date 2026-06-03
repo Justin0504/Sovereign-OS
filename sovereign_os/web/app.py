@@ -1092,6 +1092,12 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
           <div id="tokenUsage"><span class="empty-feed">No token records yet.</span></div>
         </section>
         <section class="card">
+          <div class="card-title">Cost</div>
+          <div class="card-heading">Cost breakdown</div>
+          <p class="card-desc">Estimated spend by model and by agent (per-model pricing).</p>
+          <div id="costSummary"><span class="empty-feed">No cost recorded yet.</span></div>
+        </section>
+        <section class="card">
           <div class="card-title">Operations</div>
           <div class="card-heading">Job queue</div>
           <p class="card-desc">External jobs; approve to run 24/7.</p>
@@ -1201,6 +1207,25 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
           '</tbody></table>';
       }).catch(() => {});
     }
+    function fetchCostSummary() {
+      fetch('/api/cost_summary').then(x => x.json()).then(d => {
+        const el = r('costSummary');
+        if (!el) return;
+        const byModel = d.by_model || [];
+        const byAgent = d.by_agent || [];
+        if (!byModel.length && !byAgent.length) {
+          el.innerHTML = '<span class="empty-feed">No cost recorded yet. Run a mission to see spend.</span>';
+          return;
+        }
+        const usd = c => '$' + ((c || 0) / 100).toFixed(4);
+        const total = usd(d.token_cost_cents);
+        const tbl = (title, rows) => '<table class="token-table"><thead><tr><th>' + title + '</th><th>Cost</th></tr></thead><tbody>' +
+          rows.map(x => '<tr><td>' + escapeHtml(x.key) + '</td><td>' + usd(x.cost_cents) + '</td></tr>').join('') + '</tbody></table>';
+        el.innerHTML = '<div class="cost-total">Total: <strong>' + total + '</strong> · ' +
+          (d.total_tokens || 0) + ' tokens</div>' +
+          tbl('Model', byModel) + tbl('Agent', byAgent);
+      }).catch(() => {});
+    }
     function fetchAuditTrail() {
       fetch('/api/audit_trail?limit=10').then(x => x.json()).then(d => {
         const el = r('auditTrail');
@@ -1231,8 +1256,9 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
     setInterval(fetchJobs, 5000);
     setInterval(fetchHealth, 10000);
     setInterval(fetchTokenUsage, 3000);
+    setInterval(fetchCostSummary, 3000);
     setInterval(fetchAuditTrail, 8000);
-    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchAuditTrail();
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchAuditTrail();
   </script>
 </body>
 </html>
@@ -1543,6 +1569,29 @@ def create_app(
                     "estimated_usd_cents": getattr(t, "estimated_usd_cents", 0),
                 })
         return {"token_usage": out}
+
+    @app.get("/api/cost_summary")
+    def api_cost_summary():
+        """Aggregated cost trace from the Ledger: totals plus per-model and per-agent breakdowns (cents)."""
+        if not (_ledger and hasattr(_ledger, "cost_summary")):
+            return {"token_cost_cents": 0, "total_tokens": 0, "by_model": [], "by_agent": []}
+        s = _ledger.cost_summary()
+
+        def _rows(d: dict) -> list[dict[str, Any]]:
+            return [
+                {"key": k, "cost_cents": v}
+                for k, v in sorted(d.items(), key=lambda kv: -kv[1])
+            ]
+
+        return {
+            "token_cost_cents": s["token_cost_cents"],
+            "usd_balance_cents": s["usd_balance_cents"],
+            "total_input_tokens": s["total_input_tokens"],
+            "total_output_tokens": s["total_output_tokens"],
+            "total_tokens": s["total_tokens"],
+            "by_model": _rows(s["by_model_cents"]),
+            "by_agent": _rows(s["by_agent_cents"]),
+        }
 
     @app.get("/api/audit_trail")
     def api_audit_trail(limit: int = 200):

@@ -87,6 +87,32 @@ def test_jobs_create_accepts_valid_callback_url(client):
     assert "job" in r.json()
 
 
+def test_cost_summary_endpoint():
+    """GET /api/cost_summary returns per-model and per-agent cost breakdowns from the ledger."""
+    led = UnifiedLedger()
+    led.record_usd(1000)
+    led.record_token("gpt-4o", 1000, 500, agent_id="research", task_id="t1", estimated_usd_cents=5)
+    led.record_token("gpt-4o-mini", 2000, 1000, agent_id="writer", task_id="t2", estimated_usd_cents=1)
+    app = create_app(engine=None, ledger=led)
+    try:
+        from fastapi.testclient import TestClient
+    except (ImportError, AttributeError) as e:
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise RuntimeError(f"TestClient required in CI: {e}") from e
+        pytest.skip(f"TestClient not available: {e}")
+    r = TestClient(app).get("/api/cost_summary")
+    assert r.status_code == 200
+    data = r.json()
+    assert data["token_cost_cents"] == 6
+    assert data["total_tokens"] == 4500
+    by_model = {row["key"]: row["cost_cents"] for row in data["by_model"]}
+    assert by_model == {"gpt-4o": 5, "gpt-4o-mini": 1}
+    # Sorted by cost descending.
+    assert data["by_model"][0]["key"] == "gpt-4o"
+    by_agent = {row["key"]: row["cost_cents"] for row in data["by_agent"]}
+    assert by_agent == {"research": 5, "writer": 1}
+
+
 @patch.dict(os.environ, {"SOVEREIGN_JOB_RATE_LIMIT_PER_MIN": "2"}, clear=False)
 def test_jobs_create_rate_limit_returns_429(client):
     """When rate limit is 2/min, third request from same client returns 429."""

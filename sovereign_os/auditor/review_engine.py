@@ -25,6 +25,23 @@ logger = logging.getLogger(__name__)
 DEFAULT_JUDGE_MODEL = "gpt-4o"
 
 
+def value_aware_min_score(job_revenue_cents: int | None) -> float | None:
+    """
+    Derive a value-scaled quality bar from a job's revenue.
+
+    Cheap/free work keeps the lenient default (returns None). As the payout rises,
+    the minimum passing score rises with it — a $50 job must clear a higher bar
+    than a $1 job — so the system spends its quality budget where money is at stake.
+    Caps at 0.9 to stay achievable.
+    """
+    if not job_revenue_cents or job_revenue_cents <= 0:
+        return None
+    usd = job_revenue_cents / 100.0
+    # +0.1 to the bar per $50 of payout, starting from the 0.5 floor.
+    bar = 0.5 + 0.1 * (usd / 50.0)
+    return round(min(0.9, max(0.5, bar)), 2)
+
+
 class JudgeLLMProtocol(Protocol):
     """Async interface for Judge LLM: returns passed, score, reason, suggested_fix."""
 
@@ -57,6 +74,8 @@ class JudgeLLM(BaseAuditor):
         task_output: str,
         verification_prompt: str,
         kpi_name: str,
+        *,
+        min_score: float | None = None,
     ) -> AuditReport:
         system = (
             "You are a pragmatic QA auditor reviewing AI-generated work deliverables. "
@@ -92,19 +111,27 @@ class JudgeLLM(BaseAuditor):
         try:
             data = json.loads(content)
         except json.JSONDecodeError:
-            # Fallback: non-empty output passes
-            passed = bool(task_output.strip())
+            # Fallback: non-empty output passes (unless a strict value-aware bar is set)
+            non_empty = bool(task_output.strip())
+            fallback_score = 0.80 if non_empty else 0.0
+            passed = non_empty and (min_score is None or fallback_score >= min_score)
             return AuditReport(
                 task_id=task_id,
                 kpi_name=kpi_name,
                 passed=passed,
-                score=0.80 if passed else 0.0,
+                score=fallback_score,
                 reason="Judge parse error; rule-based fallback applied.",
-                suggested_fix="",
+                suggested_fix="" if passed else "Provide clearer, on-topic output for this paid deliverable.",
             )
         score = float(data.get("score", 0.0))
-        # Apply threshold: score >= PASS_THRESHOLD always passes regardless of LLM's "passed" flag
-        passed = bool(data.get("passed", False)) or (score >= self.PASS_THRESHOLD)
+        if min_score is not None:
+            # Value-aware: a higher-stakes job must clear a stricter, score-based bar;
+            # the LLM's lenient "passed" flag cannot override it.
+            bar = max(self.PASS_THRESHOLD, min_score)
+            passed = score >= bar
+        else:
+            # Default leniency: score >= PASS_THRESHOLD always passes regardless of LLM's flag.
+            passed = bool(data.get("passed", False)) or (score >= self.PASS_THRESHOLD)
         return AuditReport(
             task_id=task_id,
             kpi_name=kpi_name,
@@ -124,13 +151,17 @@ class StubAuditor(BaseAuditor):
         task_output: str,
         verification_prompt: str,
         kpi_name: str,
+        *,
+        min_score: float | None = None,
     ) -> AuditReport:
-        passed = bool(task_output.strip())  # Stub: any non-empty output passes
+        non_empty = bool(task_output.strip())  # Stub: any non-empty output passes
+        score = 0.9 if non_empty else 0.0
+        passed = non_empty and (min_score is None or score >= min_score)
         return AuditReport(
             task_id=task_id,
             kpi_name=kpi_name or "default",
             passed=passed,
-            score=0.9 if passed else 0.0,
+            score=score,
             reason="Stub verification: output present" if passed else "Stub: empty output",
             suggested_fix="" if passed else "Provide non-empty task output.",
         )
@@ -172,12 +203,22 @@ class ReviewEngine:
         """Model ID used by the Judge (for metrics)."""
         return getattr(self._judge, "_model", "stub")
 
-    async def audit_task(self, task_plan_item: PlannedTask, task_result: TaskResult) -> AuditReport:
+    async def audit_task(
+        self,
+        task_plan_item: PlannedTask,
+        task_result: TaskResult,
+        *,
+        min_score: float | None = None,
+    ) -> AuditReport:
         """
         1. Identify KPI from Charter.success_kpis for this task.
         2. Build verification prompt from KPI.
         3. Run Judge (LLM or stub) → JSON → AuditReport.
         4. If failed and MemoryManager set: persist ReflectionObject (high priority).
+
+        `min_score`: optional value-aware quality bar (see `value_aware_min_score`).
+        When set, a deliverable must reach it to pass — used to hold higher-paid
+        jobs to a stricter standard. None keeps the default lenient threshold.
         """
         kpi_name, verification_prompt = self._kpi.get_verification_prompt(
             task_plan_item.description,
@@ -192,6 +233,7 @@ class ReviewEngine:
             task_output=task_result.output,
             verification_prompt=verification_prompt,
             kpi_name=kpi_name,
+            min_score=min_score,
         )
         outcome = "PASS" if report.passed else "FAIL"
         logger.info(

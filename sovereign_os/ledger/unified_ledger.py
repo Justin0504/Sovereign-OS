@@ -194,6 +194,52 @@ class UnifiedLedger:
         """Sum of estimated USD (cents) for all token entries."""
         return sum(e.token.estimated_usd_cents for e in self._entries if e.token)
 
+    # ------------------------------------------------------------- cost trace
+    def cost_cents_by_model(self) -> dict[str, int]:
+        """Estimated token cost (cents) grouped by model_id."""
+        out: dict[str, int] = {}
+        for e in self._entries:
+            if e.token:
+                out[e.token.model_id] = out.get(e.token.model_id, 0) + e.token.estimated_usd_cents
+        return out
+
+    def cost_cents_by_agent(self) -> dict[str, int]:
+        """Estimated token cost (cents) grouped by agent_id (None -> 'unknown')."""
+        out: dict[str, int] = {}
+        for e in self._entries:
+            if e.token:
+                key = e.token.agent_id or "unknown"
+                out[key] = out.get(key, 0) + e.token.estimated_usd_cents
+        return out
+
+    def cost_cents_by_task(self) -> dict[str, int]:
+        """Estimated token cost (cents) grouped by task_id (empty -> 'unknown')."""
+        out: dict[str, int] = {}
+        for e in self._entries:
+            if e.token:
+                key = e.token.task_id or "unknown"
+                out[key] = out.get(key, 0) + e.token.estimated_usd_cents
+        return out
+
+    def cost_summary(self) -> dict[str, object]:
+        """
+        Compact cost trace for dashboards/CLI: totals plus per-model/agent/task
+        breakdowns and overall token counts. All monetary values in cents.
+        """
+        token_entries = [e.token for e in self._entries if e.token]
+        total_in = sum(t.input_tokens for t in token_entries)
+        total_out = sum(t.output_tokens for t in token_entries)
+        return {
+            "token_cost_cents": self.total_token_estimated_usd_cents(),
+            "usd_balance_cents": self.total_usd_cents(),
+            "total_input_tokens": total_in,
+            "total_output_tokens": total_out,
+            "total_tokens": total_in + total_out,
+            "by_model_cents": self.cost_cents_by_model(),
+            "by_agent_cents": self.cost_cents_by_agent(),
+            "by_task_cents": self.cost_cents_by_task(),
+        }
+
     def usd_debits_since(self, since: datetime) -> int:
         """Total USD spent (debits only) since given time. For daily burn."""
         total = 0
