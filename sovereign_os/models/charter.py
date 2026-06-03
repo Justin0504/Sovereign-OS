@@ -43,6 +43,17 @@ class FiscalBoundaries(BaseModel):
             ),
         ),
     ] = 0.0
+    max_mission_cost_usd: Annotated[
+        float,
+        Field(
+            ge=0,
+            description=(
+                "Cumulative spend ceiling for a single mission (USD). Once a mission's actual "
+                "token spend reaches this, dispatch halts and remaining tasks are not run. "
+                "0=disabled."
+            ),
+        ),
+    ] = 0.0
     currency: Annotated[str, Field(min_length=1)] = "USD"
     min_job_margin_ratio: Annotated[
         float,
@@ -75,6 +86,7 @@ class FiscalBoundaries(BaseModel):
         "daily_burn_max_usd",
         "max_budget_usd",
         "max_task_cost_usd",
+        "max_mission_cost_usd",
         "min_job_margin_ratio",
         "settlement_fee_ratio",
         mode="before",

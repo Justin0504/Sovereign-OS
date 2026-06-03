@@ -123,6 +123,8 @@ class GovernanceEngine:
         self._bidding_engine = bidding_engine
         # Per-task CFO pre-estimate (cents), used to reconcile actual vs budgeted spend.
         self._task_estimate_cents: dict[str, int] = {}
+        # Cumulative actual spend within the current dispatch run (cents), for budget halt.
+        self._mission_spent_cents: int = 0
 
     def _default_registry(self) -> WorkerRegistry:
         r = WorkerRegistry(self._charter, mcp_tool_graph=self._mcp_tool_graph)
@@ -157,6 +159,39 @@ class GovernanceEngine:
     # Actual spend may exceed the CFO estimate by this fraction before it counts
     # as an overrun (estimates are approximate; small drift is expected).
     BUDGET_OVERRUN_TOLERANCE = 0.25
+
+    def _mission_cost_cap_cents(self) -> int:
+        """Per-mission cumulative spend ceiling in cents (0 = disabled)."""
+        return int(getattr(self._charter.fiscal_boundaries, "max_mission_cost_usd", 0.0) * 100)
+
+    def _halt_remaining_for_budget(
+        self,
+        task_plan: TaskPlan,
+        lifecycle: TaskLifecycleManager,
+        result_by_id: dict[str, TaskResult],
+        cap_cents: int,
+    ) -> None:
+        """Stop the mission: mark every not-yet-completed task as halted and emit an event."""
+        completed = lifecycle.completed_ids()
+        halted: list[str] = []
+        for t in task_plan.tasks:
+            if t.task_id in completed or t.task_id in result_by_id:
+                continue
+            result_by_id[t.task_id] = TaskResult(
+                task_id=t.task_id, success=False, output="",
+                metadata={"error": "budget_halt"},
+            )
+            lifecycle.set_failed(t.task_id, error="budget_halt")
+            halted.append(t.task_id)
+        logger.warning(
+            "GOVERNANCE CFO: Mission budget exhausted — spent %d cents >= cap %d cents. Halted %d task(s): %s",
+            self._mission_spent_cents, cap_cents, len(halted), ", ".join(halted) or "(none)",
+        )
+        if self._on_event:
+            self._on_event(
+                "mission_budget_exhausted",
+                {"spent_cents": self._mission_spent_cents, "cap_cents": cap_cents, "halted_task_ids": halted},
+            )
 
     def _reconcile_cost(self, task_id: str, agent_id: str, actual_cents: int) -> None:
         """
@@ -390,6 +425,7 @@ class GovernanceEngine:
                     estimated_usd_cents=est_cents,
                 )
                 self._reconcile_cost(task.task_id, agent_id, est_cents)
+                self._mission_spent_cents += est_cents
             lifecycle.set_completed(task.task_id, agent_id=agent_id, success=result.success)
             _log_task_transition(task.task_id, TaskState.COMPLETED.value, agent_id=agent_id, success=result.success)
             if self._on_event:
@@ -420,8 +456,13 @@ class GovernanceEngine:
             lifecycle = TaskLifecycleManager([t.task_id for t in task_plan.tasks])
             result_by_id: dict[str, TaskResult] = {}
             wbt = winner_by_task_id or {}
+            self._mission_spent_cents = 0  # reset cumulative spend for this dispatch run
 
             while not lifecycle.all_done():
+                cap = self._mission_cost_cap_cents()
+                if cap > 0 and self._mission_spent_cents >= cap:
+                    self._halt_remaining_for_budget(task_plan, lifecycle, result_by_id, cap)
+                    break
                 completed = lifecycle.completed_ids()
                 ready_ids = self._ready_task_ids(task_plan, completed)
                 if not ready_ids:

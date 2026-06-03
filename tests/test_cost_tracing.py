@@ -107,3 +107,37 @@ async def test_budget_overrun_within_tolerance_is_ignored(charter, ledger, auth)
     engine._task_estimate_cents["task-2"] = 100
     engine._reconcile_cost("task-2", "agent-2", actual_cents=110)  # +10% < 25% tolerance
     assert auth.get_trust_score("agent-2") == before  # no penalty
+
+
+# ------------------------------------------------ mission budget exhaustion
+@pytest.mark.asyncio
+async def test_dispatch_halts_when_mission_budget_exhausted(auth):
+    from sovereign_os.governance.strategist import PlannedTask, TaskPlan
+
+    led = UnifiedLedger()
+    led.record_usd(100_000)
+    charter = Charter(
+        mission="m",
+        fiscal_boundaries=FiscalBoundaries(max_mission_cost_usd=0.10),  # 10-cent mission cap
+    )
+    events: list[tuple[str, dict]] = []
+    engine = GovernanceEngine(
+        charter, led, auth=auth,
+        cost_converter=lambda t: 20,  # each task "costs" 20 cents -> cap blown after task 1
+        on_event=lambda ev, data: events.append((ev, data)),
+    )
+    # task-2 depends on task-1, so it lands in a second wave that never launches.
+    plan = TaskPlan(
+        goal_summary="two-step",
+        tasks=[
+            PlannedTask(task_id="task-1", description="first", dependencies=[],
+                        required_skill="research", estimated_token_budget=500, priority="low"),
+            PlannedTask(task_id="task-2", description="second", dependencies=["task-1"],
+                        required_skill="research", estimated_token_budget=500, priority="low"),
+        ],
+    )
+    results = await engine.dispatch(plan)
+    by_id = {r.task_id: r for r in results}
+    assert by_id["task-1"].success is True                         # first task ran
+    assert by_id["task-2"].metadata.get("error") == "budget_halt"  # second halted
+    assert any(ev == "mission_budget_exhausted" for ev, _ in events)
