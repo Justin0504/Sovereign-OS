@@ -9,6 +9,7 @@ from sovereign_os.agents.auth import SovereignAuth
 from sovereign_os.governance.engine import GovernanceEngine
 from sovereign_os.governance.exceptions import FiscalInsolvencyError
 from sovereign_os.governance.pricing import (
+    estimate_budget_cost_cents,
     estimate_cost_cents,
     estimate_cost_usd,
     get_model_pricing,
@@ -42,6 +43,33 @@ def test_pricing_env_override(monkeypatch):
     monkeypatch.setenv("SOVEREIGN_MODEL_PRICING_JSON", '{"my-model": [1.0, 3.0]}')
     assert get_model_pricing("my-model") == (1.0, 3.0)
     assert estimate_cost_cents("my-model", 1_000_000, 1_000_000) == 400  # $4.00
+
+
+def test_budget_estimate_is_model_aware():
+    # Same token budget, very different estimates by model (vs the old flat rate).
+    cheap = estimate_budget_cost_cents("gpt-4o-mini", 4000)
+    dear = estimate_budget_cost_cents("gpt-4o", 4000)
+    assert dear > cheap
+    # Floor keeps a tiny task from costing exactly zero.
+    assert estimate_budget_cost_cents("gpt-4o-mini", 10) >= 1
+
+
+def test_preflight_estimate_aligns_with_actual():
+    # The CFO pre-flight estimate and the post-flight actual now share a basis:
+    # a 4000-token budget (2000/2000 split) priced on gpt-4o matches the actual.
+    preflight = estimate_budget_cost_cents("gpt-4o", 4000)
+    actual = estimate_cost_cents("gpt-4o", 2000, 2000)
+    assert preflight == max(1, actual)
+
+
+def test_get_optimal_model_returns_priced_models(charter, ledger):
+    t = Treasury(charter, ledger)
+    assert t.get_optimal_model("high") == "gpt-4o"
+    assert t.get_optimal_model("low") == "gpt-4o-mini"
+    # Both must be real entries in the pricing table (not the generic fallback).
+    from sovereign_os.governance.pricing import DEFAULT_MODEL_PRICING
+    assert t.get_optimal_model("high") in DEFAULT_MODEL_PRICING
+    assert t.get_optimal_model("low") in DEFAULT_MODEL_PRICING
 
 
 def test_estimate_cost_cents_rounding():

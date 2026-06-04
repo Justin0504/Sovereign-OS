@@ -28,7 +28,18 @@ Token cost is now recorded whenever usage is reported, **including failed tasks*
 (they still burn tokens). Previously recording was gated on `result.success`, so
 failures were invisible in the P&L.
 
-## 3. Estimate → actual overrun loop
+## 3. Pre-flight estimate shares the actual's basis
+
+The CFO's per-task pre-flight estimate now prices the task's token budget with the
+same per-model table the ledger uses for actuals (via `estimate_budget_cost_cents`
+and `Treasury.get_optimal_model`, which returns real priced model ids —
+`gpt-4o` for high priority, `gpt-4o-mini` for low, overridable with
+`SOVEREIGN_COST_MODEL_HIGH` / `SOVEREIGN_COST_MODEL_LOW`). Previously the estimate
+used a flat ~10¢/1k-token rate — ~20x over-budget for `gpt-4o` and blind to the
+model — which made the overrun loop below fire almost never. Now estimate and
+actual are comparable, so budgets and overruns are meaningful.
+
+## 4. Estimate → actual overrun loop
 
 The CFO's pre-task estimate is stored per task. After execution,
 `GovernanceEngine._reconcile_cost` compares actual token cost to that estimate;
@@ -37,14 +48,14 @@ is docked via `SovereignAuth.record_budget_overrun` and a `budget_overrun` event
 is emitted. Chronic over-spenders lose TrustScore — and therefore their graduated
 autonomous spend ceiling — over time.
 
-## 4. Hard per-task ceiling (`max_task_cost_usd`)
+## 5. Hard per-task ceiling (`max_task_cost_usd`)
 
 `FiscalBoundaries.max_task_cost_usd` (default 0 = off) is a hard pre-flight cap:
 `Treasury.approve_task` rejects any single task whose estimated cost exceeds it,
 regardless of available balance. (Fills the `max_task_cost_usd` guarantee the
 README already advertised.)
 
-## 5. Cost trace surfaces
+## 6. Cost trace surfaces
 
 `UnifiedLedger` rollups:
 
