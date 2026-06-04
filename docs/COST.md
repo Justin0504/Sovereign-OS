@@ -39,6 +39,11 @@ used a flat ~10¢/1k-token rate — ~20x over-budget for `gpt-4o` and blind to t
 model — which made the overrun loop below fire almost never. Now estimate and
 actual are comparable, so budgets and overruns are meaningful.
 
+The token budget is also split into input/output by task type before pricing
+(`output_ratio_for_skill`): output tokens cost ~4x input, so a generation-heavy
+job (`write_article`, ratio 0.75) and an input-heavy one (`summarize`, ratio
+0.25) at the same total budget estimate very differently.
+
 ## 4. Estimate → actual overrun loop
 
 The CFO's pre-task estimate is stored per task. After execution,
@@ -55,7 +60,16 @@ autonomous spend ceiling — over time.
 regardless of available balance. (Fills the `max_task_cost_usd` guarantee the
 README already advertised.)
 
-## 6. Cost trace surfaces
+## 6. Budget-exhaustion stop (`max_mission_cost_usd`)
+
+`FiscalBoundaries.max_mission_cost_usd` (default 0 = off) caps cumulative spend
+for a single mission. `GovernanceEngine.dispatch` accumulates actual token spend
+per task and, before each DAG wave, checks the cap; once reached it halts —
+remaining tasks are marked `budget_halt` (not run) and a
+`mission_budget_exhausted` event fires. The in-flight wave finishes (tasks are
+not cancelled mid-call); only subsequent waves are stopped.
+
+## 7. Cost trace surfaces
 
 `UnifiedLedger` rollups:
 
@@ -72,6 +86,10 @@ Cost: $0.0312 (4200 in + 1800 out tokens)
     research: $0.0260
     writer: $0.0052
 ```
+
+The web dashboard's **Cost breakdown** card (`GET /api/cost_summary`) shows the
+same per-model/per-agent split plus a **daily-burn bar** — today's USD debits
+against `daily_burn_max_usd`, turning red at ≥90% utilization.
 
 All changes are backward compatible: new charter fields default to disabled, and
 the existing test suite passes unchanged.

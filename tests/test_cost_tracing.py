@@ -54,6 +54,21 @@ def test_budget_estimate_is_model_aware():
     assert estimate_budget_cost_cents("gpt-4o-mini", 10) >= 1
 
 
+def test_output_ratio_by_skill():
+    from sovereign_os.governance.pricing import output_ratio_for_skill
+
+    assert output_ratio_for_skill("write_article") > 0.5   # generation-heavy
+    assert output_ratio_for_skill("summarize") < 0.5        # input-heavy
+    assert output_ratio_for_skill("unknown-skill") == 0.5   # default
+
+
+def test_output_ratio_changes_estimate():
+    # Same model + budget, output-heavy skill costs more (output priced ~4x input).
+    article = estimate_budget_cost_cents("gpt-4o", 8000, output_ratio=0.75)
+    summary = estimate_budget_cost_cents("gpt-4o", 8000, output_ratio=0.25)
+    assert article > summary
+
+
 def test_preflight_estimate_aligns_with_actual():
     # The CFO pre-flight estimate and the post-flight actual now share a basis:
     # a 4000-token budget (2000/2000 split) priced on gpt-4o matches the actual.

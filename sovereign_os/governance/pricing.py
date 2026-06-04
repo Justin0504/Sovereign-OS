@@ -102,6 +102,38 @@ def estimate_cost_usd(model_id: str, input_tokens: int, output_tokens: int) -> f
     return (max(0, input_tokens) / 1_000_000.0) * price_in + (max(0, output_tokens) / 1_000_000.0) * price_out
 
 
+# Output-token share by task type. Output tokens are ~4x the price of input, so a
+# generation-heavy job (write an article) and an input-heavy job (summarize a
+# document) at the same total budget cost very differently. These shape the
+# pre-flight estimate; default 0.5 for anything unmapped.
+_OUTPUT_RATIO_BY_SKILL: dict[str, float] = {
+    # generation-heavy: short brief in, long deliverable out
+    "write_article": 0.75,
+    "write_post": 0.7,
+    "write_email": 0.65,
+    "spec_writer": 0.7,
+    "help_docs": 0.7,
+    "solve_problem": 0.65,
+    "code_assistant": 0.7,
+    "reply": 0.6,
+    # balanced: input and output comparable
+    "translate": 0.5,
+    "rewrite_polish": 0.5,
+    "meeting_minutes": 0.45,
+    "research": 0.5,
+    "code_review": 0.4,
+    # input-heavy: long input in, short output out
+    "summarize": 0.25,
+    "extract_structured": 0.2,
+    "collect_info": 0.3,
+}
+
+
+def output_ratio_for_skill(skill: str) -> float:
+    """Output-token share for a skill (0–1); 0.5 when unmapped."""
+    return _OUTPUT_RATIO_BY_SKILL.get((skill or "").strip().lower(), 0.5)
+
+
 def estimate_budget_cost_cents(
     model_id: str, token_budget: int, *, output_ratio: float = 0.5, floor_cents: int = 1
 ) -> int:

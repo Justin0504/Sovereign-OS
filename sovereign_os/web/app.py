@@ -1022,6 +1022,12 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
     .health-box span + span { margin-left: 8px; }
     .token-table { width: 100%; border-collapse: collapse; font-size: 0.8125rem; background: var(--bg); border-radius: 10px; overflow: hidden; border: 1px solid var(--border); }
     .token-table th, .token-table td { padding: 10px 14px; text-align: left; border-bottom: 1px solid var(--border); }
+    .cost-total { font-size: 0.875rem; margin-bottom: 8px; }
+    .burn-bar { margin: 6px 0 12px; }
+    .burn-label { font-size: 0.8125rem; color: var(--muted, #8a7e6d); margin-bottom: 4px; }
+    .burn-track { height: 8px; border-radius: 6px; background: var(--border); overflow: hidden; }
+    .burn-fill { height: 100%; background: hsl(36 70% 55%); transition: width .4s ease; }
+    .burn-fill.over { background: hsl(8 70% 55%); }
     .token-table th { background: rgba(0,0,0,0.04); font-weight: 600; color: var(--black); font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.03em; }
     .token-table tr:last-child td { border-bottom: none; }
     .footer-strip {
@@ -1218,11 +1224,19 @@ _DEFAULT_EMBEDDED_DASHBOARD = """<!DOCTYPE html>
           return;
         }
         const usd = c => '$' + ((c || 0) / 100).toFixed(4);
+        const usd2 = c => '$' + ((c || 0) / 100).toFixed(2);
         const total = usd(d.token_cost_cents);
         const tbl = (title, rows) => '<table class="token-table"><thead><tr><th>' + title + '</th><th>Cost</th></tr></thead><tbody>' +
           rows.map(x => '<tr><td>' + escapeHtml(x.key) + '</td><td>' + usd(x.cost_cents) + '</td></tr>').join('') + '</tbody></table>';
+        let burn = '';
+        if ((d.daily_cap_cents || 0) > 0) {
+          const pct = Math.min(100, Math.round((d.daily_spend_cents || 0) * 100 / d.daily_cap_cents));
+          const over = pct >= 90;
+          burn = '<div class="burn-bar"><div class="burn-label">Daily burn ' + usd2(d.daily_spend_cents) + ' / ' + usd2(d.daily_cap_cents) + ' (' + pct + '%)</div>' +
+            '<div class="burn-track"><div class="burn-fill' + (over ? ' over' : '') + '" style="width:' + pct + '%"></div></div></div>';
+        }
         el.innerHTML = '<div class="cost-total">Total: <strong>' + total + '</strong> · ' +
-          (d.total_tokens || 0) + ' tokens</div>' +
+          (d.total_tokens || 0) + ' tokens</div>' + burn +
           tbl('Model', byModel) + tbl('Agent', byAgent);
       }).catch(() => {});
     }
@@ -1583,12 +1597,27 @@ def create_app(
                 for k, v in sorted(d.items(), key=lambda kv: -kv[1])
             ]
 
+        # Daily burn vs the charter's daily cap, for a budget-utilization bar.
+        daily_spend_cents = 0
+        daily_cap_cents = 0
+        try:
+            from datetime import datetime, timezone
+            start = datetime.now(timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0)
+            daily_spend_cents = _ledger.usd_debits_since(start)
+            charter = getattr(_engine, "_charter", None)
+            if charter is not None:
+                daily_cap_cents = int(charter.fiscal_boundaries.daily_burn_max_usd * 100)
+        except Exception:
+            pass
+
         return {
             "token_cost_cents": s["token_cost_cents"],
             "usd_balance_cents": s["usd_balance_cents"],
             "total_input_tokens": s["total_input_tokens"],
             "total_output_tokens": s["total_output_tokens"],
             "total_tokens": s["total_tokens"],
+            "daily_spend_cents": daily_spend_cents,
+            "daily_cap_cents": daily_cap_cents,
             "by_model": _rows(s["by_model_cents"]),
             "by_agent": _rows(s["by_agent_cents"]),
         }
