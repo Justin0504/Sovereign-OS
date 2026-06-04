@@ -393,6 +393,11 @@
     .token-usage-scroll::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 4px; }
     .cost-total { font-size: 0.875rem; margin-bottom: 8px; color: var(--text); }
     #costSummary .token-table { margin-bottom: 10px; }
+    .burn-bar { margin: 6px 0 12px; }
+    .burn-label { font-size: 0.8125rem; color: var(--muted, #8a7e6d); margin-bottom: 4px; }
+    .burn-track { height: 8px; border-radius: 6px; background: var(--border); overflow: hidden; }
+    .burn-fill { height: 100%; background: hsl(36 70% 55%); transition: width .4s ease; }
+    .burn-fill.over { background: hsl(8 70% 55%); }
     .token-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; background: transparent; table-layout: fixed; }
     .token-table th, .token-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     .token-table th:nth-child(1), .token-table td:nth-child(1) { min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1177,10 +1182,18 @@
           return;
         }
         const usd = c => '$' + ((c || 0) / 100).toFixed(4);
+        const usd2 = c => '$' + ((c || 0) / 100).toFixed(2);
         const tbl = (title, rows) => '<table class="token-table"><thead><tr><th>' + title + '</th><th>Cost</th></tr></thead><tbody>' +
           rows.map(x => '<tr><td>' + escapeHtml(x.key) + '</td><td>' + usd(x.cost_cents) + '</td></tr>').join('') + '</tbody></table>';
+        let burn = '';
+        if ((d.daily_cap_cents || 0) > 0) {
+          const pct = Math.min(100, Math.round((d.daily_spend_cents || 0) * 100 / d.daily_cap_cents));
+          const over = pct >= 90;
+          burn = '<div class="burn-bar"><div class="burn-label">Daily burn ' + usd2(d.daily_spend_cents) + ' / ' + usd2(d.daily_cap_cents) + ' (' + pct + '%)</div>' +
+            '<div class="burn-track"><div class="burn-fill' + (over ? ' over' : '') + '" style="width:' + pct + '%"></div></div></div>';
+        }
         el.innerHTML = '<div class="cost-total">Total: <strong>' + usd(d.token_cost_cents) + '</strong> · ' +
-          (d.total_tokens || 0) + ' tokens</div>' + tbl('Model', byModel) + tbl('Agent', byAgent);
+          (d.total_tokens || 0) + ' tokens</div>' + burn + tbl('Model', byModel) + tbl('Agent', byAgent);
       }).catch(() => {});
     }
     function fetchAuditTrail() {

@@ -293,11 +293,12 @@ class GovernanceEngine:
         model Treasury would pick for this task's priority), so over/under-budget
         is meaningful instead of a flat ~20x over-estimate.
         """
-        from sovereign_os.governance.pricing import estimate_budget_cost_cents
+        from sovereign_os.governance.pricing import estimate_budget_cost_cents, output_ratio_for_skill
 
         model_id = self._treasury.get_optimal_model(getattr(task, "priority", "low"))
         budget = getattr(task, "estimated_token_budget", 2000) or 2000
-        return estimate_budget_cost_cents(model_id, budget)
+        ratio = output_ratio_for_skill(getattr(task, "required_skill", ""))
+        return estimate_budget_cost_cents(model_id, budget, output_ratio=ratio)
 
     def _required_capability_for_skill(self, required_skill: str) -> Capability:
         """Map task skill to the capability checked before execution."""

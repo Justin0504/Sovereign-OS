@@ -111,6 +111,9 @@ def test_cost_summary_endpoint():
     assert data["by_model"][0]["key"] == "gpt-4o"
     by_agent = {row["key"]: row["cost_cents"] for row in data["by_agent"]}
     assert by_agent == {"research": 5, "writer": 1}
+    # Budget-utilization fields present (no engine -> daily cap 0).
+    assert "daily_spend_cents" in data
+    assert "daily_cap_cents" in data
 
 
 @patch.dict(os.environ, {"SOVEREIGN_JOB_RATE_LIMIT_PER_MIN": "2"}, clear=False)
