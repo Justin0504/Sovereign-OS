@@ -138,3 +138,81 @@ def test_delivery_no_bounty_id():
     from sovereign_os.delivery.clawtasks import deliver_result_to_clawtasks
 
     assert deliver_result_to_clawtasks({"platform": "clawtasks"}, "x", "job-1") is False
+
+
+# ----------------------------------------------------- end-to-end loop
+@pytest.mark.asyncio
+async def test_clawtasks_loop_end_to_end():
+    """discover -> job payload -> govern (plan/CFO/workers/audit) -> dry-run deliver."""
+    from sovereign_os.agents.auth import SovereignAuth
+    from sovereign_os.auditor import ReviewEngine
+    from sovereign_os.auditor.review_engine import StubAuditor
+    from sovereign_os.governance.engine import GovernanceEngine
+    from sovereign_os.ingest_bridge.normalizer import to_job_payload
+    from sovereign_os.ledger.unified_ledger import UnifiedLedger
+    from sovereign_os.models.charter import Charter, CoreCompetency, FiscalBoundaries
+
+    bounty = {"id": "e2e-1", "title": "Summarize AI agent market", "description": "3 bullets",
+              "amount": 20, "currency": "USDC", "status": "open", "mode": "instant", "funded": True}
+    source = ClawTasksOrderSource(get_json=lambda *a, **k: [bounty])
+    orders = list(source.fetch())
+    assert len(orders) == 1
+    payload = to_job_payload(orders[0])
+
+    charter = Charter(
+        mission="Deliver content.",
+        core_competencies=[CoreCompetency(name="research", description="research", priority=8)],
+        fiscal_boundaries=FiscalBoundaries(daily_burn_max_usd=50.0, min_job_margin_ratio=0.2),
+    )
+    ledger = UnifiedLedger()
+    ledger.record_usd(1000)
+    engine = GovernanceEngine(charter, ledger, auth=SovereignAuth(),
+                              review_engine=ReviewEngine(charter, judge=StubAuditor()))
+    plan, results, reports = await engine.run_mission_with_audit(
+        payload["goal"], abort_on_audit_failure=False, job_revenue_cents=payload["amount_cents"])
+    assert results and all(r.passed for r in reports)
+
+    client = ClawTasksClient("", live=False)
+    deliverable = "\n".join(r.output for r in results)
+    claim = client.claim(orders[0].contact["bounty_id"])
+    sub = client.submit(orders[0].contact["bounty_id"], deliverable)
+    assert claim["dry_run"] and sub["dry_run"]  # full loop ran, no funds moved
+
+
+# ------------------------------------------- generic field-mapped bounty source
+def test_generic_source_with_taskbounty_field_map():
+    from sovereign_os.ingest_bridge.sources.bounty_board import taskbounty_source
+
+    # TaskBounty-shaped rows: task_id / bounty_usd instead of id / amount.
+    rows = [
+        {"task_id": "tb-1", "title": "Fix a bug", "description": "in parser",
+         "bounty_usd": 30, "status": "open", "funded": True},
+        {"task_id": "tb-2", "title": "Unfunded", "bounty_usd": 10, "status": "open", "funded": False},
+    ]
+    src = taskbounty_source(api_key="tb_live_x", get_json=lambda *a, **k: rows)
+    orders = list(src.fetch())
+    assert len(orders) == 1                       # unfunded dropped
+    o = orders[0]
+    assert o.source_id == "taskbounty:tb-1"
+    assert o.amount_cents == 3000                 # bounty_usd 30 -> cents
+    assert o.currency == "USD"
+    assert o.contact["platform"] == "taskbounty"
+
+
+def test_generic_source_wrapped_response_and_auth_header():
+    from sovereign_os.ingest_bridge.sources.bounty_board import BountyFieldMap, GenericBountySource
+
+    seen = {}
+
+    def _get(url, params, headers, timeout):
+        seen["headers"] = headers
+        return {"data": [{"id": "g1", "title": "T", "description": "D", "amount": 5,
+                          "status": "open", "funded": True}]}
+
+    src = GenericBountySource(
+        "https://x.test/api", field_map=BountyFieldMap(list_key="data"),
+        headers={"Authorization": "Bearer k"}, get_json=_get,
+    )
+    orders = list(src.fetch())
+    assert len(orders) == 1 and orders[0].source_id == "generic:g1"
+    assert seen["headers"]["Authorization"] == "Bearer k"
