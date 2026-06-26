@@ -46,6 +46,17 @@ class RetailSourceConfig:
 
 
 @dataclass
+class ClawTasksSourceConfig:
+    enabled: bool = False
+    base_url: str = "https://clawtasks.com/api"
+    min_amount_usd: float = 0.0
+    max_amount_usd: float = 0.0
+    tags: list[str] = field(default_factory=list)
+    require_funded: bool = True
+    limit: int = 50
+
+
+@dataclass
 class BridgeConfig:
     mode: str = "serve"  # serve | post
     host: str = "0.0.0.0"
@@ -57,6 +68,7 @@ class BridgeConfig:
     reddit: RedditSourceConfig = field(default_factory=RedditSourceConfig)
     scraper: ScraperSourceConfig = field(default_factory=ScraperSourceConfig)
     retail: RetailSourceConfig = field(default_factory=RetailSourceConfig)
+    clawtasks: ClawTasksSourceConfig = field(default_factory=ClawTasksSourceConfig)
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "BridgeConfig":
@@ -95,6 +107,15 @@ class BridgeConfig:
             api_key=os.getenv("BRIDGE_RETAIL_API_KEY", ""),
             store_domain=os.getenv("BRIDGE_RETAIL_STORE_DOMAIN", ""),
         )
+        cfg.clawtasks = ClawTasksSourceConfig(
+            enabled=os.getenv("BRIDGE_CLAWTASKS_ENABLED", "").lower() in ("1", "true", "yes"),
+            base_url=os.getenv("CLAWTASKS_BASE_URL", "https://clawtasks.com/api"),
+            min_amount_usd=float(os.getenv("CLAWTASKS_MIN_AMOUNT_USD", "0") or 0),
+            max_amount_usd=float(os.getenv("CLAWTASKS_MAX_AMOUNT_USD", "0") or 0),
+            tags=[s.strip() for s in os.getenv("CLAWTASKS_TAGS", "").split(",") if s.strip()],
+            require_funded=os.getenv("CLAWTASKS_REQUIRE_FUNDED", "true").lower() in ("1", "true", "yes"),
+            limit=int(os.getenv("CLAWTASKS_LIMIT", "50")),
+        )
         if config_path and Path(config_path).exists():
             cfg._apply_yaml(config_path)
         return cfg
@@ -115,6 +136,10 @@ class BridgeConfig:
                 for k, v in value.items():
                     if hasattr(self.retail, k):
                         setattr(self.retail, k, v)
+            elif key == "clawtasks" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.clawtasks, k):
+                        setattr(self.clawtasks, k, v)
             elif hasattr(self, key):
                 if key == "port" and value is not None:
                     try:

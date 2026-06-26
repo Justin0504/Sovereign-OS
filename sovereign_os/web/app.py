@@ -390,6 +390,15 @@ def _fire_job_webhook(
                 _logs.append(("system", "Delivery: result posted to Reddit."))
         except Exception as e:
             logger.warning("Reddit delivery failed for job_id=%s: %s", job.job_id, e)
+    if isinstance(dc, dict) and dc.get("platform") == "clawtasks" and status == "completed":
+        result_summary = "\n".join(getattr(r, "output", "") for r in (results or [])).strip() or ""
+        try:
+            from sovereign_os.delivery.clawtasks import deliver_result_to_clawtasks
+            if deliver_result_to_clawtasks(dc, result_summary, job.job_id):
+                live = os.getenv("CLAWTASKS_LIVE", "").lower() in ("1", "true", "yes")
+                _logs.append(("system", f"Delivery: ClawTasks claim+submit {'(live)' if live else '(dry-run)'}."))
+        except Exception as e:
+            logger.warning("ClawTasks delivery failed for job_id=%s: %s", job.job_id, e)
 
 
 def _run_one_job(job: Job) -> None:
