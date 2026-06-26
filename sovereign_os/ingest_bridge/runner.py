@@ -17,6 +17,7 @@ from sovereign_os.ingest_bridge.sources.base import RawOrder
 from sovereign_os.ingest_bridge.sources.reddit import RedditOrderSource
 from sovereign_os.ingest_bridge.sources.scraper import ScraperOrderSource
 from sovereign_os.ingest_bridge.sources.retail import RetailOrderSource
+from sovereign_os.ingest_bridge.sources.clawtasks import ClawTasksOrderSource
 
 logger = logging.getLogger(__name__)
 
@@ -50,6 +51,15 @@ def _sources_from_config(cfg: BridgeConfig) -> list[Any]:
             api_key=cfg.retail.api_key,
             store_domain=cfg.retail.store_domain,
             order_to_goal_template=cfg.retail.order_to_goal_template,
+        ))
+    if cfg.clawtasks.enabled:
+        sources.append(ClawTasksOrderSource(
+            base_url=cfg.clawtasks.base_url,
+            min_amount_usd=cfg.clawtasks.min_amount_usd,
+            max_amount_usd=cfg.clawtasks.max_amount_usd,
+            tags=cfg.clawtasks.tags,
+            require_funded=cfg.clawtasks.require_funded,
+            limit=cfg.clawtasks.limit,
         ))
     return sources
 
