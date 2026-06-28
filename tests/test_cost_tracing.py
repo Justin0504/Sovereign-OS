@@ -222,3 +222,14 @@ async def test_dispatch_allows_spend_within_ceiling(charter, ledger):
     engine = GovernanceEngine(charter, ledger, auth=auth, cost_converter=lambda t: 500)
     results = await engine.dispatch(_spend_plan(), winner_by_task_id={"task-1": "buyer"})
     assert results[0].success is True  # $5.00 task fits the $50.00 ceiling
+
+
+def test_cost_by_category_rollup():
+    led = UnifiedLedger()
+    led.record_token("gpt-4o", 1000, 500, task_id="t1", estimated_usd_cents=5, category="coding")
+    led.record_token("gpt-4o-mini", 2000, 1000, task_id="t2", estimated_usd_cents=2, category="writing")
+    led.record_token("gpt-4o", 500, 200, task_id="t3", estimated_usd_cents=3, category="coding")
+    led.record_token("gpt-4o", 100, 100, task_id="t4", estimated_usd_cents=1)  # no category
+    by_cat = led.cost_cents_by_category()
+    assert by_cat == {"coding": 8, "writing": 2, "uncategorized": 1}
+    assert led.cost_summary()["by_category_cents"]["coding"] == 8
