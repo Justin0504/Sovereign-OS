@@ -129,6 +129,41 @@ flowchart LR
 
 ---
 
+## Marketplace oversight & delivery categories
+
+Beyond running its own missions, Sovereign-OS acts as a **governance layer over
+the agent-task economy — in both directions**, applying the same two gates
+(budget + delivery quality) wherever work flows.
+
+```
+INBOUND   human/agent posts ─▶ ingest (TaskBounty · StacksTasker · BotBounty · ClawTasks)
+          ─▶ [CFO budget] ─▶ governed workers ─▶ [Auditor quality] ─▶ submit
+
+OUTBOUND  Sovereign-OS posts ─▶ [CFO budget gate] ─▶ fund escrow (RentAHuman)
+          ─▶ worker delivers ─▶ [Auditor quality gate] ─▶ release | dispute
+```
+
+- **Inbound sources** (`ingest_bridge/`) pull open tasks from real marketplaces
+  (live-validated APIs); Sovereign-OS governs its own agents doing the work.
+- **Outbound oversight** (`oversight/`) posts tasks for external workers: the CFO
+  approves the spend and reserves escrow *before* funding, and the Auditor must
+  pass the deliverable *before* payment is released (else it's disputed/refunded).
+  All money-moving calls are dry-run until explicitly set live; run
+  `python -m sovereign_os.oversight.rentahuman_preflight` for a go-live check.
+
+A **task-category backbone** (`agents/categories.py`) ties delivery together:
+each category (coding, data, design, email, research, writing, automation) maps
+to a top-tier worker, a **risk-scaled budget ceiling** (`CategoryBudgetPolicy`),
+a **permission tier earned per category** (per-category TrustScore), and the
+**connectors** it needs (`connectors/`, MCP / built-in / HTTP, with readiness).
+Inspect it with `sovereign categories` and `sovereign connectors`.
+
+See [docs/OVERSIGHT.md](docs/OVERSIGHT.md), [docs/CATEGORIES.md](docs/CATEGORIES.md),
+[docs/CLAWTASKS.md](docs/CLAWTASKS.md), [docs/COST.md](docs/COST.md), and
+[docs/X402.md](docs/X402.md).
+
+---
+
 ## Features
 
 **Governance**
