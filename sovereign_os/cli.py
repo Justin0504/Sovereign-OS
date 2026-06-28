@@ -73,7 +73,7 @@ def _run_mission(
     return asyncio.run(_run())
 
 
-_INBOUND_SOURCES = {"taskbounty", "stackstasker", "clawtasks"}
+_INBOUND_SOURCES = {"taskbounty", "stackstasker", "clawtasks", "botbounty"}
 
 
 def _pull(platform: str, limit: int) -> int:
@@ -82,13 +82,17 @@ def _pull(platform: str, limit: int) -> int:
     if platform not in _INBOUND_SOURCES:
         print(f"Unknown platform '{platform}'. Choose from: {', '.join(sorted(_INBOUND_SOURCES))}", file=sys.stderr)
         return 2
-    from sovereign_os.ingest_bridge.sources.bounty_board import stackstasker_source, taskbounty_source
+    from sovereign_os.ingest_bridge.sources.bounty_board import (
+        botbounty_source, stackstasker_source, taskbounty_source,
+    )
     from sovereign_os.ingest_bridge.sources.clawtasks import ClawTasksOrderSource
 
     if platform == "taskbounty":
         src = taskbounty_source(limit=limit)
     elif platform == "stackstasker":
         src = stackstasker_source(limit=limit)
+    elif platform == "botbounty":
+        src = botbounty_source(limit=limit)
     else:
         src = ClawTasksOrderSource(limit=limit)
     orders = list(src.fetch())
@@ -144,7 +148,7 @@ def main() -> int:
     run_parser.add_argument("goal", nargs="+", help="Goal text (one or more words)")
 
     pull_parser = sub.add_parser("pull", help="Inbound: list open tasks live from a marketplace (no auth)")
-    pull_parser.add_argument("platform", help="taskbounty | stackstasker | clawtasks")
+    pull_parser.add_argument("platform", help="taskbounty | stackstasker | botbounty | clawtasks")
     pull_parser.add_argument("--limit", type=int, default=20, help="Max tasks to show")
 
     hire_parser = sub.add_parser("hire", help="Outbound: post a governed task (budget gate → fund escrow, dry-run)")

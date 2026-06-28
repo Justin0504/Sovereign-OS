@@ -39,7 +39,8 @@ class BountyFieldMap:
     assigned_to: str | None = "assigned_to"  # None => never treat as assigned
     tags: str | None = "tags"
     list_key: str | None = None     # wrapped response key, e.g. "bounties"/"data"
-    currency: str = "USDC"          # static currency label for emitted orders
+    currency: str = "USDC"          # fallback currency label for emitted orders
+    currency_field: str | None = None  # per-record currency key (overrides static when present)
 
 
 class GenericBountySource(OrderSource):
@@ -126,17 +127,53 @@ class GenericBountySource(OrderSource):
             description = str(b.get(fm.description) or "").strip()
             goal = (f"{title}\n\n{description}" if description else title)[:20_000]
             amount_cents = int(round(self._amount_usd(b) * 100))
+            currency = (str(b.get(fm.currency_field)) if fm.currency_field and b.get(fm.currency_field) else fm.currency)
             yield RawOrder(
                 source_id=f"{self.platform}:{bid}",
                 goal=goal,
                 amount_cents=amount_cents,
-                currency=fm.currency,
+                currency=currency,
                 charter=self.charter,
                 meta={"platform": self.platform, "tags": (b.get(fm.tags) if fm.tags else []) or []},
                 contact={"platform": self.platform, "bounty_id": bid},
             )
             emitted += 1
         logger.info("%s source: emitted %d order(s) from %d rows", self.platform, emitted, len(rows))
+
+
+def botbounty_source(
+    *,
+    base_url: str | None = None,
+    list_path: str | None = None,
+    **kwargs: Any,
+) -> GenericBountySource:
+    """
+    BotBounty preset, validated against the live GET /api/agent/bounties endpoint
+    (2026-06): records have id, title, description, category, amount (number),
+    currency (ETH/USDC per record), status (open), acceptanceCriteria; wrapped in
+    {"count", "bounties": [...]}. Paid on Base L2; no `funded` field. No auth.
+    Note the API base is the Railway host, not the marketing domain.
+    """
+    return GenericBountySource(
+        base_url=base_url or os.getenv("BOTBOUNTY_API_BASE", "https://botbounty-production.up.railway.app/api"),
+        list_path=list_path or os.getenv("BOTBOUNTY_LIST_PATH", "/agent/bounties"),
+        list_params={},
+        field_map=BountyFieldMap(
+            id="id",
+            title="title",
+            description="description",
+            amount="amount",
+            status="status",          # open
+            funded=None,
+            assigned_to=None,
+            tags=None,
+            list_key="bounties",
+            currency="USD",           # fallback; per-record currency below
+            currency_field="currency",
+        ),
+        platform="botbounty",
+        **kwargs,
+    )
 
 
 def stackstasker_source(

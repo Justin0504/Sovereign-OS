@@ -271,3 +271,33 @@ def test_runner_registers_stackstasker_source():
     cfg.stackstasker = StacksTaskerSourceConfig(enabled=True)
     sources = _sources_from_config(cfg)
     assert any(isinstance(s, GenericBountySource) and s.platform == "stackstasker" for s in sources)
+
+
+# --------------------------------------------------------- BotBounty source
+def test_botbounty_field_map_and_per_record_currency():
+    from sovereign_os.ingest_bridge.sources.bounty_board import botbounty_source
+
+    rows = {"count": 2, "bounties": [
+        {"id": "bb-1", "title": "CSV to JSON", "description": "convert", "category": "code",
+         "amount": 25, "currency": "USDC", "status": "open"},
+        {"id": "bb-2", "title": "Closed one", "description": "x", "amount": 10,
+         "currency": "ETH", "status": "completed"},
+    ]}
+    src = botbounty_source(get_json=lambda *a, **k: rows)
+    orders = list(src.fetch())
+    assert len(orders) == 1                       # only open kept
+    o = orders[0]
+    assert o.source_id == "botbounty:bb-1"
+    assert o.amount_cents == 2500                 # amount 25 -> cents
+    assert o.currency == "USDC"                   # per-record currency, not the fallback
+
+
+def test_runner_registers_botbounty_source():
+    from sovereign_os.ingest_bridge.config import BridgeConfig, BotBountySourceConfig
+    from sovereign_os.ingest_bridge.runner import _sources_from_config
+    from sovereign_os.ingest_bridge.sources.bounty_board import GenericBountySource
+
+    cfg = BridgeConfig()
+    cfg.botbounty = BotBountySourceConfig(enabled=True)
+    sources = _sources_from_config(cfg)
+    assert any(isinstance(s, GenericBountySource) and s.platform == "botbounty" for s in sources)

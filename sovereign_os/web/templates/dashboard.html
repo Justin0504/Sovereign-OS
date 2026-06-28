@@ -403,6 +403,12 @@
     .ov-funded { background: hsl(36 70% 85%); }
     .ov-released { background: hsl(140 50% 82%); }
     .ov-disputed, .ov-rejected { background: hsl(8 70% 86%); }
+    .ov-form { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
+    .ov-input { flex: 1; min-width: 120px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.8125rem; }
+    .ov-input.ov-price { flex: 0 0 80px; min-width: 70px; }
+    .ov-btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: hsl(36 70% 55%); color: #fff; font-size: 0.8125rem; cursor: pointer; }
+    .ov-btn-alt { background: var(--bg); color: var(--text); }
+    .ov-msg { font-size: 0.78rem; color: var(--muted, #8a7e6d); min-height: 1em; margin-bottom: 6px; }
     .token-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; background: transparent; table-layout: fixed; }
     .token-table th, .token-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     .token-table th:nth-child(1), .token-table td:nth-child(1) { min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -649,7 +655,14 @@
           <div class="card-title">Oversight</div>
           <div class="card-heading">Outbound escrows</div>
           <p class="card-desc">Tasks posted to external workers — budget-gated, quality-gated before payout.</p>
-          <div id="oversight"><span class="empty-feed">No outbound tasks. POST /api/oversight/hire to post one (dry-run).</span></div>
+          <div class="ov-form">
+            <input id="ovTitle" class="ov-input" placeholder="Task title" />
+            <input id="ovPrice" class="ov-input ov-price" type="number" min="0" step="0.01" placeholder="USD" />
+            <button class="ov-btn" onclick="hireSubmit()">Hire</button>
+            <button class="ov-btn ov-btn-alt" onclick="pollNow()">Poll</button>
+          </div>
+          <div id="ovMsg" class="ov-msg"></div>
+          <div id="oversight"><span class="empty-feed">No outbound tasks yet. Use the form above (dry-run).</span></div>
         </section>
         <section class="panel-section">
           <div class="card-title">Operations</div>
@@ -1213,7 +1226,7 @@
         if (!el) return;
         const rows = d.escrows || [];
         if (!rows.length) {
-          el.innerHTML = '<span class="empty-feed">No outbound tasks. POST /api/oversight/hire to post one' + (d.live ? ' (LIVE)' : ' (dry-run)') + '.</span>';
+          el.innerHTML = '<span class="empty-feed">No outbound tasks yet — use the form above' + (d.live ? ' (LIVE)' : ' (dry-run)') + '.</span>';
           return;
         }
         const s = d.summary || {};
@@ -1224,6 +1237,28 @@
         el.innerHTML = '<div class="ov-chips">' + chips + (d.live ? '' : ' <span class="ov-chip">dry-run</span>') + '</div>' +
           '<table class="token-table"><thead><tr><th>Task</th><th>Price</th><th>Status</th></tr></thead><tbody>' + body + '</tbody></table>';
       }).catch(() => {});
+    }
+    function hireSubmit() {
+      const title = (r('ovTitle').value || '').trim();
+      const usd = parseFloat(r('ovPrice').value);
+      const msg = r('ovMsg');
+      if (!title || !(usd > 0)) { if (msg) msg.textContent = 'Enter a task title and a price.'; return; }
+      fetch('/api/oversight/hire', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title: title, price_cents: Math.round(usd * 100) }) })
+        .then(x => x.json()).then(d => {
+          if (msg) msg.textContent = d.posted
+            ? ('✓ Posted "' + title + '" ($' + usd.toFixed(2) + ') — budget gate passed.')
+            : ('✗ Rejected: ' + ((d.reason || d.error || 'budget gate').slice(0, 70)));
+          r('ovTitle').value = ''; r('ovPrice').value = ''; fetchOversight();
+        }).catch(() => { if (msg) msg.textContent = 'Request failed.'; });
+    }
+    function pollNow() {
+      const msg = r('ovMsg');
+      fetch('/api/oversight/poll', { method: 'POST' }).then(x => x.json()).then(d => {
+        const n = (d.settled || []).length;
+        if (msg) msg.textContent = n ? ('Polled — settled ' + n + ' (quality gate).') : 'Polled — nothing delivered yet.';
+        fetchOversight();
+      }).catch(() => { if (msg) msg.textContent = 'Poll failed.'; });
     }
     function fetchAuditTrail() {
       fetch('/api/audit_trail?limit=10').then(x => x.json()).then(d => {
