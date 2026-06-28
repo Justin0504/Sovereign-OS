@@ -91,6 +91,10 @@ class SovereignAuth:
         self._spend_max_cents = max(self._spend_min_cents, autonomous_spend_max_cents)
         # Per-agent audit tallies, for streak/recovery introspection and dashboards.
         self._history: dict[str, dict[str, int]] = {}
+        # Per-(agent, category) trust: trust is earned per delivery domain, so an
+        # agent proven at one category can take its higher-risk work without
+        # blanket-trusting it everywhere.
+        self._cat_scores: dict[str, dict[str, int]] = {}
         self._path = Path(persist_path) if persist_path else None
         if self._path and self._path.exists():
             self._load()
@@ -130,16 +134,17 @@ class SovereignAuth:
         )
         return granted
 
-    def max_spend_cents_for(self, agent_id: str) -> int:
+    def max_spend_cents_for(self, agent_id: str, category: str | None = None) -> int:
         """
-        Per-task autonomous spend ceiling (cents), graduated by TrustScore.
+        Per-task autonomous spend ceiling (cents), graduated by TrustScore (or
+        per-category trust when `category` is given).
 
         - Below the SPEND_USD threshold: 0 (agent may not spend autonomously).
         - At the threshold: `autonomous_spend_min_cents`.
         - At TrustScore 100: `autonomous_spend_max_cents`.
         - Linear in between.
         """
-        score = self._get_score(agent_id)
+        score = self.effective_trust(agent_id, category)
         threshold = self._thresholds.get(Capability.SPEND_USD, 80)
         if score < threshold:
             return 0
@@ -173,7 +178,7 @@ class SovereignAuth:
             agent_id, outcome, old, self._get_score(agent_id), delta,
         )
 
-    def record_audit(self, agent_id: str, *, passed: bool, score: float | None = None) -> None:
+    def record_audit(self, agent_id: str, *, passed: bool, score: float | None = None, category: str | None = None) -> None:
         """
         Update TrustScore from an audit outcome, optionally scaled by the audit score.
 
@@ -181,21 +186,46 @@ class SovereignAuth:
         a strong pass (score≈1.0) earns the full success delta; a marginal pass
         earns less; a hard fail (score≈0.0) loses the full failure delta. When
         `score` is None, the flat success/failure deltas are applied (legacy).
+
+        When `category` is given, the same delta is also applied to the agent's
+        per-category trust, so domain expertise accrues separately from global trust.
         """
         if score is None:
-            if passed:
-                self._bump(agent_id, self._audit_success_delta, outcome="success")
-            else:
-                self._bump(agent_id, self._audit_failure_delta, outcome="failure")
-            return
-        s = min(1.0, max(0.0, float(score)))
-        if passed:
-            delta = round(self._audit_success_delta * s)
-            self._bump(agent_id, delta, outcome="success")
+            delta = self._audit_success_delta if passed else self._audit_failure_delta
+        elif passed:
+            delta = round(self._audit_success_delta * min(1.0, max(0.0, float(score))))
         else:
-            # Worse output (lower score) → larger penalty.
-            delta = round(self._audit_failure_delta * (1.0 - s))
-            self._bump(agent_id, delta, outcome="failure")
+            delta = round(self._audit_failure_delta * (1.0 - min(1.0, max(0.0, float(score)))))
+        self._bump(agent_id, delta, outcome="success" if passed else "failure")
+        if category:
+            self._bump_category(agent_id, category, delta)
+
+    # ------------------------------------------------------ per-category trust
+    def _bump_category(self, agent_id: str, category: str, delta: int) -> None:
+        cats = self._cat_scores.setdefault(agent_id, {})
+        cur = cats.get(category, self._get_score(agent_id))  # seed from global on first sight
+        cats[category] = max(0, min(100, cur + delta))
+        self._save()
+
+    def category_trust(self, agent_id: str, category: str) -> int:
+        """Per-category trust (seeds from global trust until the agent has category history)."""
+        cats = self._cat_scores.get(agent_id, {})
+        return cats.get(category, self._get_score(agent_id))
+
+    def effective_trust(self, agent_id: str, category: str | None = None) -> int:
+        """Trust to use for a decision: the per-category score when present, else global."""
+        return self.category_trust(agent_id, category) if category else self._get_score(agent_id)
+
+    def check_permission_for(self, agent_id: str, capability: Capability, category: str | None = None) -> bool:
+        """Like check_permission, but evaluates against per-category trust when a category is given."""
+        score = self.effective_trust(agent_id, category)
+        threshold = self._thresholds.get(capability, 100)
+        granted = score >= threshold
+        logger.info(
+            "AGENTS AUTH: Agent [%s] requesting %s for category=%s... [%s] (score=%d, threshold=%d)",
+            agent_id, capability.value, category or "-", "GRANTED" if granted else "DENIED", score, threshold,
+        )
+        return granted
 
     def record_audit_success(self, agent_id: str) -> None:
         """Increase TrustScore after Auditor verifies task success."""
@@ -217,11 +247,12 @@ class SovereignAuth:
     def snapshot(self) -> dict[str, dict[str, Any]]:
         """All known agents with score, spend ceiling, and audit history (for dashboards)."""
         out: dict[str, dict[str, Any]] = {}
-        for agent_id in set(self._scores) | set(self._history):
+        for agent_id in set(self._scores) | set(self._history) | set(self._cat_scores):
             out[agent_id] = {
                 "trust_score": self._get_score(agent_id),
                 "max_spend_cents": self.max_spend_cents_for(agent_id),
                 "history": self.history(agent_id),
+                "category_trust": dict(self._cat_scores.get(agent_id, {})),
             }
         return out
 
@@ -232,7 +263,7 @@ class SovereignAuth:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(
-                json.dumps({"scores": self._scores, "history": self._history}),
+                json.dumps({"scores": self._scores, "history": self._history, "cat_scores": self._cat_scores}),
                 encoding="utf-8",
             )
         except Exception as e:  # pragma: no cover - best-effort persistence
@@ -245,6 +276,10 @@ class SovereignAuth:
             self._history = {
                 str(k): {kk: int(vv) for kk, vv in v.items()}
                 for k, v in data.get("history", {}).items()
+            }
+            self._cat_scores = {
+                str(k): {str(kk): int(vv) for kk, vv in v.items()}
+                for k, v in data.get("cat_scores", {}).items()
             }
         except Exception as e:  # pragma: no cover - best-effort load
             logger.warning("AGENTS AUTH: failed to load trust state: %s", e)
