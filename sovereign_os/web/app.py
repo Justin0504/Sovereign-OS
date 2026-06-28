@@ -1695,6 +1695,28 @@ def create_app(
         settled = await poll_and_settle(broker, registry)
         return {"settled": settled}
 
+    @app.get("/api/categories")
+    def api_categories():
+        """Delivery categories: skill, risk, budget ceiling, capability, connectors."""
+        from sovereign_os.agents.categories import CATEGORIES
+        from sovereign_os.governance.budget_policy import CategoryBudgetPolicy
+
+        pol = CategoryBudgetPolicy()
+        rows = [{
+            "key": c.key, "skill": c.skill, "risk": c.risk,
+            "budget_usd": round(pol.ceiling_usd_for_category(c), 2),
+            "capability": c.capability.value,
+            "connectors": list(c.connectors),
+        } for c in CATEGORIES]
+        return {"categories": rows}
+
+    @app.get("/api/connectors")
+    def api_connectors():
+        """Connector readiness per category (available / missing) + MCP servers needed."""
+        from sovereign_os.connectors import coverage_report, required_mcp_servers
+
+        return {"coverage": coverage_report(), "required_mcp_servers": sorted(required_mcp_servers())}
+
     @app.get("/api/audit_trail")
     def api_audit_trail(limit: int = 200):
         """Verifiable audit trail: last N reports (proof_hash, task_id, passed, etc.). Set SOVEREIGN_AUDIT_TRAIL_PATH to enable persistence."""
