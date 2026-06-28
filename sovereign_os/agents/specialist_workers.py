@@ -135,3 +135,49 @@ class DataAnalysisWorker(BaseWorker):
                       model_id=getattr(self.llm, "model_name", "data") if self.llm else "data")
         except Exception:
             return None
+
+
+_TESTGEN_SYSTEM = (
+    "You are a senior test engineer. From a code snippet or spec, you produce a rigorous, "
+    "runnable unit-test suite. Cover the happy path, edge cases, error paths, and boundaries. "
+    "Use the language's idiomatic framework (pytest for Python, jest for JS). Tests must be "
+    "deterministic and self-contained; never test against network or randomness. Output only code."
+)
+
+
+class TestGenWorker(BaseWorker):
+    """Coding (second tier): generate a rigorous unit-test suite from a code/spec brief."""
+
+    async def execute(self, task: TaskInput) -> TaskResult:
+        brief = _brief(task)
+        if not self.llm:
+            return TaskResult(task_id=task.task_id, success=True,
+                              output=f"[TestGenWorker] No LLM; echo: {brief[:200]}",
+                              metadata={"worker": "TestGenWorker", "deliverable_type": "code"})
+        code = _ctx(task, "code", "")
+        language = _ctx(task, "language", "")
+        system = (self.system_prompt or _TESTGEN_SYSTEM).strip()
+        user = (
+            f"Generate tests for the following request (follow exactly):\n{brief}\n\n"
+            + (f"Code under test ({language or 'unknown'}):\n```\n{code[:6000]}\n```\n\n" if code else "No code provided — infer the interface from the spec and note assumptions.\n\n")
+            + "Deliver: a short '## Coverage plan' (bullets of what you test and why), then a fenced "
+            "code block with the complete, runnable test file. Include happy-path, edge, error, and boundary cases."
+        )
+        try:
+            out, usage = await _chat(self, system, user)
+            r = _result(self, task, out, usage, "TestGenWorker")
+            r.metadata["deliverable_type"] = "code"
+            return r
+        except Exception as e:
+            logger.exception("TestGenWorker failed: %s", e)
+            return TaskResult(task_id=task.task_id, success=False,
+                              output=f"[TestGenWorker] Error: {e}", metadata={"worker": "TestGenWorker", "error": str(e)})
+
+    async def get_bid(self, rfp: "RequestForProposal") -> "Bid | None":
+        try:
+            from sovereign_os.governance.auction import Bid
+            return Bid(agent_id=self.agent_id, estimated_cost_cents=max(2, (rfp.estimated_token_budget * 26) // 1000),
+                      estimated_time_seconds=18.0, confidence_score=0.72,
+                      model_id=getattr(self.llm, "model_name", "testgen") if self.llm else "testgen")
+        except Exception:
+            return None
