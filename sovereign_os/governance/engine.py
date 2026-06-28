@@ -27,6 +27,7 @@ from sovereign_os.agents.content_workers import (
     TranslateWorker,
 )
 from sovereign_os.agents.code_workers import CodeAssistantWorker, CodeReviewWorker
+from sovereign_os.agents.specialist_workers import DataAnalysisWorker, DesignBriefWorker
 from sovereign_os.agents.ops_workers import (
     ExtractStructuredWorker,
     InfoCollectorWorker,
@@ -100,6 +101,7 @@ class GovernanceEngine:
         compliance_hook: "ComplianceHook | None" = None,
         spend_threshold_cents: int = 0,
         compliance_auto_proceed: bool = False,
+        budget_policy: "Any | None" = None,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
@@ -113,6 +115,7 @@ class GovernanceEngine:
             compliance_hook=compliance_hook,
             spend_threshold_cents=spend_threshold_cents,
             compliance_auto_proceed=compliance_auto_proceed,
+            budget_policy=budget_policy,
         )
         self._cost_converter = cost_converter or self._default_cost_converter
         self._auth = auth or SovereignAuth()
@@ -145,6 +148,9 @@ class GovernanceEngine:
         r.register("assistant_chat", AssistantChatWorker)
         r.register("code_assistant", CodeAssistantWorker)
         r.register("code_review", CodeReviewWorker)
+        # Top-tier specialists for high-frequency platform categories
+        r.register("design_brief", DesignBriefWorker)
+        r.register("data_analysis", DataAnalysisWorker)
         try:
             from sovereign_os.agents.user_workers import get_user_workers
             for skill_name, worker_cls in get_user_workers():
@@ -249,6 +255,7 @@ class GovernanceEngine:
                         estimated_cents,
                         task_id=task.task_id,
                         purpose=task.description[:100] or "task",
+                        skill=task.required_skill,
                     )
                 except FiscalInsolvencyError as e:
                     logger.error(
@@ -568,7 +575,13 @@ class GovernanceEngine:
             agent_id = winner_by_task_id.get(task.task_id) or f"{task.required_skill}-{task.task_id}"
             judge_model = getattr(self._review_engine, "judge_model", "audit")
             # Quality-scaled trust: a strong pass earns more than a marginal one.
-            self._auth.record_audit(agent_id, passed=report.passed, score=report.score)
+            # Also accrue per-category (delivery-domain) trust from the task's skill.
+            from sovereign_os.agents.categories import category_for_skill
+
+            self._auth.record_audit(
+                agent_id, passed=report.passed, score=report.score,
+                category=category_for_skill(task.required_skill).key,
+            )
             if report.passed:
                 record_mission_success(judge_model, True)
                 if self._memory_manager is not None:

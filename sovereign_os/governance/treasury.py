@@ -49,6 +49,7 @@ class Treasury:
         compliance_hook: "ComplianceHook | None" = None,
         spend_threshold_cents: int = 0,
         compliance_auto_proceed: bool = False,
+        budget_policy: "Any | None" = None,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
@@ -56,6 +57,7 @@ class Treasury:
         self._compliance_hook = compliance_hook
         self._spend_threshold_cents = spend_threshold_cents
         self._compliance_auto_proceed = compliance_auto_proceed
+        self._budget_policy = budget_policy
 
     @property
     def _daily_burn_max_cents(self) -> int:
@@ -65,7 +67,7 @@ class Treasury:
     def _max_task_cost_cents(self) -> int:
         return int(getattr(self._charter.fiscal_boundaries, "max_task_cost_usd", 0.0) * 100)
 
-    def approve_task(self, estimated_cost_cents: int, *, task_id: str = "", purpose: str = "") -> None:
+    def approve_task(self, estimated_cost_cents: int, *, task_id: str = "", purpose: str = "", skill: str = "") -> None:
         """
         Check fiscal constraints for a task. Raises FiscalInsolvencyError if denied.
 
@@ -85,6 +87,18 @@ class Treasury:
                 balance_cents=balance_cents,
                 requested_cents=estimated_cost_cents,
             )
+
+        # Category-aware ceiling (when a budget policy is configured): the tighter
+        # of the flat per-task cap and the task's category ceiling wins.
+        if self._budget_policy is not None and skill:
+            cat_ceiling = self._budget_policy.ceiling_cents(skill=skill)
+            if cat_ceiling > 0 and estimated_cost_cents > cat_ceiling:
+                msg = (
+                    f"CFO denied budget: estimated cost {estimated_cost_cents} cents exceeds the "
+                    f"'{skill}' category ceiling {cat_ceiling} cents."
+                )
+                logger.warning("GOVERNANCE CFO: %s", msg)
+                raise FiscalInsolvencyError(msg, balance_cents=balance_cents, requested_cents=estimated_cost_cents)
         if balance_cents - estimated_cost_cents < self._min_reserve_cents:
             msg = (
                 f"CFO denied budget: balance {balance_cents} cents - estimated cost {estimated_cost_cents} cents "
