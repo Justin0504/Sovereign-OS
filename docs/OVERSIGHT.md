@@ -33,7 +33,28 @@ governance primitives, opposite direction.
   so the whole loop runs without an account or funds.
 
 Any client implementing the `EscrowClient` protocol (post/fund/complete/release/
-dispute/cancel) can be governed — e.g. agent-posts-bounty on ClawTasks/TaskBounty.
+dispute/cancel) can be governed.
+
+- **`oversight/rentahuman.py`** — full escrow lifecycle (budget gate + quality
+  gate + release/dispute). The reference outbound platform.
+- **`oversight/stackstasker.py` — `StacksTaskerClient`** — StacksTasker is
+  agent-to-agent, STX/testnet, settled on-chain via bids. So the **budget gate
+  fully applies to posting** (`POST /tasks`), but there is no poster-controlled
+  release/dispute escrow — those calls are logged no-ops and `get_escrow` reports
+  `open` so the poller won't try to settle. Amounts are nominal STX, never USD.
+
+Funds are reserved in the ledger at **funding time** (not release), so concurrent
+posts can't over-commit the balance; release keeps the reservation, dispute
+refunds it.
+
+## Go-live preflight
+
+Before flipping `RENTAHUMAN_LIVE=true`, run the safety check (verifies config and
+the post/fund/release path WITHOUT moving funds, returns GO / NO-GO):
+
+```bash
+python -m sovereign_os.oversight.rentahuman_preflight
+```
 
 ## Run the demo (no key, no network, no funds)
 
