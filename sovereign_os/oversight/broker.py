@@ -95,6 +95,11 @@ class OversightBroker:
         bounty_id = str(bounty.get("id") or "")
         escrow = self._client.fund_escrow(bounty_id, price_cents)
         escrow_id = str(escrow.get("id") or bounty_id)
+        # Reserve the committed funds NOW (escrow is funded), so concurrent posts
+        # see the reduced balance and can't over-commit. Release keeps it; a
+        # dispute refunds it.
+        if self._ledger is not None and hasattr(self._ledger, "record_usd"):
+            self._ledger.record_usd(-abs(price_cents), purpose="escrow_reserve", ref=f"escrow-{escrow_id}")
         logger.info("OVERSIGHT: posted+funded '%s' (escrow=%s, $%.2f).", title[:40], escrow_id, price_cents / 100.0)
         self._record(escrow_id=escrow_id, title=title, price_cents=price_cents, status="funded",
                      bounty_id=bounty_id, required_skill=required_skill,
@@ -141,8 +146,8 @@ class OversightBroker:
         if report.passed:
             self._client.complete(escrow_id)
             self._client.release(escrow_id)
-            if self._ledger is not None and hasattr(self._ledger, "record_usd"):
-                self._ledger.record_usd(-abs(price_cents), purpose="hire_payout", ref=f"escrow-{escrow_id}")
+            # Funds were already reserved at funding time — release keeps them, no
+            # second debit.
             logger.info("OVERSIGHT: quality PASS (%.2f) — released $%.2f for %s.",
                         report.score, price_cents / 100.0, escrow_id)
             if self._registry is not None:
@@ -150,7 +155,10 @@ class OversightBroker:
             return {"action": "released", "paid": True, "score": report.score, "report": report}
 
         self._client.dispute(escrow_id)
-        logger.warning("OVERSIGHT: quality FAIL (%.2f) — disputed %s (not paid). Reason: %s",
+        # Refund the reservation — disputed work is not paid for.
+        if self._ledger is not None and hasattr(self._ledger, "record_usd"):
+            self._ledger.record_usd(abs(price_cents), purpose="escrow_refund", ref=f"escrow-{escrow_id}")
+        logger.warning("OVERSIGHT: quality FAIL (%.2f) — disputed %s (refunded, not paid). Reason: %s",
                        report.score, escrow_id, report.reason)
         if self._registry is not None:
             self._registry.update(escrow_id, status="disputed", score=report.score, reason=report.reason)

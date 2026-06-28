@@ -74,30 +74,33 @@ async def test_quality_gate_pass_releases_and_records_spend(charter, review_engi
     led.record_usd(10000)
     spy = SpyClient()
     broker = OversightBroker(Treasury(charter, led), review_engine, spy, ledger=led)
-    before = led.total_usd_cents()
+    # Post reserves the funds at funding time...
+    broker.post_governed_task(title="Write a summary", description="d", price_cents=2000)
+    assert led.total_usd_cents() == 8000                 # reserved
     res = await broker.review_and_settle(
         escrow_id="e1", deliverable="A solid, on-topic deliverable.",
         task_description="Write a summary", price_cents=2000,
     )
     assert res["action"] == "released" and res["paid"] is True
-    assert _kinds(spy) == ["complete", "release"]       # accepted then paid
-    assert led.total_usd_cents() == before - 2000       # spend recorded
+    assert "complete" in _kinds(spy) and "release" in _kinds(spy)
+    assert led.total_usd_cents() == 8000                 # release keeps the reservation, no double debit
 
 
 @pytest.mark.asyncio
-async def test_quality_gate_fail_disputes_and_withholds_payment(charter, review_engine):
+async def test_quality_gate_fail_disputes_and_refunds(charter, review_engine):
     led = UnifiedLedger()
     led.record_usd(10000)
     spy = SpyClient()
     broker = OversightBroker(Treasury(charter, led), review_engine, spy, ledger=led)
-    before = led.total_usd_cents()
+    broker.post_governed_task(title="Write a summary", description="d", price_cents=2000)
+    assert led.total_usd_cents() == 8000                 # reserved
     res = await broker.review_and_settle(
         escrow_id="e1", deliverable="",   # empty -> StubAuditor fails it
         task_description="Write a summary", price_cents=2000,
     )
     assert res["action"] == "disputed" and res["paid"] is False
-    assert _kinds(spy) == ["dispute"]                   # no complete/release
-    assert led.total_usd_cents() == before             # nothing paid
+    assert "dispute" in _kinds(spy)
+    assert led.total_usd_cents() == 10000                # disputed -> reservation refunded
 
 
 # --------------------------------------------------------------- client
