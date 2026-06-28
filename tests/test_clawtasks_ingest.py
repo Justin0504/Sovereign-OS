@@ -242,3 +242,32 @@ def test_generic_source_wrapped_response_and_auth_header():
     orders = list(src.fetch())
     assert len(orders) == 1 and orders[0].source_id == "generic:g1"
     assert seen["headers"]["Authorization"] == "Bearer k"
+
+
+# ------------------------------------------------------ StacksTasker source
+def test_stackstasker_field_map():
+    from sovereign_os.ingest_bridge.sources.bounty_board import stackstasker_source
+
+    rows = {"tasks": [
+        {"id": "st-1", "title": "Coding task", "description": "do X", "category": "coding",
+         "bounty": "5", "status": "open", "network": "testnet"},
+        {"id": "st-2", "title": "Done one", "description": "y", "bounty": "5", "status": "completed"},
+    ]}
+    src = stackstasker_source(get_json=lambda *a, **k: rows)
+    orders = list(src.fetch())
+    assert len(orders) == 1                       # completed dropped, only open
+    o = orders[0]
+    assert o.source_id == "stackstasker:st-1"
+    assert o.amount_cents == 500                  # 5 STX -> 500 nominal units
+    assert o.currency == "STX"
+
+
+def test_runner_registers_stackstasker_source():
+    from sovereign_os.ingest_bridge.config import BridgeConfig, StacksTaskerSourceConfig
+    from sovereign_os.ingest_bridge.runner import _sources_from_config
+    from sovereign_os.ingest_bridge.sources.bounty_board import GenericBountySource
+
+    cfg = BridgeConfig()
+    cfg.stackstasker = StacksTaskerSourceConfig(enabled=True)
+    sources = _sources_from_config(cfg)
+    assert any(isinstance(s, GenericBountySource) and s.platform == "stackstasker" for s in sources)

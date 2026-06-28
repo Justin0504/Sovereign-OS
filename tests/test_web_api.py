@@ -139,3 +139,52 @@ def test_jobs_list_returns_limit_and_total(client):
     assert "total" in data
     assert len(data["jobs"]) <= 2
     assert data["total"] >= len(data["jobs"])
+
+
+def _app_with_engine():
+    from sovereign_os.governance.engine import GovernanceEngine
+    from sovereign_os.auditor import ReviewEngine
+    from sovereign_os.auditor.review_engine import StubAuditor
+    from sovereign_os.agents.auth import SovereignAuth
+    from sovereign_os.models.charter import Charter, FiscalBoundaries
+    led = UnifiedLedger(); led.record_usd(20000)
+    charter = Charter(mission="m", fiscal_boundaries=FiscalBoundaries(max_task_cost_usd=50.0))
+    eng = GovernanceEngine(charter, led, auth=SovereignAuth(),
+                           review_engine=ReviewEngine(charter, judge=StubAuditor()))
+    return create_app(engine=eng, ledger=led)
+
+
+def _tc(app):
+    try:
+        from fastapi.testclient import TestClient
+        return TestClient(app)
+    except (ImportError, AttributeError) as e:
+        if os.environ.get("GITHUB_ACTIONS"):
+            raise RuntimeError(f"TestClient required in CI: {e}") from e
+        pytest.skip(f"TestClient not available: {e}")
+
+
+def test_oversight_hire_budget_gate_and_panel():
+    import sovereign_os.web.app as appmod
+    appmod._oversight_registry = None  # reset shared registry
+    c = _tc(_app_with_engine())
+    # Over the $50 ceiling -> budget gate rejects, nothing posted.
+    over = c.post("/api/oversight/hire", json={"title": "Pricey", "price_cents": 8000}).json()
+    assert over["posted"] is False
+    # Affordable -> posted + funded (dry-run).
+    ok = c.post("/api/oversight/hire", json={"title": "Cheap gig", "price_cents": 2000}).json()
+    assert ok["posted"] is True and ok["escrow_id"]
+    # Panel reflects it.
+    panel = c.get("/api/oversight").json()
+    assert panel["summary"].get("funded") == 1
+    assert any(e["title"] == "Cheap gig" for e in panel["escrows"])
+
+
+def test_oversight_poll_settles_via_quality_gate():
+    import sovereign_os.web.app as appmod
+    appmod._oversight_registry = None
+    c = _tc(_app_with_engine())
+    c.post("/api/oversight/hire", json={"title": "Settle me", "price_cents": 2000})
+    settled = c.post("/api/oversight/poll").json()["settled"]
+    assert len(settled) == 1 and settled[0]["action"] == "released"
+    assert c.get("/api/oversight").json()["summary"].get("released") == 1

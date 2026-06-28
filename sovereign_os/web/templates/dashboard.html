@@ -398,6 +398,11 @@
     .burn-track { height: 8px; border-radius: 6px; background: var(--border); overflow: hidden; }
     .burn-fill { height: 100%; background: hsl(36 70% 55%); transition: width .4s ease; }
     .burn-fill.over { background: hsl(8 70% 55%); }
+    .ov-chips { margin-bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .ov-chip { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--text); }
+    .ov-funded { background: hsl(36 70% 85%); }
+    .ov-released { background: hsl(140 50% 82%); }
+    .ov-disputed, .ov-rejected { background: hsl(8 70% 86%); }
     .token-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; background: transparent; table-layout: fixed; }
     .token-table th, .token-table td { padding: 8px 12px; text-align: left; border-bottom: 1px solid var(--border); }
     .token-table th:nth-child(1), .token-table td:nth-child(1) { min-width: 120px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -639,6 +644,12 @@
           <div class="card-heading">Cost breakdown</div>
           <p class="card-desc">Estimated spend by model and by agent (per-model pricing).</p>
           <div id="costSummary"><span class="empty-feed">No cost recorded yet.</span></div>
+        </section>
+        <section class="panel-section">
+          <div class="card-title">Oversight</div>
+          <div class="card-heading">Outbound escrows</div>
+          <p class="card-desc">Tasks posted to external workers — budget-gated, quality-gated before payout.</p>
+          <div id="oversight"><span class="empty-feed">No outbound tasks. POST /api/oversight/hire to post one (dry-run).</span></div>
         </section>
         <section class="panel-section">
           <div class="card-title">Operations</div>
@@ -1196,6 +1207,24 @@
           (d.total_tokens || 0) + ' tokens</div>' + burn + tbl('Model', byModel) + tbl('Agent', byAgent);
       }).catch(() => {});
     }
+    function fetchOversight() {
+      fetch('/api/oversight').then(x => x.json()).then(d => {
+        const el = r('oversight');
+        if (!el) return;
+        const rows = d.escrows || [];
+        if (!rows.length) {
+          el.innerHTML = '<span class="empty-feed">No outbound tasks. POST /api/oversight/hire to post one' + (d.live ? ' (LIVE)' : ' (dry-run)') + '.</span>';
+          return;
+        }
+        const s = d.summary || {};
+        const chips = Object.keys(s).map(k => '<span class="ov-chip ov-' + k + '">' + k + ' ' + s[k] + '</span>').join(' ');
+        const body = rows.slice(0, 12).map(e =>
+          '<tr><td>' + escapeHtml(e.title || '') + '</td><td>$' + ((e.price_cents||0)/100).toFixed(2) +
+          '</td><td><span class="ov-chip ov-' + escapeHtml(e.status) + '">' + escapeHtml(e.status) + '</span></td></tr>').join('');
+        el.innerHTML = '<div class="ov-chips">' + chips + (d.live ? '' : ' <span class="ov-chip">dry-run</span>') + '</div>' +
+          '<table class="token-table"><thead><tr><th>Task</th><th>Price</th><th>Status</th></tr></thead><tbody>' + body + '</tbody></table>';
+      }).catch(() => {});
+    }
     function fetchAuditTrail() {
       fetch('/api/audit_trail?limit=10').then(x => x.json()).then(d => {
         const el = r('auditTrail');
@@ -1328,8 +1357,9 @@
     setInterval(fetchHealth, 10000);
     setInterval(fetchTokenUsage, 3000);
     setInterval(fetchCostSummary, 3000);
+    setInterval(fetchOversight, 4000);
     setInterval(fetchAuditTrail, 8000);
-    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchAuditTrail();
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchAuditTrail();
   </script>
 </body>
 </html>

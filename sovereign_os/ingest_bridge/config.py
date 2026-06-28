@@ -68,6 +68,16 @@ class TaskBountySourceConfig:
 
 
 @dataclass
+class StacksTaskerSourceConfig:
+    enabled: bool = False
+    base_url: str = "https://stackstasker.com"
+    list_path: str = "/tasks"
+    min_amount_usd: float = 0.0
+    max_amount_usd: float = 0.0
+    limit: int = 50
+
+
+@dataclass
 class BridgeConfig:
     mode: str = "serve"  # serve | post
     host: str = "0.0.0.0"
@@ -81,6 +91,7 @@ class BridgeConfig:
     retail: RetailSourceConfig = field(default_factory=RetailSourceConfig)
     clawtasks: ClawTasksSourceConfig = field(default_factory=ClawTasksSourceConfig)
     taskbounty: TaskBountySourceConfig = field(default_factory=TaskBountySourceConfig)
+    stackstasker: StacksTaskerSourceConfig = field(default_factory=StacksTaskerSourceConfig)
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "BridgeConfig":
@@ -137,6 +148,14 @@ class BridgeConfig:
             max_amount_usd=float(os.getenv("TASKBOUNTY_MAX_AMOUNT_USD", "0") or 0),
             limit=int(os.getenv("TASKBOUNTY_LIMIT", "50")),
         )
+        cfg.stackstasker = StacksTaskerSourceConfig(
+            enabled=os.getenv("BRIDGE_STACKSTASKER_ENABLED", "").lower() in ("1", "true", "yes"),
+            base_url=os.getenv("STACKSTASKER_API_BASE", "https://stackstasker.com"),
+            list_path=os.getenv("STACKSTASKER_LIST_PATH", "/tasks"),
+            min_amount_usd=float(os.getenv("STACKSTASKER_MIN_AMOUNT", "0") or 0),
+            max_amount_usd=float(os.getenv("STACKSTASKER_MAX_AMOUNT", "0") or 0),
+            limit=int(os.getenv("STACKSTASKER_LIMIT", "50")),
+        )
         if config_path and Path(config_path).exists():
             cfg._apply_yaml(config_path)
         return cfg
@@ -165,6 +184,10 @@ class BridgeConfig:
                 for k, v in value.items():
                     if hasattr(self.taskbounty, k):
                         setattr(self.taskbounty, k, v)
+            elif key == "stackstasker" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.stackstasker, k):
+                        setattr(self.stackstasker, k, v)
             elif hasattr(self, key):
                 if key == "port" and value is not None:
                     try:

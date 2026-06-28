@@ -129,3 +129,34 @@ def test_client_live_posts_with_header():
     c.release("e1")
     assert calls[0][0].endswith("/escrow/e1/release")
     assert calls[0][2]["X-API-Key"] == "rah_live_k"
+
+
+# ------------------------------------------------ registry + poller (auto-settle)
+def test_registry_records_and_persists(charter, review_engine, tmp_path):
+    from sovereign_os.oversight.registry import OversightRegistry
+
+    led = UnifiedLedger(); led.record_usd(10000)
+    reg = OversightRegistry(persist_path=tmp_path / "esc.json")
+    broker = OversightBroker(Treasury(charter, led), review_engine, SpyClient(), ledger=led, registry=reg)
+    broker.post_governed_task(title="T", description="d", price_cents=2000)
+    assert reg.summary().get("funded") == 1
+    # Reload from disk.
+    reg2 = OversightRegistry(persist_path=tmp_path / "esc.json")
+    assert reg2.summary().get("funded") == 1
+
+
+@pytest.mark.asyncio
+async def test_poll_and_settle_closes_the_loop(charter, review_engine):
+    from sovereign_os.oversight.registry import OversightRegistry
+    from sovereign_os.oversight.poller import poll_and_settle
+
+    led = UnifiedLedger(); led.record_usd(10000)
+    reg = OversightRegistry()
+    # Dry-run client: get_escrow() returns status "delivered", so the poll settles.
+    broker = OversightBroker(Treasury(charter, led), review_engine,
+                             RentAHumanClient("", live=False), ledger=led, registry=reg)
+    broker.post_governed_task(title="Good gig", description="d", price_cents=2000)
+    settled = await poll_and_settle(broker, reg)
+    assert len(settled) == 1 and settled[0]["action"] == "released" and settled[0]["paid"] is True
+    assert reg.list(status="released")          # registry advanced
+    assert led.total_usd_cents() == 8000        # paid $20

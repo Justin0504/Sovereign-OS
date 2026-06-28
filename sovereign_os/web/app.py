@@ -65,6 +65,7 @@ _auth: Any = None
 _charter_name: str = "Default"
 _charter_path: str | None = None  # path to charter YAML (for GET/PUT /api/charter)
 _payment_service: Any = None
+_oversight_registry: Any = None   # OversightRegistry for outbound escrows (lazy)
 _job_store: Any = None  # sovereign_os.jobs.store.JobStore when SOVEREIGN_JOB_DB set
 
 
@@ -1630,6 +1631,69 @@ def create_app(
             "by_model": _rows(s["by_model_cents"]),
             "by_agent": _rows(s["by_agent_cents"]),
         }
+
+    def _get_oversight():
+        """Build (lazily) an OversightBroker + shared registry from the running engine."""
+        global _oversight_registry
+        if _engine is None:
+            return None, None
+        from sovereign_os.oversight import OversightBroker, OversightRegistry, RentAHumanClient
+
+        if _oversight_registry is None:
+            _oversight_registry = OversightRegistry(persist_path=os.getenv("SOVEREIGN_OVERSIGHT_DB"))
+        treasury = getattr(_engine, "_treasury", None)
+        review = getattr(_engine, "_review_engine", None)
+        if treasury is None or review is None:
+            return None, _oversight_registry
+        live = os.getenv("RENTAHUMAN_LIVE", "").lower() in ("1", "true", "yes")
+        client = RentAHumanClient(os.getenv("RENTAHUMAN_API_KEY", ""), live=live)
+        broker = OversightBroker(treasury, review, client, ledger=_ledger, registry=_oversight_registry)
+        return broker, _oversight_registry
+
+    @app.get("/api/oversight")
+    def api_oversight():
+        """Outbound escrows Sovereign-OS has posted, with status + budget/quality summary."""
+        _, registry = _get_oversight()
+        if registry is None:
+            return {"escrows": [], "summary": {}, "live": False}
+        return {
+            "escrows": registry.to_dicts(),
+            "summary": registry.summary(),
+            "live": os.getenv("RENTAHUMAN_LIVE", "").lower() in ("1", "true", "yes"),
+        }
+
+    @app.post("/api/oversight/hire")
+    async def api_oversight_hire(body: dict):
+        """Post a governed task (CFO budget gate, then fund escrow). Dry-run unless RENTAHUMAN_LIVE."""
+        broker, _ = _get_oversight()
+        if broker is None:
+            return JSONResponse({"error": "oversight unavailable (no engine)"}, status_code=503)
+        title = str(body.get("title") or "").strip()
+        if not title:
+            return JSONResponse({"error": "title required"}, status_code=400)
+        try:
+            price_cents = int(body.get("price_cents") or 0)
+        except (TypeError, ValueError):
+            return JSONResponse({"error": "price_cents must be an integer"}, status_code=400)
+        res = broker.post_governed_task(
+            title=title,
+            description=str(body.get("description") or ""),
+            price_cents=price_cents,
+            required_skill=str(body.get("required_skill") or "general"),
+            completion_criteria=str(body.get("completion_criteria") or ""),
+        )
+        return res
+
+    @app.post("/api/oversight/poll")
+    async def api_oversight_poll():
+        """Run one delivery poll: settle any delivered escrows through the quality gate."""
+        broker, registry = _get_oversight()
+        if broker is None:
+            return JSONResponse({"error": "oversight unavailable (no engine)"}, status_code=503)
+        from sovereign_os.oversight import poll_and_settle
+
+        settled = await poll_and_settle(broker, registry)
+        return {"settled": settled}
 
     @app.get("/api/audit_trail")
     def api_audit_trail(limit: int = 200):
