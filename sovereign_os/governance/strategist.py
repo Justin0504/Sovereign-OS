@@ -169,26 +169,15 @@ class Strategist:
                 (plan.goal_summary or goal_text)[:80],
             )
             return plan
-        # Fallback: infer skill from goal text so the right worker runs (not always first competency)
+        # Fallback: route by task CATEGORY (platform-grounded) to the top-tier worker.
+        # When the charter constrains competencies and the routed skill isn't one of
+        # them, defer to the first declared competency (preserves charter intent).
+        from sovereign_os.agents.categories import route_skill
+
         competency_names = [c.name for c in self._charter.core_competencies]
-        goal_lower = goal_text.lower()
-        skill = "summarize"
-        if any(k in goal_lower for k in ("market research", "competitive", "bnpl", "competitor", "landscape", "comparison table")):
-            skill = "research" if "research" in competency_names else skill
-        elif any(k in goal_lower for k in ("blog", "article", "long-form", "1000-word", "word post", "b2b")):
-            skill = "write_article" if "write_article" in competency_names else skill
-        elif any(k in goal_lower for k in ("email", "cold outreach", "sequence", "d2c", "subject line")):
-            skill = "write_email" if "write_email" in competency_names else skill
-        elif any(k in goal_lower for k in ("faq", "tooltip", "documentation", "getting started", "help center")):
-            skill = "help_docs" if "help_docs" in competency_names else skill
-        elif any(k in goal_lower for k in ("launch", "onboarding", "hero", "landing page", "content pack")):
-            skill = "write_post" if "write_post" in competency_names else skill
-        elif any(k in goal_lower for k in ("strategy", "sow", "template", "exec summary", "decisions log", "workshop")):
-            skill = "spec_writer" if "spec_writer" in competency_names else skill
-        elif any(k in goal_lower for k in ("solve", "question", "answer", "step")):
-            skill = "solve_problem" if "solve_problem" in competency_names else skill
-        if skill not in competency_names:
-            skill = competency_names[0] if competency_names else "summarize"
+        skill = route_skill("", goal_text) or "summarize"
+        if competency_names and skill not in competency_names:
+            skill = competency_names[0]
         plan = TaskPlan(
             goal_summary=goal_text[:200],
             tasks=[
