@@ -183,20 +183,46 @@ async def test_clawtasks_loop_end_to_end():
 def test_generic_source_with_taskbounty_field_map():
     from sovereign_os.ingest_bridge.sources.bounty_board import taskbounty_source
 
-    # TaskBounty-shaped rows: task_id / bounty_usd instead of id / amount.
-    rows = [
-        {"task_id": "tb-1", "title": "Fix a bug", "description": "in parser",
-         "bounty_usd": 30, "status": "open", "funded": True},
-        {"task_id": "tb-2", "title": "Unfunded", "bounty_usd": 10, "status": "open", "funded": False},
-    ]
+    # Real TaskBounty schema (validated against live /api/v1/tasks):
+    # id, title, short_summary, bounty_cents (already cents), status OPEN/AWARDED/CLOSED.
+    rows = {"data": [
+        {"id": "tb-1", "title": "Fix a bug", "short_summary": "in parser",
+         "bounty_cents": 30000, "status": "OPEN", "currency": "usd", "tags": "[]"},
+        {"id": "tb-2", "title": "Already awarded", "short_summary": "x",
+         "bounty_cents": 10000, "status": "AWARDED"},
+    ]}
     src = taskbounty_source(api_key="tb_live_x", get_json=lambda *a, **k: rows)
     orders = list(src.fetch())
-    assert len(orders) == 1                       # unfunded dropped
+    assert len(orders) == 1                       # AWARDED dropped, only OPEN kept
     o = orders[0]
     assert o.source_id == "taskbounty:tb-1"
-    assert o.amount_cents == 3000                 # bounty_usd 30 -> cents
+    assert o.amount_cents == 30000                # bounty_cents already in cents (no x100)
     assert o.currency == "USD"
+    assert "Fix a bug" in o.goal and "in parser" in o.goal
     assert o.contact["platform"] == "taskbounty"
+
+
+def test_taskbounty_amount_band_uses_usd():
+    from sovereign_os.ingest_bridge.sources.bounty_board import taskbounty_source
+
+    rows = {"data": [{"id": "x", "title": "T", "short_summary": "S",
+                      "bounty_cents": 30000, "status": "OPEN"}]}  # $300
+    # Floor of $500 should drop a $300 bounty (band compared in USD, not cents).
+    src = taskbounty_source(min_amount_usd=500, get_json=lambda *a, **k: rows)
+    assert list(src.fetch()) == []
+    src2 = taskbounty_source(min_amount_usd=100, get_json=lambda *a, **k: rows)
+    assert len(list(src2.fetch())) == 1
+
+
+def test_runner_registers_taskbounty_source():
+    from sovereign_os.ingest_bridge.config import BridgeConfig, TaskBountySourceConfig
+    from sovereign_os.ingest_bridge.runner import _sources_from_config
+    from sovereign_os.ingest_bridge.sources.bounty_board import GenericBountySource
+
+    cfg = BridgeConfig()
+    cfg.taskbounty = TaskBountySourceConfig(enabled=True)
+    sources = _sources_from_config(cfg)
+    assert any(isinstance(s, GenericBountySource) and s.platform == "taskbounty" for s in sources)
 
 
 def test_generic_source_wrapped_response_and_auth_header():

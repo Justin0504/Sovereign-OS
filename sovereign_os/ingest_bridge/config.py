@@ -57,6 +57,17 @@ class ClawTasksSourceConfig:
 
 
 @dataclass
+class TaskBountySourceConfig:
+    enabled: bool = False
+    api_key: str = ""
+    base_url: str = "https://www.task-bounty.com/api/v1"
+    list_path: str = "/tasks"
+    min_amount_usd: float = 0.0
+    max_amount_usd: float = 0.0
+    limit: int = 50
+
+
+@dataclass
 class BridgeConfig:
     mode: str = "serve"  # serve | post
     host: str = "0.0.0.0"
@@ -69,6 +80,7 @@ class BridgeConfig:
     scraper: ScraperSourceConfig = field(default_factory=ScraperSourceConfig)
     retail: RetailSourceConfig = field(default_factory=RetailSourceConfig)
     clawtasks: ClawTasksSourceConfig = field(default_factory=ClawTasksSourceConfig)
+    taskbounty: TaskBountySourceConfig = field(default_factory=TaskBountySourceConfig)
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "BridgeConfig":
@@ -116,6 +128,15 @@ class BridgeConfig:
             require_funded=os.getenv("CLAWTASKS_REQUIRE_FUNDED", "true").lower() in ("1", "true", "yes"),
             limit=int(os.getenv("CLAWTASKS_LIMIT", "50")),
         )
+        cfg.taskbounty = TaskBountySourceConfig(
+            enabled=os.getenv("BRIDGE_TASKBOUNTY_ENABLED", "").lower() in ("1", "true", "yes"),
+            api_key=os.getenv("TASKBOUNTY_API_KEY", ""),
+            base_url=os.getenv("TASKBOUNTY_API_BASE", "https://www.task-bounty.com/api/v1"),
+            list_path=os.getenv("TASKBOUNTY_LIST_PATH", "/tasks"),
+            min_amount_usd=float(os.getenv("TASKBOUNTY_MIN_AMOUNT_USD", "0") or 0),
+            max_amount_usd=float(os.getenv("TASKBOUNTY_MAX_AMOUNT_USD", "0") or 0),
+            limit=int(os.getenv("TASKBOUNTY_LIMIT", "50")),
+        )
         if config_path and Path(config_path).exists():
             cfg._apply_yaml(config_path)
         return cfg
@@ -140,6 +161,10 @@ class BridgeConfig:
                 for k, v in value.items():
                     if hasattr(self.clawtasks, k):
                         setattr(self.clawtasks, k, v)
+            elif key == "taskbounty" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.taskbounty, k):
+                        setattr(self.taskbounty, k, v)
             elif hasattr(self, key):
                 if key == "port" and value is not None:
                     try:
