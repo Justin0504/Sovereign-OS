@@ -68,6 +68,16 @@ class TaskBountySourceConfig:
 
 
 @dataclass
+class BotBountySourceConfig:
+    enabled: bool = False
+    base_url: str = "https://botbounty-production.up.railway.app/api"
+    list_path: str = "/agent/bounties"
+    min_amount_usd: float = 0.0
+    max_amount_usd: float = 0.0
+    limit: int = 50
+
+
+@dataclass
 class StacksTaskerSourceConfig:
     enabled: bool = False
     base_url: str = "https://stackstasker.com"
@@ -92,6 +102,7 @@ class BridgeConfig:
     clawtasks: ClawTasksSourceConfig = field(default_factory=ClawTasksSourceConfig)
     taskbounty: TaskBountySourceConfig = field(default_factory=TaskBountySourceConfig)
     stackstasker: StacksTaskerSourceConfig = field(default_factory=StacksTaskerSourceConfig)
+    botbounty: BotBountySourceConfig = field(default_factory=BotBountySourceConfig)
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "BridgeConfig":
@@ -156,6 +167,14 @@ class BridgeConfig:
             max_amount_usd=float(os.getenv("STACKSTASKER_MAX_AMOUNT", "0") or 0),
             limit=int(os.getenv("STACKSTASKER_LIMIT", "50")),
         )
+        cfg.botbounty = BotBountySourceConfig(
+            enabled=os.getenv("BRIDGE_BOTBOUNTY_ENABLED", "").lower() in ("1", "true", "yes"),
+            base_url=os.getenv("BOTBOUNTY_API_BASE", "https://botbounty-production.up.railway.app/api"),
+            list_path=os.getenv("BOTBOUNTY_LIST_PATH", "/agent/bounties"),
+            min_amount_usd=float(os.getenv("BOTBOUNTY_MIN_AMOUNT_USD", "0") or 0),
+            max_amount_usd=float(os.getenv("BOTBOUNTY_MAX_AMOUNT_USD", "0") or 0),
+            limit=int(os.getenv("BOTBOUNTY_LIMIT", "50")),
+        )
         if config_path and Path(config_path).exists():
             cfg._apply_yaml(config_path)
         return cfg
@@ -188,6 +207,10 @@ class BridgeConfig:
                 for k, v in value.items():
                     if hasattr(self.stackstasker, k):
                         setattr(self.stackstasker, k, v)
+            elif key == "botbounty" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.botbounty, k):
+                        setattr(self.botbounty, k, v)
             elif hasattr(self, key):
                 if key == "port" and value is not None:
                     try:

@@ -18,7 +18,7 @@ from sovereign_os.ingest_bridge.sources.reddit import RedditOrderSource
 from sovereign_os.ingest_bridge.sources.scraper import ScraperOrderSource
 from sovereign_os.ingest_bridge.sources.retail import RetailOrderSource
 from sovereign_os.ingest_bridge.sources.clawtasks import ClawTasksOrderSource
-from sovereign_os.ingest_bridge.sources.bounty_board import taskbounty_source, stackstasker_source
+from sovereign_os.ingest_bridge.sources.bounty_board import taskbounty_source, stackstasker_source, botbounty_source
 
 logger = logging.getLogger(__name__)
 
@@ -78,6 +78,14 @@ def _sources_from_config(cfg: BridgeConfig) -> list[Any]:
             min_amount_usd=cfg.stackstasker.min_amount_usd,
             max_amount_usd=cfg.stackstasker.max_amount_usd,
             limit=cfg.stackstasker.limit,
+        ))
+    if cfg.botbounty.enabled:
+        sources.append(botbounty_source(
+            base_url=cfg.botbounty.base_url,
+            list_path=cfg.botbounty.list_path,
+            min_amount_usd=cfg.botbounty.min_amount_usd,
+            max_amount_usd=cfg.botbounty.max_amount_usd,
+            limit=cfg.botbounty.limit,
         ))
     return sources
 
