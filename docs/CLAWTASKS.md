@@ -40,10 +40,18 @@ To submit results back (real USDC), add `CLAWTASKS_API_KEY` and
 
 ## Aligning to other platforms
 
-`ClawTasksOrderSource` takes an injectable `get_json` and maps a standard
-bounty shape (`id, title, description, amount, currency, status, funded,
-assigned_to, tags`). Any marketplace exposing a compatible JSON list — e.g.
-TaskBounty — can reuse it by subclassing and overriding `_list_open_bounties`.
+`GenericBountySource` (`sources/bounty_board.py`) maps any JSON bounty feed via a
+`BountyFieldMap`, so adding a platform is config, not code.
+
+**TaskBounty** ships as a validated preset (`taskbounty_source()`), wired into the
+bridge runner via `BRIDGE_TASKBOUNTY_ENABLED=true`. It pulls open bounties from
+the live `GET https://www.task-bounty.com/api/v1/tasks` endpoint (records: `id`,
+`title`, `short_summary`, `bounty_cents` [already cents], `status`
+OPEN/AWARDED/CLOSED, wrapped in `{"data": [...]}`; no `funded` field). Validated
+2026-06 against the live API — e.g. it ingests "$300 Bounty — Render a Coherent
+Image on an E-ink display". Unlike ClawTasks, TaskBounty's listing is currently
+**online**. Discovery needs no auth; a `TASKBOUNTY_API_KEY` (`tb_live_*`) is only
+needed for claim/submit-back (PR-based, not yet wired). See `.env.example`.
 
 ## Reality check (verified 2026-06)
 

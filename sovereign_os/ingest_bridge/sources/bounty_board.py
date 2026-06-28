@@ -32,7 +32,8 @@ class BountyFieldMap:
     id: str = "id"
     title: str = "title"
     description: str = "description"
-    amount: str = "amount"          # numeric, in `currency` units
+    amount: str = "amount"          # numeric, in `currency` units (or cents if amount_in_cents)
+    amount_in_cents: bool = False   # True => `amount` field is already in cents (no x100)
     status: str = "status"
     funded: str | None = "funded"        # None => treat all as funded
     assigned_to: str | None = "assigned_to"  # None => never treat as assigned
@@ -94,12 +95,16 @@ class GenericBountySource(OrderSource):
             return False
         if self.skip_assigned and fm.assigned_to is not None and str(b.get(fm.assigned_to) or "").strip():
             return False
-        amount = float(b.get(fm.amount) or 0)
-        if self.min_amount_usd > 0 and amount < self.min_amount_usd:
+        amount_usd = self._amount_usd(b)
+        if self.min_amount_usd > 0 and amount_usd < self.min_amount_usd:
             return False
-        if self.max_amount_usd > 0 and amount > self.max_amount_usd:
+        if self.max_amount_usd > 0 and amount_usd > self.max_amount_usd:
             return False
         return True
+
+    def _amount_usd(self, b: dict[str, Any]) -> float:
+        raw = float(b.get(self.fm.amount) or 0)
+        return raw / 100.0 if self.fm.amount_in_cents else raw
 
     def fetch(self) -> Iterator[RawOrder]:
         try:
@@ -120,7 +125,7 @@ class GenericBountySource(OrderSource):
             title = str(b.get(fm.title) or "").strip()
             description = str(b.get(fm.description) or "").strip()
             goal = (f"{title}\n\n{description}" if description else title)[:20_000]
-            amount_cents = int(round(float(b.get(fm.amount) or 0) * 100))
+            amount_cents = int(round(self._amount_usd(b) * 100))
             yield RawOrder(
                 source_id=f"{self.platform}:{bid}",
                 goal=goal,
@@ -142,19 +147,27 @@ def taskbounty_source(
     **kwargs: Any,
 ) -> GenericBountySource:
     """
-    TaskBounty preset. Field names are known from the TaskBounty MCP server;
-    the list path defaults to `/bounties` and is overridable (TASKBOUNTY_LIST_PATH)
-    because TaskBounty's exact REST path is not publicly documented.
+    TaskBounty preset, validated against the live GET /api/v1/tasks endpoint
+    (2026-06): records have id, title, short_summary, bounty_cents (already cents),
+    currency, status (OPEN/AWARDED/CLOSED), tags, wrapped in {"data": [...]}.
+    No `funded` field — funding is implicit, so we don't filter on it.
+    Listing needs no auth; a Bearer key is only used if provided.
     """
     headers = {"Authorization": f"Bearer {api_key}"} if api_key else {}
     return GenericBountySource(
         base_url=base_url or os.getenv("TASKBOUNTY_API_BASE", "https://www.task-bounty.com/api/v1"),
-        list_path=list_path or os.getenv("TASKBOUNTY_LIST_PATH", "/bounties"),
+        list_path=list_path or os.getenv("TASKBOUNTY_LIST_PATH", "/tasks"),
         field_map=BountyFieldMap(
-            id="task_id",
-            amount="bounty_usd",
-            funded="funded",
-            assigned_to=None,        # TaskBounty solver model differs; don't filter on assignment
+            id="id",
+            title="title",
+            description="short_summary",
+            amount="bounty_cents",
+            amount_in_cents=True,
+            status="status",          # OPEN/AWARDED/CLOSED — lowercased to match "open"
+            funded=None,              # no funded field; funding is implicit
+            assigned_to=None,
+            tags="tags",
+            list_key="data",
             currency="USD",
         ),
         platform="taskbounty",
