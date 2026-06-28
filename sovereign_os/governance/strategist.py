@@ -7,6 +7,7 @@ and produce a TaskPlan (tasks with dependencies, skills, estimated token budget)
 
 import json
 import logging
+import re
 from typing import Annotated
 
 from pydantic import BaseModel, Field
@@ -153,6 +154,15 @@ class Strategist:
                 )
                 self._llm = None
 
+    def _resolve_skill(self, text: str, competency_names: list[str]) -> str:
+        """Route text -> category skill; defer to a declared competency when the routed skill isn't one."""
+        from sovereign_os.agents.categories import route_skill
+
+        skill = route_skill("", text) or "summarize"
+        if competency_names and skill not in competency_names:
+            skill = competency_names[0]
+        return skill
+
     async def create_plan(self, goal_text: str) -> TaskPlan:
         """
         Produce a TaskPlan for the given goal.
@@ -170,14 +180,31 @@ class Strategist:
             )
             return plan
         # Fallback: route by task CATEGORY (platform-grounded) to the top-tier worker.
-        # When the charter constrains competencies and the routed skill isn't one of
-        # them, defer to the first declared competency (preserves charter intent).
-        from sovereign_os.agents.categories import route_skill
-
+        # A goal that clearly spans multiple categories is split into one task per
+        # part (sequential deps); otherwise a single task. Charter competencies still
+        # take precedence over the routed skill.
         competency_names = [c.name for c in self._charter.core_competencies]
-        skill = route_skill("", goal_text) or "summarize"
-        if competency_names and skill not in competency_names:
-            skill = competency_names[0]
+        parts = _candidate_parts(goal_text)
+        routed = [(p, self._resolve_skill(p, competency_names)) for p in parts]
+        # Only split when there are >=2 distinct parts AND they need >=2 distinct skills.
+        if len(routed) >= 2 and len({s for _, s in routed}) >= 2:
+            tasks: list[PlannedTask] = []
+            ids = [f"task-{i}-{s}" for i, (_, s) in enumerate(routed, 1)]
+            for i, (part, skill) in enumerate(routed, 1):
+                tasks.append(PlannedTask(
+                    task_id=ids[i - 1],
+                    description=part[:500],
+                    dependencies=([ids[i - 2]] if i > 1 else []),
+                    required_skill=skill,
+                    estimated_token_budget=4000,
+                    priority="high",
+                ))
+            plan = TaskPlan(goal_summary=goal_text[:200], tasks=tasks)
+            logger.info("GOVERNANCE CEO: No LLM; multi-part fallback plan with %d tasks.", len(tasks))
+            plan.original_goal = goal_text
+            return _normalize_plan_task_ids(plan)
+
+        skill = routed[0][1]
         plan = TaskPlan(
             goal_summary=goal_text[:200],
             tasks=[
@@ -196,3 +223,30 @@ class Strategist:
             skill,
         )
         return plan
+
+
+_MARKER_RE = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")
+
+
+def _strip_marker(line: str) -> str:
+    return _MARKER_RE.sub("", line).strip()
+
+
+def _candidate_parts(goal: str) -> list[str]:
+    """
+    Split a goal into distinct parts ONLY when it clearly spans several asks:
+    multiple non-empty lines, a numbered/bulleted list, or substantial ' and '
+    clauses. Otherwise returns [goal] (single task). Capped at 6 parts.
+    """
+    goal = goal or ""
+    lines = [l.strip() for l in goal.splitlines() if l.strip()]
+    if len(lines) > 1:
+        return [_strip_marker(l) for l in lines][:6]
+    items = re.findall(r"(?m)^\s*(?:\d+[.)]|[-*•])\s+(.+)$", goal)
+    if len(items) >= 2:
+        return [i.strip() for i in items][:6]
+    if re.search(r"\sand\s", goal):
+        parts = [p.strip() for p in re.split(r"\s+and\s+", goal) if p.strip()]
+        if len(parts) >= 2 and all(len(p) >= 12 for p in parts):
+            return parts[:6]
+    return [goal]
