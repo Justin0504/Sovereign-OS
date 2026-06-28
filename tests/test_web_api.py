@@ -188,3 +188,22 @@ def test_oversight_poll_settles_via_quality_gate():
     settled = c.post("/api/oversight/poll").json()["settled"]
     assert len(settled) == 1 and settled[0]["action"] == "released"
     assert c.get("/api/oversight").json()["summary"].get("released") == 1
+
+
+def test_categories_endpoint():
+    led = UnifiedLedger(); led.record_usd(1000)
+    app = create_app(engine=None, ledger=led)
+    c = _tc(app)
+    data = c.get("/api/categories").json()
+    keys = {r["key"] for r in data["categories"]}
+    assert {"coding", "writing", "research", "design", "email", "data"} <= keys
+    coding = next(r for r in data["categories"] if r["key"] == "coding")
+    assert coding["skill"] == "code_assistant" and coding["budget_usd"] > 0
+
+
+def test_connectors_endpoint():
+    led = UnifiedLedger(); led.record_usd(1000)
+    c = _tc(create_app(engine=None, ledger=led))
+    data = c.get("/api/connectors").json()
+    assert "coding" in data["coverage"]
+    assert "git" in data["required_mcp_servers"]

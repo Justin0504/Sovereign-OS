@@ -665,6 +665,12 @@
           <div id="oversight"><span class="empty-feed">No outbound tasks yet. Use the form above (dry-run).</span></div>
         </section>
         <section class="panel-section">
+          <div class="card-title">Capabilities</div>
+          <div class="card-heading">Delivery categories</div>
+          <p class="card-desc">Per-category budget ceiling, required permission, and connector readiness.</p>
+          <div id="categories"><span class="empty-feed">Loading categories…</span></div>
+        </section>
+        <section class="panel-section">
           <div class="card-title">Operations</div>
           <div class="card-heading">Job queue</div>
           <p class="card-desc">External jobs; approve to run 24/7.</p>
@@ -1220,6 +1226,24 @@
           (d.total_tokens || 0) + ' tokens</div>' + burn + tbl('Model', byModel) + tbl('Agent', byAgent);
       }).catch(() => {});
     }
+    let _categoriesLoaded = false;
+    function fetchCategories() {
+      if (_categoriesLoaded) return;  // static — fetch once
+      Promise.all([fetch('/api/categories').then(x => x.json()), fetch('/api/connectors').then(x => x.json())])
+        .then(([cats, conn]) => {
+          const el = r('categories'); if (!el) return;
+          const cov = (conn && conn.coverage) || {};
+          const body = (cats.categories || []).map(c => {
+            const cc = cov[c.key] || { available: [], missing: [] };
+            const conns = (c.connectors || []).map(n =>
+              '<span class="ov-chip ' + ((cc.available || []).indexOf(n) >= 0 ? 'ov-released' : 'ov-rejected') + '">' + escapeHtml(n) + '</span>').join(' ') || '—';
+            return '<tr><td>' + escapeHtml(c.key) + '</td><td>$' + (c.budget_usd || 0).toFixed(2) +
+              '</td><td>' + escapeHtml(c.risk) + '</td><td>' + conns + '</td></tr>';
+          }).join('');
+          el.innerHTML = '<table class="token-table"><thead><tr><th>Category</th><th>Budget</th><th>Risk</th><th>Connectors</th></tr></thead><tbody>' + body + '</tbody></table>';
+          _categoriesLoaded = true;
+        }).catch(() => {});
+    }
     function fetchOversight() {
       fetch('/api/oversight').then(x => x.json()).then(d => {
         const el = r('oversight');
@@ -1394,7 +1418,7 @@
     setInterval(fetchCostSummary, 3000);
     setInterval(fetchOversight, 4000);
     setInterval(fetchAuditTrail, 8000);
-    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchAuditTrail();
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchCategories(); fetchAuditTrail();
   </script>
 </body>
 </html>
