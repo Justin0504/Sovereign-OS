@@ -462,6 +462,8 @@ class GovernanceEngine:
                 if goal_abbr:
                     goal_abbr = goal_abbr.replace("\n", " ").strip()
                 agent_display = (agent_id or "").split("-")[0].strip() if (agent_id and "-" in agent_id) else (agent_id or "")
+                from sovereign_os.agents.categories import category_for_skill
+
                 self._ledger.record_token(
                     model_id=model_id or "default",
                     input_tokens=inp,
@@ -470,6 +472,7 @@ class GovernanceEngine:
                     task_id=task.task_id,
                     task_display=goal_abbr,
                     estimated_usd_cents=est_cents,
+                    category=category_for_skill(task.required_skill).key,
                 )
                 self._reconcile_cost(task.task_id, agent_id, est_cents)
                 self._mission_spent_cents += est_cents

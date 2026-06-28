@@ -49,6 +49,7 @@ class TokenEntry(BaseModel):
     task_id: str = ""
     task_display: str = ""  # Optional short label from goal (e.g. "Cold outreach copy") for UI
     estimated_usd_cents: Annotated[int, Field(ge=0)] = 0  # Optional cost tracking
+    category: str = ""  # Optional delivery category (coding/writing/...) for per-category rollups
     timestamp_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {"frozen": True}
@@ -155,6 +156,7 @@ class UnifiedLedger:
         task_id: str = "",
         task_display: str = "",
         estimated_usd_cents: int = 0,
+        category: str = "",
     ) -> LedgerEntry:
         """Record token consumption."""
         entry = LedgerEntry.create_token(
@@ -167,6 +169,7 @@ class UnifiedLedger:
                 task_id=task_id,
                 task_display=task_display,
                 estimated_usd_cents=estimated_usd_cents,
+                category=category,
             ),
         )
         self._entries.append(entry)
@@ -221,6 +224,15 @@ class UnifiedLedger:
                 out[key] = out.get(key, 0) + e.token.estimated_usd_cents
         return out
 
+    def cost_cents_by_category(self) -> dict[str, int]:
+        """Estimated token cost (cents) grouped by delivery category (empty -> 'uncategorized')."""
+        out: dict[str, int] = {}
+        for e in self._entries:
+            if e.token:
+                key = getattr(e.token, "category", "") or "uncategorized"
+                out[key] = out.get(key, 0) + e.token.estimated_usd_cents
+        return out
+
     def cost_summary(self) -> dict[str, object]:
         """
         Compact cost trace for dashboards/CLI: totals plus per-model/agent/task
@@ -238,6 +250,7 @@ class UnifiedLedger:
             "by_model_cents": self.cost_cents_by_model(),
             "by_agent_cents": self.cost_cents_by_agent(),
             "by_task_cents": self.cost_cents_by_task(),
+            "by_category_cents": self.cost_cents_by_category(),
         }
 
     def usd_debits_since(self, since: datetime) -> int:
