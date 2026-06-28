@@ -8,11 +8,13 @@ from sovereign_os.oversight.broker import EscrowClient, OversightBroker
 from sovereign_os.oversight.poller import poll_and_settle
 from sovereign_os.oversight.registry import EscrowRecord, OversightRegistry
 from sovereign_os.oversight.rentahuman import RentAHumanClient
+from sovereign_os.oversight.stackstasker import StacksTaskerClient
 
 __all__ = [
     "EscrowClient",
     "OversightBroker",
     "RentAHumanClient",
+    "StacksTaskerClient",
     "OversightRegistry",
     "EscrowRecord",
     "poll_and_settle",
