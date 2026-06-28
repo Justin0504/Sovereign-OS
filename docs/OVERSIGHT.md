@@ -44,8 +44,23 @@ python examples/oversight_demo.py
 Shows an $80 task rejected by the budget gate, a good deliverable released ($25
 paid), and an empty deliverable disputed ($15 withheld).
 
+## Auto-settle loop, registry, web panel, CLI
+
+- **`oversight/registry.py` — `OversightRegistry`**: tracks every posted escrow
+  (status `funded → delivered → released | disputed`, plus `rejected` when the
+  budget gate blocks a post). Optional JSON persistence (`SOVEREIGN_OVERSIGHT_DB`).
+- **`oversight/poller.py` — `poll_and_settle(broker, registry)`**: for each funded
+  escrow whose platform status is `delivered`, runs the quality gate and
+  releases or disputes — turning post→wait→verify→pay into a hands-off loop.
+- **Web**: `GET /api/oversight` (escrows + status summary), `POST /api/oversight/hire`
+  (budget-gated post), `POST /api/oversight/poll` (settle delivered), and an
+  **Outbound escrows** dashboard card with status chips.
+- **CLI**:
+  - `sovereign hire --title "…" --price-cents 1500` — outbound, budget-gated (dry-run).
+  - `sovereign pull taskbounty|stackstasker|clawtasks` — inbound, list live open tasks.
+
 ## Going live
 
-Set `RENTAHUMAN_API_KEY` (`rah_live_*`) and construct the client with `live=True`.
+Set `RENTAHUMAN_API_KEY` (`rah_live_*`) and `RENTAHUMAN_LIVE=true`.
 Funding escrow and releasing payment then move real money via the RentAHuman /
 Stripe escrow — gate it behind your own confirmation.

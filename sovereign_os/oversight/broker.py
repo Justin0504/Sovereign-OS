@@ -48,11 +48,21 @@ class OversightBroker:
         client: EscrowClient,
         *,
         ledger: Any = None,
+        registry: Any = None,
     ) -> None:
         self._treasury = treasury
         self._review = review_engine
         self._client = client
         self._ledger = ledger
+        self._registry = registry
+
+    def escrow_status(self, escrow_id: str) -> str:
+        """Current platform-side status of an escrow (e.g. funded|delivered|released)."""
+        try:
+            return str(self._client.get_escrow(escrow_id).get("status") or "")  # type: ignore[attr-defined]
+        except Exception as e:  # pragma: no cover - network/path issues
+            logger.warning("OVERSIGHT: escrow_status(%s) failed: %s", escrow_id, e)
+            return ""
 
     # ------------------------------------------------------ budget gate
     def post_governed_task(
@@ -73,6 +83,9 @@ class OversightBroker:
             self._treasury.approve_task(price_cents, task_id=title[:40], purpose="hire external worker")
         except (FiscalInsolvencyError, HumanApprovalRequiredError) as e:
             logger.warning("OVERSIGHT: budget gate REJECTED post '%s': %s", title[:40], e)
+            self._record(escrow_id=f"rejected:{title[:40]}", title=title, price_cents=price_cents,
+                         status="rejected", required_skill=required_skill,
+                         completion_criteria=completion_criteria, reason=str(e))
             return {"posted": False, "reason": str(e), "price_cents": price_cents}
 
         bounty = self._client.post_bounty(
@@ -83,6 +96,9 @@ class OversightBroker:
         escrow = self._client.fund_escrow(bounty_id, price_cents)
         escrow_id = str(escrow.get("id") or bounty_id)
         logger.info("OVERSIGHT: posted+funded '%s' (escrow=%s, $%.2f).", title[:40], escrow_id, price_cents / 100.0)
+        self._record(escrow_id=escrow_id, title=title, price_cents=price_cents, status="funded",
+                     bounty_id=bounty_id, required_skill=required_skill,
+                     completion_criteria=completion_criteria)
         return {
             "posted": True,
             "reason": "",
@@ -129,9 +145,23 @@ class OversightBroker:
                 self._ledger.record_usd(-abs(price_cents), purpose="hire_payout", ref=f"escrow-{escrow_id}")
             logger.info("OVERSIGHT: quality PASS (%.2f) — released $%.2f for %s.",
                         report.score, price_cents / 100.0, escrow_id)
+            if self._registry is not None:
+                self._registry.update(escrow_id, status="released", score=report.score)
             return {"action": "released", "paid": True, "score": report.score, "report": report}
 
         self._client.dispute(escrow_id)
         logger.warning("OVERSIGHT: quality FAIL (%.2f) — disputed %s (not paid). Reason: %s",
                        report.score, escrow_id, report.reason)
+        if self._registry is not None:
+            self._registry.update(escrow_id, status="disputed", score=report.score, reason=report.reason)
         return {"action": "disputed", "paid": False, "score": report.score, "report": report}
+
+    def _record(self, **fields) -> None:
+        if self._registry is None:
+            return
+        from sovereign_os.oversight.registry import EscrowRecord
+
+        try:
+            self._registry.add(EscrowRecord(**fields))
+        except Exception as e:  # pragma: no cover - best-effort
+            logger.warning("OVERSIGHT: registry record failed: %s", e)

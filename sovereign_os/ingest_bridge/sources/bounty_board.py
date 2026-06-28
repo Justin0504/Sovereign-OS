@@ -139,6 +139,41 @@ class GenericBountySource(OrderSource):
         logger.info("%s source: emitted %d order(s) from %d rows", self.platform, emitted, len(rows))
 
 
+def stackstasker_source(
+    *,
+    base_url: str | None = None,
+    list_path: str | None = None,
+    **kwargs: Any,
+) -> GenericBountySource:
+    """
+    StacksTasker preset, validated against the live GET /tasks?status=open endpoint
+    (2026-06): records have id, title, description, category, bounty (STX string),
+    status (open/completed), network, posterAddress, wrapped in {"tasks": [...]}.
+    Rewards are in STX (Stacks testnet) — currency is labelled "STX" and the amount
+    is mapped nominally (1 STX -> 100 units) for filtering, not USD-converted.
+    Listing needs no auth.
+    """
+    return GenericBountySource(
+        base_url=base_url or os.getenv("STACKSTASKER_API_BASE", "https://stackstasker.com"),
+        list_path=list_path or os.getenv("STACKSTASKER_LIST_PATH", "/tasks"),
+        list_params={"status": "open"},
+        field_map=BountyFieldMap(
+            id="id",
+            title="title",
+            description="description",
+            amount="bounty",          # STX amount as string
+            status="status",          # open/completed
+            funded=None,              # no funded field (testnet)
+            assigned_to=None,
+            tags=None,
+            list_key="tasks",
+            currency="STX",
+        ),
+        platform="stackstasker",
+        **kwargs,
+    )
+
+
 def taskbounty_source(
     api_key: str = "",
     *,

@@ -10,6 +10,7 @@ from sovereign_os.ingest_bridge.sources.clawtasks import ClawTasksOrderSource, C
 from sovereign_os.ingest_bridge.sources.bounty_board import (
     BountyFieldMap,
     GenericBountySource,
+    stackstasker_source,
     taskbounty_source,
 )
 
@@ -24,4 +25,5 @@ __all__ = [
     "BountyFieldMap",
     "GenericBountySource",
     "taskbounty_source",
+    "stackstasker_source",
 ]
