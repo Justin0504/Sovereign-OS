@@ -24,7 +24,7 @@ from sovereign_os.agents.ops_workers import (
 from sovereign_os.agents.registry import WorkerRegistry
 from sovereign_os.agents.reply_worker import ReplyWorker
 from sovereign_os.agents.research_worker import ResearchWorker
-from sovereign_os.agents.specialist_workers import DataAnalysisWorker, DesignBriefWorker
+from sovereign_os.agents.specialist_workers import DataAnalysisWorker, DesignBriefWorker, TestGenWorker
 from sovereign_os.agents.summarizer_worker import SummarizerWorker
 
 __all__ = [
@@ -35,6 +35,7 @@ __all__ = [
     "CodeReviewWorker",
     "DataAnalysisWorker",
     "DesignBriefWorker",
+    "TestGenWorker",
     "Capability",
     "EmailWriterWorker",
     "ExtractStructuredWorker",

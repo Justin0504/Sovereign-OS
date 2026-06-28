@@ -27,7 +27,7 @@ from sovereign_os.agents.content_workers import (
     TranslateWorker,
 )
 from sovereign_os.agents.code_workers import CodeAssistantWorker, CodeReviewWorker
-from sovereign_os.agents.specialist_workers import DataAnalysisWorker, DesignBriefWorker
+from sovereign_os.agents.specialist_workers import DataAnalysisWorker, DesignBriefWorker, TestGenWorker
 from sovereign_os.agents.ops_workers import (
     ExtractStructuredWorker,
     InfoCollectorWorker,
@@ -151,6 +151,7 @@ class GovernanceEngine:
         # Top-tier specialists for high-frequency platform categories
         r.register("design_brief", DesignBriefWorker)
         r.register("data_analysis", DataAnalysisWorker)
+        r.register("test_gen", TestGenWorker)
         try:
             from sovereign_os.agents.user_workers import get_user_workers
             for skill_name, worker_cls in get_user_workers():

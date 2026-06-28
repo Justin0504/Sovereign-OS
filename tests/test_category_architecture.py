@@ -132,3 +132,19 @@ def test_required_mcp_servers_and_coverage():
     assert "git" in servers and "search" in servers
     cov = coverage_report()
     assert cov["coding"]["connectors"] and "email" in cov
+
+
+@pytest.mark.asyncio
+async def test_testgen_worker_runs_without_llm():
+    from sovereign_os.agents.specialist_workers import TestGenWorker
+    from sovereign_os.agents.base import TaskInput
+    w = TestGenWorker(agent_id="tg1", system_prompt="")
+    r = await w.execute(TaskInput(task_id="t1", description="Write tests for a CSV parser"))
+    assert r.success and r.metadata["worker"] == "TestGenWorker"
+
+
+def test_engine_registers_test_gen():
+    from sovereign_os.governance.engine import GovernanceEngine
+    led = UnifiedLedger(); led.record_usd(1000)
+    eng = GovernanceEngine(Charter(mission="m"), led)
+    assert eng._registry.get_bidders("test_gen")
