@@ -133,6 +133,37 @@ def _hire(title: str, price_cents: int, description: str, balance_cents: int) ->
     return 1
 
 
+def _categories() -> int:
+    """Print the delivery-category table: skill, risk, budget ceiling, capability, connectors."""
+    from sovereign_os.agents.categories import CATEGORIES
+    from sovereign_os.governance.budget_policy import CategoryBudgetPolicy
+
+    pol = CategoryBudgetPolicy()
+    print(f"{'CATEGORY':<11} {'SKILL':<15} {'RISK':<7} {'BUDGET':<8} {'CAPABILITY':<18} CONNECTORS")
+    print("-" * 92)
+    for c in CATEGORIES:
+        budget = f"${pol.ceiling_usd_for_category(c):.2f}"
+        conns = ", ".join(c.connectors) or "—"
+        print(f"{c.key:<11} {c.skill:<15} {c.risk:<7} {budget:<8} {c.capability.value:<18} {conns}")
+    return 0
+
+
+def _connectors() -> int:
+    """Print connector readiness per category + the MCP servers needed for full coverage."""
+    from sovereign_os.connectors import coverage_report, required_mcp_servers
+
+    cov = coverage_report()
+    print(f"{'CATEGORY':<11} {'AVAILABLE':<32} MISSING")
+    print("-" * 80)
+    for key, c in cov.items():
+        avail = ", ".join(c["available"]) or "—"
+        missing = ", ".join(c["missing"]) or "—"
+        print(f"{key:<11} {avail:<32} {missing}")
+    servers = sorted(required_mcp_servers())
+    print(f"\nMCP servers for full coverage: {', '.join(servers) or '(none)'}")
+    return 0
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(
         prog="sovereign",
@@ -151,6 +182,9 @@ def main() -> int:
     pull_parser.add_argument("platform", help="taskbounty | stackstasker | botbounty | clawtasks")
     pull_parser.add_argument("--limit", type=int, default=20, help="Max tasks to show")
 
+    sub.add_parser("categories", help="Show the delivery-category table (skill/risk/budget/capability/connectors)")
+    sub.add_parser("connectors", help="Show connector readiness per category + required MCP servers")
+
     hire_parser = sub.add_parser("hire", help="Outbound: post a governed task (budget gate → fund escrow, dry-run)")
     hire_parser.add_argument("--title", required=True)
     hire_parser.add_argument("--price-cents", type=int, required=True, help="Task price in cents")
@@ -167,6 +201,10 @@ def main() -> int:
         return _pull(args.platform, args.limit)
     if args.command == "hire":
         return _hire(args.title, args.price_cents, args.description, args.balance_cents)
+    if args.command == "categories":
+        return _categories()
+    if args.command == "connectors":
+        return _connectors()
     return 0
 
 
