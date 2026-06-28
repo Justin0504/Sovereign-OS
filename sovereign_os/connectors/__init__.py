@@ -1,10 +1,12 @@
 """Connector catalog + readiness for delivery categories (MCP / built-in / HTTP)."""
 
+from sovereign_os.connectors.email_connector import send_email
 from sovereign_os.connectors.registry import (
     CONNECTORS,
     ConnectorSpec,
     connectors_for_category,
     coverage_report,
+    dispatch,
     get_connector,
     is_available,
     readiness_for_category,
@@ -16,8 +18,10 @@ __all__ = [
     "ConnectorSpec",
     "connectors_for_category",
     "coverage_report",
+    "dispatch",
     "get_connector",
     "is_available",
     "readiness_for_category",
     "required_mcp_servers",
+    "send_email",
 ]

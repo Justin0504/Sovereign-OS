@@ -48,6 +48,20 @@ def get_connector(name: str) -> ConnectorSpec | None:
     return CONNECTORS.get((name or "").strip().lower())
 
 
+def dispatch(name: str, **kwargs):
+    """
+    Invoke a built-in connector that has a real handler (e.g. send_email).
+    Returns the handler result, or {"error": ...} when the connector has no
+    built-in handler (mcp/http connectors are reached via their own paths).
+    """
+    key = (name or "").strip().lower()
+    if key == "send_email":
+        from sovereign_os.connectors.email_connector import send_email
+        return send_email(kwargs.get("to", ""), kwargs.get("subject", ""), kwargs.get("body", ""),
+                          live=kwargs.get("live"))
+    return {"error": f"no built-in handler for connector '{name}'"}
+
+
 def is_available(spec: ConnectorSpec) -> bool:
     """A connector is available when all its required env keys are set (built-ins with no keys are always available)."""
     return all(os.getenv(k) for k in spec.env_keys)
