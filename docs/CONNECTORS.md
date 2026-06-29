@@ -81,3 +81,25 @@ visuals would use an `image_gen` connector instead.
   gap toward 90/100 on real coding bounties (a tested PR, not just analysis).
   **Limitation:** there is no built-in sandbox — only enable execution against a
   trusted/sandboxed checkout (run the worker in a container/VM for untrusted repos).
+
+## Sandboxed execution (untrusted code)
+
+Real bug-fix bounties mean running a stranger's repo, so `run_tests` can execute
+inside Docker instead of raw subprocess:
+
+```bash
+export SOVEREIGN_CODE_EXEC_ENABLED=true     # allow execution at all
+export SOVEREIGN_CODE_SANDBOX=docker        # run tests in a container
+export SOVEREIGN_SANDBOX_IMAGE=python:3.12-slim   # optional
+export SOVEREIGN_SANDBOX_NETWORK=none       # optional (default none)
+```
+
+The container runs `--network=none --memory=512m --cpus=1 --pids-limit=512` with
+the workspace mounted at `/work`. **If the sandbox is requested but Docker isn't
+available, the runner refuses** (returns nonzero) rather than running untrusted
+code on the host. `submit_pr` is intentionally NOT sandboxed — it uses the
+operator's own git/credentials and needs network (trusted).
+
+With this, the coding worker's loop (`read_file → run_tests → submit_pr`) can be
+pointed at an untrusted checkout safely: untrusted code runs in the box, the PR is
+opened with your git.

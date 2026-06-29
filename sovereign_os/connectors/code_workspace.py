@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 from pathlib import Path
 
 logger = logging.getLogger(__name__)
@@ -62,10 +61,12 @@ def read_file(root: str | Path, relpath: str) -> dict:
         return {"path": relpath, "text": "", "error": str(e)}
 
 
-def run_tests(root: str | Path, cmd: list[str] | None = None, *, timeout: float = 120.0) -> dict:
+def run_tests(root: str | Path, cmd: list[str] | None = None, *, timeout: float = 120.0, runner=None) -> dict:
     """
     Run a test command in `root`. DRY-RUN unless SOVEREIGN_CODE_EXEC_ENABLED is
-    truthy (arbitrary execution is opt-in). Returns {"ran", "rc", "output", ...}.
+    truthy. When SOVEREIGN_CODE_SANDBOX is set, runs inside Docker (no network,
+    capped) — and REFUSES on the host if Docker is unavailable. Returns
+    {"ran", "rc", "output", "passed", "sandboxed", ...}.
     """
     cmd = cmd or ["pytest", "-q"]
     if os.getenv("SOVEREIGN_CODE_EXEC_ENABLED", "").lower() not in ("1", "true", "yes"):
@@ -74,11 +75,12 @@ def run_tests(root: str | Path, cmd: list[str] | None = None, *, timeout: float 
     base = Path(root).resolve()
     if not base.is_dir():
         return {"ran": False, "error": "root is not a directory"}
+    from sovereign_os.connectors.sandbox import sandbox_requested, select_test_runner
+
+    run = runner or select_test_runner()
+    sandboxed = runner is None and sandbox_requested()
     try:
-        proc = subprocess.run(cmd, cwd=str(base), capture_output=True, text=True, timeout=timeout)
-        out = (proc.stdout + proc.stderr)[-8000:]
-        return {"ran": True, "rc": proc.returncode, "output": out, "passed": proc.returncode == 0}
-    except subprocess.TimeoutExpired:
-        return {"ran": True, "rc": -1, "error": f"timed out after {timeout}s"}
+        rc, out = run(cmd, str(base), timeout)
+        return {"ran": True, "rc": rc, "output": (out or "")[-8000:], "passed": rc == 0, "sandboxed": sandboxed}
     except Exception as e:
-        return {"ran": False, "error": str(e)}
+        return {"ran": False, "error": str(e), "sandboxed": sandboxed}
