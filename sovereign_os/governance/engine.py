@@ -573,8 +573,11 @@ class GovernanceEngine:
         from sovereign_os.auditor.review_engine import value_aware_min_score
 
         job_min_score = value_aware_min_score(job_revenue_cents)
+        per_task_value = (job_revenue_cents or 0) // max(1, len(plan.tasks))
         for task, result in zip(plan.tasks, results, strict=True):
-            report = await self._review_engine.audit_task(task, result, min_score=job_min_score)
+            report = await self._review_engine.audit_task(
+                task, result, min_score=job_min_score, task_value_cents=per_task_value,
+            )
             reports.append(report)
             agent_id = winner_by_task_id.get(task.task_id) or f"{task.required_skill}-{task.task_id}"
             judge_model = getattr(self._review_engine, "judge_model", "audit")
