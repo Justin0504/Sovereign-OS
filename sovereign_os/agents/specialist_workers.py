@@ -29,12 +29,14 @@ def _brief(task: TaskInput) -> str:
     return (_ctx(task, "original_goal", "") or (task.description or "").strip() or task.task_id)
 
 
-async def _chat(worker: BaseWorker, system: str, user: str) -> tuple[str, dict[str, int] | None]:
+def _revise(task: TaskInput) -> bool:
+    """Enable the draft->critique->revise pass when the task asks for top-tier quality."""
+    return _ctx(task, "revise", "").lower() in ("1", "true", "yes", "high")
+
+
+async def _chat(worker: BaseWorker, system: str, user: str, *, revise: bool = False) -> tuple[str, dict[str, int] | None]:
     assert worker.llm is not None
-    content = await worker.llm.chat(
-        [{"role": "system", "content": system}, {"role": "user", "content": user}]
-    )
-    return (content or "").strip(), getattr(worker.llm, "_last_usage", None)
+    return await worker.deliver(system, user, revise=revise)
 
 
 def _result(worker: BaseWorker, task: TaskInput, out: str, usage, name: str) -> TaskResult:
@@ -80,7 +82,7 @@ class DesignBriefWorker(BaseWorker):
             "Be specific enough to build without further questions."
         )
         try:
-            out, usage = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user, revise=_revise(task))
             return _result(self, task, out, usage, "DesignBriefWorker")
         except Exception as e:
             logger.exception("DesignBriefWorker failed: %s", e)
@@ -120,7 +122,7 @@ class DataAnalysisWorker(BaseWorker):
             "- ## Findings & Caveats — what it means and where it could be wrong\n"
         )
         try:
-            out, usage = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user, revise=_revise(task))
             return _result(self, task, out, usage, "DataAnalysisWorker")
         except Exception as e:
             logger.exception("DataAnalysisWorker failed: %s", e)
@@ -164,7 +166,7 @@ class TestGenWorker(BaseWorker):
             "code block with the complete, runnable test file. Include happy-path, edge, error, and boundary cases."
         )
         try:
-            out, usage = await _chat(self, system, user)
+            out, usage = await _chat(self, system, user, revise=_revise(task))
             r = _result(self, task, out, usage, "TestGenWorker")
             r.metadata["deliverable_type"] = "code"
             return r

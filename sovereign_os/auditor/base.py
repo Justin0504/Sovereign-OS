@@ -43,6 +43,7 @@ class AuditReport(BaseModel):
     score: float = 0.0
     reason: str = ""
     suggested_fix: str = ""
+    sub_scores: dict[str, float] = Field(default_factory=dict)  # rubric breakdown (not in proof hash)
     timestamp_utc: datetime = Field(default_factory=lambda: datetime.now(timezone.utc))
 
     model_config = {}

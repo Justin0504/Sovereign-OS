@@ -77,18 +77,33 @@ class JudgeLLM(BaseAuditor):
         *,
         min_score: float | None = None,
     ) -> AuditReport:
-        system = (
-            "You are a pragmatic QA auditor reviewing AI-generated work deliverables. "
-            "Your job is to verify that the output genuinely addresses the client's request — "
-            "NOT to apply academic or journalistic perfection standards. "
-            "Grade generously: a deliverable PASSES if it is on-topic, coherent, and provides real value. "
-            "Only FAIL if the output is: completely off-topic, empty/placeholder-only, nonsensical, or explicitly harmful. "
-            "Minor style issues, length variations, or missing optional extras do NOT cause failure. "
-            "Respond with ONLY a JSON object with keys: "
-            '"passed" (bool), "score" (float 0.0–1.0, be generous — typical passing range 0.7–0.95), '
-            '"reason" (1–2 sentences), "suggested_fix" (empty string if passed, brief note if failed). '
-            "No markdown, no text outside JSON."
-        )
+        rubric = min_score is not None  # high-value tasks get multi-criteria scoring
+        if rubric:
+            system = (
+                "You are a rigorous QA auditor for a high-value paid deliverable. "
+                "Score it on four criteria, each 0.0–1.0: "
+                "relevance (addresses exactly what was asked), "
+                "completeness (covers every requirement, no gaps), "
+                "correctness (accurate, no fabrication or errors), "
+                "safety (nothing harmful/inappropriate). "
+                "Respond with ONLY a JSON object with keys: "
+                '"relevance", "completeness", "correctness", "safety" (floats 0.0–1.0), '
+                '"reason" (1–2 sentences), "suggested_fix" (empty if excellent, else what to improve). '
+                "No markdown, no text outside JSON."
+            )
+        else:
+            system = (
+                "You are a pragmatic QA auditor reviewing AI-generated work deliverables. "
+                "Your job is to verify that the output genuinely addresses the client's request — "
+                "NOT to apply academic or journalistic perfection standards. "
+                "Grade generously: a deliverable PASSES if it is on-topic, coherent, and provides real value. "
+                "Only FAIL if the output is: completely off-topic, empty/placeholder-only, nonsensical, or explicitly harmful. "
+                "Minor style issues, length variations, or missing optional extras do NOT cause failure. "
+                "Respond with ONLY a JSON object with keys: "
+                '"passed" (bool), "score" (float 0.0–1.0, be generous — typical passing range 0.7–0.95), '
+                '"reason" (1–2 sentences), "suggested_fix" (empty string if passed, brief note if failed). '
+                "No markdown, no text outside JSON."
+            )
         user = (
             f"KPI: {kpi_name}\n"
             f"Verification question: {verification_prompt}\n\n"
@@ -123,16 +138,19 @@ class JudgeLLM(BaseAuditor):
                 reason="Judge parse error; rule-based fallback applied.",
                 suggested_fix="" if passed else "Provide clearer, on-topic output for this paid deliverable.",
             )
-        score = float(data.get("score", 0.0))
-        if min_score is not None:
-            # Value-aware: a higher-stakes job must clear a stricter, score-based bar;
-            # the LLM's lenient "passed" flag cannot override it.
-            bar = max(self.PASS_THRESHOLD, min_score)
-            passed = score >= bar
+        sub_scores: dict[str, float] = {}
+        if rubric:
+            crit = {k: float(data.get(k, 0.0)) for k in ("relevance", "completeness", "correctness", "safety")}
+            sub_scores = {k: max(0.0, min(1.0, v)) for k, v in crit.items()}
+            score = sum(sub_scores.values()) / len(sub_scores) if sub_scores else 0.0
+            # High-value bar; the rubric average must clear it.
+            passed = score >= max(self.PASS_THRESHOLD, min_score)
         else:
+            score = float(data.get("score", 0.0))
             # Default leniency: score >= PASS_THRESHOLD always passes regardless of LLM's flag.
             passed = bool(data.get("passed", False)) or (score >= self.PASS_THRESHOLD)
         return AuditReport(
+            sub_scores=sub_scores,
             task_id=task_id,
             kpi_name=kpi_name,
             passed=passed,
