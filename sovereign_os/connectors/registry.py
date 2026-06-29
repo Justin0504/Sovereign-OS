@@ -35,6 +35,7 @@ CONNECTORS: dict[str, ConnectorSpec] = {
     "git": ConnectorSpec("git", "mcp", "Clone/read a git repo.", mcp_server="git"),
     "file_read": ConnectorSpec("file_read", "builtin", "Read provided files.", ()),
     "code_workspace": ConnectorSpec("code_workspace", "builtin", "Read a code checkout (list/read files) + guarded test runner.", ()),
+    "submit_pr": ConnectorSpec("submit_pr", "builtin", "Open a PR with the fix (git branch/commit/push + gh).", ()),
     "code_search": ConnectorSpec("code_search", "mcp", "Search a codebase.", mcp_server="code"),
     "sql": ConnectorSpec("sql", "mcp", "Query a SQL database.", ("DATABASE_URL",), mcp_server="sql"),
     "spreadsheet": ConnectorSpec("spreadsheet", "builtin", "Parse CSV/XLSX data.", ()),
@@ -72,6 +73,11 @@ def dispatch(name: str, **kwargs):
         from sovereign_os.connectors.image_gen import generate_image
         return generate_image(kwargs.get("prompt", ""), size=kwargs.get("size", "1024x1024"),
                               generator=kwargs.get("generator"))
+    if key == "submit_pr":
+        from sovereign_os.connectors.git_pr import submit_pr
+        return submit_pr(kwargs.get("root", "."), branch=kwargs.get("branch", ""),
+                         title=kwargs.get("title", ""), body=kwargs.get("body", ""),
+                         base=kwargs.get("base", "main"), runner=kwargs.get("runner"))
     if key in ("code_workspace", "list_files", "read_file", "run_tests"):
         from sovereign_os.connectors import code_workspace as cw
         action = kwargs.get("action", key if key != "code_workspace" else "list_files")
