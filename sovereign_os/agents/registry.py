@@ -179,9 +179,11 @@ class WorkerRegistry:
         llm_client = None
         try:  # pragma: no cover - optional LLM path
             _load_env_once()
-            from sovereign_os.llm.providers import create_llm_client
+            from sovereign_os.llm.providers import create_llm_client, model_override_for_skill
 
-            llm_client = create_llm_client(f"worker_{key}")
+            # Match the model to the task category's risk tier (high-risk coding ->
+            # stronger model, low-risk -> cheaper), when configured.
+            llm_client = create_llm_client(f"worker_{key}", model_override=model_override_for_skill(key))
         except Exception as e:
             logger.warning(
                 "Worker LLM creation failed for skill %r: %s. Ensure .env in project root has ANTHROPIC_API_KEY=sk-ant-... and restart.",
