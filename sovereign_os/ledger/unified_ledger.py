@@ -92,7 +92,7 @@ class UnifiedLedger:
     Persistence: optional file-backed append log.
     """
 
-    __slots__ = ("_entries", "_seq", "_path", "_dirty", "_loaded_count")
+    __slots__ = ("_entries", "_seq", "_path", "_dirty", "_loaded_count", "_lock")
 
     def __init__(self, persist_path: str | Path | None = None) -> None:
         self._entries: list[LedgerEntry] = []
@@ -100,6 +100,10 @@ class UnifiedLedger:
         self._path = Path(persist_path) if persist_path else None
         self._dirty = False
         self._loaded_count = 0
+        # Re-entrant lock so multiple job workers can record concurrently without
+        # losing entries or colliding sequence numbers (the append log is the
+        # single source of truth). Reads that iterate the log also take it.
+        self._lock = __import__("threading").RLock()
         if self._path and self._path.exists():
             self._load()
 
@@ -136,15 +140,16 @@ class UnifiedLedger:
         self._dirty = False
 
     def record_usd(self, amount_cents: int, *, agent_id: str | None = None, purpose: str = "", ref: str = "") -> LedgerEntry:
-        """Record a USD movement (positive = credit, negative = debit)."""
-        entry = LedgerEntry.create_usd(
-            self._next_seq(),
-            USDEntry(amount_cents=amount_cents, agent_id=agent_id, purpose=purpose, ref=ref),
-        )
-        self._entries.append(entry)
-        self._dirty = True
-        self._flush()
-        return entry
+        """Record a USD movement (positive = credit, negative = debit). Thread-safe."""
+        with self._lock:
+            entry = LedgerEntry.create_usd(
+                self._next_seq(),
+                USDEntry(amount_cents=amount_cents, agent_id=agent_id, purpose=purpose, ref=ref),
+            )
+            self._entries.append(entry)
+            self._dirty = True
+            self._flush()
+            return entry
 
     def record_token(
         self,
@@ -158,32 +163,30 @@ class UnifiedLedger:
         estimated_usd_cents: int = 0,
         category: str = "",
     ) -> LedgerEntry:
-        """Record token consumption."""
-        entry = LedgerEntry.create_token(
-            self._next_seq(),
-            TokenEntry(
-                model_id=model_id,
-                input_tokens=input_tokens,
-                output_tokens=output_tokens,
-                agent_id=agent_id,
-                task_id=task_id,
-                task_display=task_display,
-                estimated_usd_cents=estimated_usd_cents,
-                category=category,
-            ),
-        )
-        self._entries.append(entry)
-        self._dirty = True
-        self._flush()
-        return entry
+        """Record token consumption. Thread-safe."""
+        with self._lock:
+            entry = LedgerEntry.create_token(
+                self._next_seq(),
+                TokenEntry(
+                    model_id=model_id,
+                    input_tokens=input_tokens,
+                    output_tokens=output_tokens,
+                    agent_id=agent_id,
+                    task_id=task_id,
+                    task_display=task_display,
+                    estimated_usd_cents=estimated_usd_cents,
+                    category=category,
+                ),
+            )
+            self._entries.append(entry)
+            self._dirty = True
+            self._flush()
+            return entry
 
     def total_usd_cents(self) -> int:
-        """Net USD in cents (positive = surplus, negative = deficit)."""
-        total = 0
-        for e in self._entries:
-            if e.usd:
-                total += e.usd.amount_cents
-        return total
+        """Net USD in cents (positive = surplus, negative = deficit). Thread-safe."""
+        with self._lock:
+            return sum(e.usd.amount_cents for e in self._entries if e.usd)
 
     def total_tokens_by_model(self) -> dict[str, int]:
         """Total tokens consumed per model_id."""
@@ -274,5 +277,6 @@ class UnifiedLedger:
         return balance // daily_burn_cents
 
     def entries(self) -> list[LedgerEntry]:
-        """Read-only view of all entries (for audit / dashboard)."""
-        return list(self._entries)
+        """Read-only snapshot of all entries (for audit / dashboard). Thread-safe."""
+        with self._lock:
+            return list(self._entries)
