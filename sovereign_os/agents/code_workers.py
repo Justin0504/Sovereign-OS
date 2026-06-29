@@ -58,8 +58,18 @@ class CodeAssistantWorker(BaseWorker):
             + (f"Code ({language}):\n```\n{code}\n```\n" if code else "No code snippet provided.")
         )
         try:
-            out, usage = await _chat(self, system, user)
-            meta = {"worker": "CodeAssistantWorker", "deliverable_type": "markdown", "model_id": getattr(self.llm, "model_name", "default")}
+            from sovereign_os.agents.worker_tools import code_workspace_tools, use_tools_enabled
+
+            tool_calls = 0
+            workspace_root = _ctx(task, "workspace_root", "")
+            if use_tools_enabled(task.context) and workspace_root:
+                handlers, descs = code_workspace_tools(workspace_root)
+                out, usage, log = await self.run_with_tools(system, user, handlers, descriptions=descs)
+                tool_calls = len(log)
+            else:
+                out, usage = await _chat(self, system, user)
+            meta = {"worker": "CodeAssistantWorker", "deliverable_type": "markdown",
+                    "model_id": getattr(self.llm, "model_name", "default"), "tool_calls": tool_calls}
             if usage:
                 meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
             return TaskResult(

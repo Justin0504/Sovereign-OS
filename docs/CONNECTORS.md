@@ -33,3 +33,20 @@ untrusted repos, run the worker process inside a container or VM.
 
 This is what lets coding workers move from "analysis only" toward real bug-fix
 delivery (read the repo → propose a fix → run the tests).
+
+## Worker tool-use loop (agentic delivery)
+
+`BaseWorker.run_with_tools(system, user, tool_handlers)` is a provider-agnostic
+loop: the model emits JSON to either call a tool `{"action":"tool","tool":...,"args":{...}}`
+or finish `{"action":"final","output":...}`. Tool observations are fed back, up
+to `max_steps`, then a final answer is forced. This lets a worker gather REAL
+information mid-task instead of answering from memory.
+
+Wired (opt-in via `context['use_tools']`):
+- **ResearchWorker / DataAnalysisWorker** → `web_fetch` (real current info).
+- **CodeAssistantWorker** → `code_workspace` tools (`list_files`/`read_file`/`run_tests`),
+  rooted at `context['workspace_root']` (the model cannot change the root).
+
+Default (no `use_tools`) keeps the single-shot behavior. Enable it (and provide
+`workspace_root` for code) to move research/data/coding deliverables toward 90/100:
+the worker reads the repo or the web, then writes the answer grounded in it.
