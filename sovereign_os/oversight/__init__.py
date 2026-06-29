@@ -6,6 +6,7 @@ funding and an Auditor quality gate before releasing payment.
 
 from sovereign_os.oversight.broker import EscrowClient, OversightBroker
 from sovereign_os.oversight.poller import poll_and_settle
+from sovereign_os.oversight.poller_thread import start_oversight_poller, stop_oversight_poller, tick_once
 from sovereign_os.oversight.registry import EscrowRecord, OversightRegistry
 from sovereign_os.oversight.rentahuman import RentAHumanClient
 from sovereign_os.oversight.stackstasker import StacksTaskerClient
@@ -18,4 +19,7 @@ __all__ = [
     "OversightRegistry",
     "EscrowRecord",
     "poll_and_settle",
+    "start_oversight_poller",
+    "stop_oversight_poller",
+    "tick_once",
 ]
