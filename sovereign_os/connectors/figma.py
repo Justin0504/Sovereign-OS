@@ -15,14 +15,27 @@ import json
 import logging
 import os
 import re
+from typing import Callable
 
 logger = logging.getLogger(__name__)
 
 API = "https://api.figma.com/v1"
 
+# Optional pluggable backend: a reader(ref) -> {"name","summary",...} or {"error":...}.
+# When registered, it serves figma reads even without FIGMA_TOKEN — the bridge point
+# for an MCP figma server (e.g. wrapping mcp figma get_figma_data) or any alt source.
+_reader: "Callable[[str], dict] | None" = None
+
+
+def set_figma_reader(fn: "Callable[[str], dict] | None") -> None:
+    """Register (or clear with None) an alternate Figma reader used before the REST path."""
+    global _reader
+    _reader = fn
+
 
 def is_configured() -> bool:
-    return bool(os.getenv("FIGMA_TOKEN"))
+    """Readable if a reader backend is registered or a REST token is set."""
+    return _reader is not None or bool(os.getenv("FIGMA_TOKEN"))
 
 
 def file_key_from(ref: str) -> str:
@@ -76,12 +89,21 @@ def figma_get_file(ref: str, *, token: str | None = None, opener=None, timeout: 
     an outline of the document tree the worker can design against. opener bypasses
     the token check for tests.
     """
-    token = token or os.getenv("FIGMA_TOKEN", "")
-    if not token and opener is None:
-        return {"error": "FIGMA_TOKEN not set; cannot read Figma file."}
     key = file_key_from(ref)
     if not key:
         return {"error": "no Figma file key/URL provided"}
+    # Alternate backend (e.g. an MCP figma bridge) takes precedence when registered.
+    if _reader is not None and opener is None:
+        try:
+            res = _reader(ref)
+            if isinstance(res, dict) and "error" not in res:
+                return {"file_key": key, **res}
+            logger.warning("CONNECTOR figma reader returned no data; falling back: %s", res)
+        except Exception as e:  # fall through to REST
+            logger.warning("CONNECTOR figma reader failed (%s); falling back to REST.", e)
+    token = token or os.getenv("FIGMA_TOKEN", "")
+    if not token and opener is None:
+        return {"error": "FIGMA_TOKEN not set and no Figma reader registered."}
     try:
         data = _get_json(f"{API}/files/{key}", token, opener, timeout)
         return {
