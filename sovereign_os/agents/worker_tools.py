@@ -66,6 +66,21 @@ def figma_tools() -> tuple[dict[str, Callable[[dict], str]], dict[str, str]]:
     return ({"read_figma": _read}, {"read_figma": "Read a Figma file's structure. args: {ref (URL or key)}"})
 
 
+def image_tools() -> tuple[dict[str, Callable[[dict], str]], dict[str, str]]:
+    """generate_image: render a visual from a prompt (dry-run unless configured)."""
+    from sovereign_os.connectors import dispatch
+
+    def _gen(args: dict) -> str:
+        r = dispatch("image_gen", prompt=str(args.get("prompt", "")), size=str(args.get("size", "1024x1024")))
+        if r.get("error"):
+            return f"error: {r['error']}"
+        if r.get("dry_run"):
+            return "image_gen is not configured (dry-run); set IMAGE_GEN_API_KEY to render."
+        return f"image generated: {r.get('url') or '(base64 data)'}"
+
+    return ({"generate_image": _gen}, {"generate_image": "Render an image from a prompt. args: {prompt, size?}"})
+
+
 def use_tools_enabled(ctx: dict[str, Any] | None) -> bool:
     """Tool-use is opt-in via context['use_tools'] (keeps default single-shot behavior)."""
     try:

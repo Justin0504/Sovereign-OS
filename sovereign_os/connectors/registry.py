@@ -68,6 +68,10 @@ def dispatch(name: str, **kwargs):
         from sovereign_os.connectors.figma import figma_get_file
         return figma_get_file(kwargs.get("ref", "") or kwargs.get("url", ""),
                               token=kwargs.get("token"), opener=kwargs.get("opener"))
+    if key == "image_gen":
+        from sovereign_os.connectors.image_gen import generate_image
+        return generate_image(kwargs.get("prompt", ""), size=kwargs.get("size", "1024x1024"),
+                              generator=kwargs.get("generator"))
     if key in ("code_workspace", "list_files", "read_file", "run_tests"):
         from sovereign_os.connectors import code_workspace as cw
         action = kwargs.get("action", key if key != "code_workspace" else "list_files")

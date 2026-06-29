@@ -89,13 +89,17 @@ class DesignBriefWorker(BaseWorker):
             "Be specific enough to build without further questions."
         )
         try:
-            from sovereign_os.agents.worker_tools import figma_tools, use_tools_enabled
+            from sovereign_os.agents.worker_tools import figma_tools, image_tools, use_tools_enabled
 
             figma_ref = _ctx(task, "figma_file", "") or _figma_ref(brief)
-            if use_tools_enabled(task.context) and figma_ref:
-                handlers, descs = figma_tools()
-                user_t = f"A Figma file is referenced: {figma_ref}\nRead it with read_figma, then design against it.\n\n{user}"
-                out, usage, _log = await self.run_with_tools(system, user_t, handlers, descriptions=descs)
+            if use_tools_enabled(task.context):
+                handlers, descs = image_tools()           # render visuals when asked
+                if figma_ref:
+                    fh, fd = figma_tools()                 # ground in a referenced file
+                    handlers, descs = {**handlers, **fh}, {**descs, **fd}
+                preface = (f"A Figma file is referenced: {figma_ref}\nRead it with read_figma, then design against it.\n\n"
+                           if figma_ref else "")
+                out, usage, _log = await self.run_with_tools(system, preface + user, handlers, descriptions=descs)
             else:
                 out, usage = await _chat(self, system, user, revise=_revise(task))
             return _result(self, task, out, usage, "DesignBriefWorker")
