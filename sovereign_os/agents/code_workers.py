@@ -64,7 +64,8 @@ class CodeAssistantWorker(BaseWorker):
             workspace_root = _ctx(task, "workspace_root", "")
             if use_tools_enabled(task.context) and workspace_root:
                 handlers, descs = code_workspace_tools(workspace_root)
-                out, usage, log = await self.run_with_tools(system, user, handlers, descriptions=descs)
+                # Coding needs more steps: read -> write fix -> run tests -> submit PR.
+                out, usage, log = await self.run_with_tools(system, user, handlers, descriptions=descs, max_steps=6)
                 tool_calls = len(log)
             else:
                 out, usage = await _chat(self, system, user)

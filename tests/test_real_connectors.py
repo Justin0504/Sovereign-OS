@@ -61,3 +61,18 @@ def test_dispatch_code_workspace(tmp_path):
     (tmp_path / "x.py").write_text("y=1")
     r = dispatch("read_file", root=str(tmp_path), relpath="x.py")
     assert r["text"] == "y=1"
+
+
+def test_write_file_dry_run_and_escape(tmp_path, monkeypatch):
+    from sovereign_os.connectors.code_workspace import write_file
+    monkeypatch.delenv("SOVEREIGN_CODE_EXEC_ENABLED", raising=False)
+    assert write_file(tmp_path, "x.py", "y=1")["dry_run"] is True       # gated
+    assert "refused" in write_file(tmp_path, "../escape.py", "x")["error"]
+
+
+def test_write_file_writes_when_enabled(tmp_path, monkeypatch):
+    from sovereign_os.connectors.code_workspace import write_file, read_file
+    monkeypatch.setenv("SOVEREIGN_CODE_EXEC_ENABLED", "1")
+    r = write_file(tmp_path, "pkg/mod.py", "VALUE = 42\n")
+    assert r["written"] is True and (tmp_path / "pkg" / "mod.py").exists()
+    assert read_file(tmp_path, "pkg/mod.py")["text"] == "VALUE = 42\n"
