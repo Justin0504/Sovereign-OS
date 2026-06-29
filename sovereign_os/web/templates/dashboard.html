@@ -8,7 +8,7 @@
   <title>Sovereign-OS · Command Center</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
@@ -30,6 +30,7 @@
       --warn: #6b4a2e;
       --danger: #2d1a0a;
       --danger-soft: rgba(180, 83, 9, 0.1);
+      --font-display: 'Bricolage Grotesque', 'Inter', sans-serif;
       --radius: 12px;
       --radius-lg: 16px;
       --shadow: 0 1px 3px rgba(180, 83, 9, 0.06), 0 4px 12px rgba(180, 83, 9, 0.04);
@@ -63,7 +64,12 @@
     html { scroll-behavior: smooth; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      background: var(--bg);
+      /* Warm gradient mesh for depth instead of a flat fill */
+      background:
+        radial-gradient(900px 500px at 12% -8%, rgba(234, 88, 12, 0.07), transparent 60%),
+        radial-gradient(1100px 600px at 108% 0%, rgba(180, 83, 9, 0.06), transparent 55%),
+        var(--bg);
+      background-attachment: fixed;
       color: var(--text);
       min-height: 100vh;
       font-size: 16px;
@@ -72,6 +78,19 @@
       text-align: left;
       animation: fadeIn var(--dur) var(--ease-out);
     }
+    /* Subtle film grain for tactile, non-flat surfaces */
+    body::before {
+      content: "";
+      position: fixed;
+      inset: 0;
+      z-index: 0;
+      pointer-events: none;
+      opacity: 0.035;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+    }
+    .topbar, .wrap { position: relative; z-index: 1; }
+    /* Tabular figures so numbers in tables/stats align */
+    .token-table, .stats .value, .burn-label, .cost-total, .ov-chip { font-variant-numeric: tabular-nums; }
     .topbar {
       background: var(--bg-elevated);
       border-bottom: 1px solid var(--border);
@@ -88,10 +107,11 @@
       display: flex;
       align-items: center;
       gap: 10px;
-      font-size: 1.25rem;
-      font-weight: 700;
+      font-family: var(--font-display);
+      font-size: 1.3rem;
+      font-weight: 800;
       color: var(--black);
-      letter-spacing: -0.025em;
+      letter-spacing: -0.02em;
     }
     .logo-mark {
       width: 20px;
@@ -150,12 +170,13 @@
       margin-bottom: 8px;
     }
     .hero h1 {
-      font-size: 1.875rem;
-      font-weight: 700;
-      letter-spacing: -0.03em;
+      font-family: var(--font-display);
+      font-size: 2.05rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
       color: var(--black);
-      line-height: 1.3;
-      margin-bottom: 8px;
+      line-height: 1.2;
+      margin-bottom: 10px;
     }
     .hero p {
       font-size: 1rem;
@@ -186,23 +207,28 @@
     .panel-section {
       padding: 28px 24px 28px 20px;
       border-bottom: 1px solid var(--border);
-      transition: background var(--dur-fast);
+      box-shadow: inset 3px 0 0 transparent;
+      transition: background var(--dur-fast), box-shadow var(--dur-fast);
     }
     .panel-section:last-child { border-bottom: none; }
     .main .panel-section:first-child {
       border-left: 3px solid var(--accent);
     }
-    .panel-section:hover { background: rgba(0,0,0,0.02); }
+    .panel-section:hover {
+      background: linear-gradient(90deg, rgba(234, 88, 12, 0.04), transparent 60%);
+      box-shadow: inset 3px 0 0 var(--accent);
+    }
     .card-title, .section-title {
       font-size: 0.75rem;
       font-weight: 600;
-      letter-spacing: 0.06em;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--text-muted);
+      color: var(--accent);
       margin-bottom: 6px;
     }
     .card-heading, .section-heading {
-      font-size: 1.125rem;
+      font-family: var(--font-display);
+      font-size: 1.15rem;
       font-weight: 700;
       color: var(--black);
       margin-bottom: 6px;
@@ -370,7 +396,8 @@
     @media (max-width: 640px) { .stats { grid-template-columns: repeat(2, 1fr); border-radius: 0; } }
     .stat .label { font-size: 0.75rem; color: var(--text-muted); margin-bottom: 4px; text-transform: uppercase; letter-spacing: 0.05em; font-weight: 600; }
     .stat .value {
-      font-size: 1.375rem;
+      font-family: var(--font-display);
+      font-size: 1.5rem;
       font-weight: 700;
       color: var(--black);
       font-variant-numeric: tabular-nums;
