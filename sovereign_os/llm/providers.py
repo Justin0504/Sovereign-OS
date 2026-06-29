@@ -216,11 +216,31 @@ class AnthropicChatLLM:
         return "".join(parts)
 
 
-def create_llm_client(role: str) -> ChatLLM:
+# Category risk tier -> env var holding the model to use for that tier. Only
+# applied when the env var is set; otherwise the role/default model is used.
+_RISK_MODEL_ENV = {"high": "SOVEREIGN_MODEL_HIGH", "medium": "SOVEREIGN_MODEL_MEDIUM", "low": "SOVEREIGN_MODEL_LOW"}
+
+
+def model_override_for_skill(skill: str) -> str | None:
+    """
+    Resolve a model override for a worker skill from its category risk tier
+    (high-risk coding -> a stronger model, low-risk -> a cheaper one), via the
+    SOVEREIGN_MODEL_HIGH/MEDIUM/LOW env vars. Returns None when none is set
+    (keep the default model — backward compatible).
+    """
+    from sovereign_os.agents.categories import category_for_skill
+
+    risk = category_for_skill(skill).risk
+    return _env(_RISK_MODEL_ENV.get(risk, "")) or None
+
+
+def create_llm_client(role: str, *, model_override: str | None = None) -> ChatLLM:
     """
     Factory used by Strategist / Auditor / Workers.
 
     - role: logical role name, e.g. "strategist", "judge", "worker_research"
+    - model_override: when set, use this model instead of the role/default model
+      (e.g. a category-risk-matched tier). Provider still resolves from env.
     - returns: ChatLLM implementation
 
     If configuration or provider is missing, raises a descriptive error so that
@@ -235,7 +255,7 @@ def create_llm_client(role: str) -> ChatLLM:
         )
 
     provider = cfg.provider
-    model = cfg.model
+    model = model_override or cfg.model
 
     if provider == "openai":
         return OpenAIChatLLM(model=model)
