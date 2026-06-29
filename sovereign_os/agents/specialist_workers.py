@@ -34,6 +34,13 @@ def _revise(task: TaskInput) -> bool:
     return _ctx(task, "revise", "").lower() in ("1", "true", "yes", "high")
 
 
+def _figma_ref(text: str) -> str:
+    """Extract a Figma file URL from the brief, if any."""
+    import re
+    m = re.search(r"https?://(?:www\.)?figma\.com/\S+", text or "")
+    return m.group(0) if m else ""
+
+
 async def _chat(worker: BaseWorker, system: str, user: str, *, revise: bool = False) -> tuple[str, dict[str, int] | None]:
     assert worker.llm is not None
     return await worker.deliver(system, user, revise=revise)
@@ -82,7 +89,15 @@ class DesignBriefWorker(BaseWorker):
             "Be specific enough to build without further questions."
         )
         try:
-            out, usage = await _chat(self, system, user, revise=_revise(task))
+            from sovereign_os.agents.worker_tools import figma_tools, use_tools_enabled
+
+            figma_ref = _ctx(task, "figma_file", "") or _figma_ref(brief)
+            if use_tools_enabled(task.context) and figma_ref:
+                handlers, descs = figma_tools()
+                user_t = f"A Figma file is referenced: {figma_ref}\nRead it with read_figma, then design against it.\n\n{user}"
+                out, usage, _log = await self.run_with_tools(system, user_t, handlers, descriptions=descs)
+            else:
+                out, usage = await _chat(self, system, user, revise=_revise(task))
             return _result(self, task, out, usage, "DesignBriefWorker")
         except Exception as e:
             logger.exception("DesignBriefWorker failed: %s", e)

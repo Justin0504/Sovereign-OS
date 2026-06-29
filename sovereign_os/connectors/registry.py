@@ -38,7 +38,7 @@ CONNECTORS: dict[str, ConnectorSpec] = {
     "code_search": ConnectorSpec("code_search", "mcp", "Search a codebase.", mcp_server="code"),
     "sql": ConnectorSpec("sql", "mcp", "Query a SQL database.", ("DATABASE_URL",), mcp_server="sql"),
     "spreadsheet": ConnectorSpec("spreadsheet", "builtin", "Parse CSV/XLSX data.", ()),
-    "figma": ConnectorSpec("figma", "mcp", "Read/write Figma design files.", ("FIGMA_TOKEN",), mcp_server="figma"),
+    "figma": ConnectorSpec("figma", "builtin", "Read a Figma design file (structure/components) via REST.", ("FIGMA_TOKEN",)),
     "image_gen": ConnectorSpec("image_gen", "http", "Generate images from a prompt.", ("IMAGE_GEN_API_KEY",)),
     "workflow": ConnectorSpec("workflow", "mcp", "Trigger automation workflows.", mcp_server="workflow"),
     "webhook": ConnectorSpec("webhook", "builtin", "POST to a webhook URL.", ("SOVEREIGN_WEBHOOK_URL",)),
@@ -64,6 +64,10 @@ def dispatch(name: str, **kwargs):
         from sovereign_os.connectors.web import web_fetch
         return web_fetch(kwargs.get("url", ""), opener=kwargs.get("opener"),
                          max_bytes=kwargs.get("max_bytes", 200_000), timeout=kwargs.get("timeout", 15.0))
+    if key == "figma":
+        from sovereign_os.connectors.figma import figma_get_file
+        return figma_get_file(kwargs.get("ref", "") or kwargs.get("url", ""),
+                              token=kwargs.get("token"), opener=kwargs.get("opener"))
     if key in ("code_workspace", "list_files", "read_file", "run_tests"):
         from sovereign_os.connectors import code_workspace as cw
         action = kwargs.get("action", key if key != "code_workspace" else "list_files")

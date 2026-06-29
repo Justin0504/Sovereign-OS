@@ -50,3 +50,19 @@ Wired (opt-in via `context['use_tools']`):
 Default (no `use_tools`) keeps the single-shot behavior. Enable it (and provide
 `workspace_root` for code) to move research/data/coding deliverables toward 90/100:
 the worker reads the repo or the web, then writes the answer grounded in it.
+
+## Figma connector (design category)
+
+`figma` reads a Figma design file via the REST API so a worker can implement,
+extend, or audit it — `dispatch("figma", ref="<figma url or key>")` returns the
+file name + an outline of its node tree (pages → frames → components → text).
+Requires `FIGMA_TOKEN`.
+
+Wired into **DesignBriefWorker**: when `context['use_tools']` is set and the brief
+references a Figma URL (or `context['figma_file']` is given), the worker reads the
+file with `read_figma` and designs against the real structure.
+
+**Limitation:** Figma's REST API is read-only — agents can read a file but cannot
+create or edit designs via REST (authoring needs Figma's in-app Plugin/Agent).
+Canva is similar. So this grounds design work in an existing file; generating new
+visuals would use an `image_gen` connector instead.

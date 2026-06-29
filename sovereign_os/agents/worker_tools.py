@@ -53,6 +53,19 @@ def code_workspace_tools(root: str) -> tuple[dict[str, Callable[[dict], str]], d
     return handlers, descs
 
 
+def figma_tools() -> tuple[dict[str, Callable[[dict], str]], dict[str, str]]:
+    """read_figma: read a referenced Figma file's structure (for design tasks)."""
+    from sovereign_os.connectors import dispatch
+
+    def _read(args: dict) -> str:
+        r = dispatch("figma", ref=str(args.get("ref", "") or args.get("url", "")))
+        if r.get("error"):
+            return f"error: {r['error']}"
+        return f"Figma '{r.get('name', '')}':\n{r.get('summary', '')[:3000]}"
+
+    return ({"read_figma": _read}, {"read_figma": "Read a Figma file's structure. args: {ref (URL or key)}"})
+
+
 def use_tools_enabled(ctx: dict[str, Any] | None) -> bool:
     """Tool-use is opt-in via context['use_tools'] (keeps default single-shot behavior)."""
     try:
