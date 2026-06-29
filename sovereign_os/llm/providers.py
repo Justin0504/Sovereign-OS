@@ -41,6 +41,21 @@ def _env(key: str, default: str | None = None) -> str | None:
     return value if value is not None and value.strip() else default
 
 
+# Anthropic prompt caching: large, repeated system prompts (worker role prompts)
+# are marked cache-eligible so subsequent calls reuse the cached prefix and cost
+# less. Small prompts stay a plain string (no benefit, avoids overhead).
+_CACHE_MIN_CHARS = 1024
+
+
+def _anthropic_system(system_text: str | None):
+    """Shape the system field for Anthropic: cache_control block when large, else plain string/None."""
+    if not system_text:
+        return None
+    if len(system_text) >= _CACHE_MIN_CHARS:
+        return [{"type": "text", "text": system_text, "cache_control": {"type": "ephemeral"}}]
+    return system_text
+
+
 def _default_provider() -> str:
     """If SOVEREIGN_LLM_PROVIDER not set: use anthropic when only ANTHROPIC_API_KEY is set."""
     if _env("SOVEREIGN_LLM_PROVIDER"):
@@ -170,7 +185,7 @@ class AnthropicChatLLM:
         message = await self._client.messages.create(
             model=self._model,
             max_tokens=2048,
-            system=system_text,
+            system=_anthropic_system(system_text),
             messages=convo,
         )
         usage = getattr(message, "usage", None)
