@@ -44,11 +44,24 @@ def code_workspace_tools(root: str) -> tuple[dict[str, Callable[[dict], str]], d
             return "run_tests is disabled (dry-run); set SOVEREIGN_CODE_EXEC_ENABLED to run."
         return f"rc={r.get('rc')} passed={r.get('passed')}\n{r.get('output', '')[:2000]}"
 
-    handlers: dict[str, Callable[[dict], str]] = {"list_files": _list, "read_file": _read, "run_tests": _tests}
+    def _pr(args: dict) -> str:
+        r = dispatch("submit_pr", root=root, branch=str(args.get("branch", "")),
+                     title=str(args.get("title", "")), body=str(args.get("body", "")),
+                     base=str(args.get("base", "main")))
+        if r.get("dry_run"):
+            return "submit_pr is disabled (dry-run); set SOVEREIGN_CODE_EXEC_ENABLED to open a PR."
+        if r.get("error") or not r.get("submitted"):
+            return f"PR not submitted: {r.get('error') or r.get('failed_at', 'unknown')}"
+        return f"PR opened: {r.get('pr_url') or '(no url)'}"
+
+    handlers: dict[str, Callable[[dict], str]] = {
+        "list_files": _list, "read_file": _read, "run_tests": _tests, "submit_pr": _pr,
+    }
     descs = {
         "list_files": "List files in the repo. args: {glob?}",
         "read_file": "Read a file. args: {relpath}",
         "run_tests": "Run the test suite (guarded). args: {cmd?}",
+        "submit_pr": "Open a PR with your changes (guarded). args: {branch, title, body?}",
     }
     return handlers, descs
 

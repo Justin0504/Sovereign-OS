@@ -66,3 +66,18 @@ file with `read_figma` and designs against the real structure.
 create or edit designs via REST (authoring needs Figma's in-app Plugin/Agent).
 Canva is similar. So this grounds design work in an existing file; generating new
 visuals would use an `image_gen` connector instead.
+
+## image_gen + submit_pr
+
+- **`image_gen`** renders a visual from a prompt (`dispatch("image_gen", prompt=...)`):
+  provider-agnostic (injectable generator; default OpenAI Images via
+  `IMAGE_GEN_API_KEY`/`OPENAI_API_KEY`), **dry-run with no key**. DesignBriefWorker
+  offers `read_figma` + `generate_image` under `context['use_tools']`, so it can
+  deliver an actual mockup/logo, not just a spec.
+- **`submit_pr`** is the last step of a coding deliverable — branch, commit, push,
+  and open a PR (`git` + `gh`). **Dry-run unless `SOVEREIGN_CODE_EXEC_ENABLED`**.
+  With execution enabled, the CodeAssistantWorker's tool loop becomes the full
+  bug-fix path: `read_file` → `run_tests` → `submit_pr`. This is what closes the
+  gap toward 90/100 on real coding bounties (a tested PR, not just analysis).
+  **Limitation:** there is no built-in sandbox — only enable execution against a
+  trusted/sandboxed checkout (run the worker in a container/VM for untrusted repos).
