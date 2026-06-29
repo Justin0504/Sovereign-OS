@@ -37,7 +37,8 @@ CATEGORIES: tuple[TaskCategory, ...] = (
         key="coding", skill="code_assistant", risk="medium", max_cost_usd=2.00,
         capability=Capability.WRITE_FILES, connectors=("git", "file_read", "code_search"),
         aliases=("code", "coding", "bug fix", "bug-fix", "bugfix", "pr", "pull request",
-                 "feature", "debug", "refactor", "implement", "fix", "develop"),
+                 "feature", "debug", "refactor", "implement", "fix", "develop",
+                 "unit test", "test suite", "test harness", "add a test", "add tests", "ci"),
     ),
     TaskCategory(
         key="data", skill="data_analysis", risk="medium", max_cost_usd=1.50,
