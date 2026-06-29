@@ -154,6 +154,26 @@ class Strategist:
                 )
                 self._llm = None
 
+    def _apply_category_routing(self, plan: "TaskPlan") -> "TaskPlan":
+        """
+        Upgrade an LLM plan to the top-tier worker per task category. When the
+        planner assigned a generic/unrecognized skill (one that maps to the
+        'general' category), re-route it to the specialist skill implied by the
+        task description (design_brief, data_analysis, test_gen, code_assistant, …).
+        Specific, recognized skills the planner chose are left untouched.
+        """
+        from sovereign_os.agents.categories import category_for_skill, route_skill
+
+        new_tasks = []
+        for t in plan.tasks:
+            skill = t.required_skill
+            if category_for_skill(skill).key == "general":
+                routed = route_skill("", t.description or "")
+                if routed and category_for_skill(routed).key != "general":
+                    skill = routed
+            new_tasks.append(t.model_copy(update={"required_skill": skill}) if skill != t.required_skill else t)
+        return plan.model_copy(update={"tasks": new_tasks})
+
     def _resolve_skill(self, text: str, competency_names: list[str]) -> str:
         """Route text -> category skill; defer to a declared competency when the routed skill isn't one."""
         from sovereign_os.agents.categories import route_skill
@@ -172,6 +192,7 @@ class Strategist:
         """
         if self._llm is not None:
             plan = await self._llm.plan_from_goal(goal_text, self._charter)
+            plan = self._apply_category_routing(plan)
             plan = _normalize_plan_task_ids(plan)
             logger.info(
                 "GOVERNANCE CEO: Strategic plan produced: %d tasks for goal (summary=%s).",
