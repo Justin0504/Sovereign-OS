@@ -42,6 +42,30 @@ def value_aware_min_score(job_revenue_cents: int | None) -> float | None:
     return round(min(0.9, max(0.5, bar)), 2)
 
 
+def should_skip_audit(task_value_cents: int, judge_model: str, est_tokens: int = 4000) -> bool:
+    """
+    True when paying for an LLM audit isn't worth it: SOVEREIGN_AUDIT_MAX_COST_RATIO
+    is set and the estimated judge cost would exceed that fraction of the task's
+    value. Lets cheap tasks skip the (relatively expensive) LLM judge. Off by
+    default (env unset) -> always False (unchanged behavior).
+    """
+    import os
+
+    raw = os.getenv("SOVEREIGN_AUDIT_MAX_COST_RATIO")
+    if not raw or task_value_cents <= 0:
+        return False
+    try:
+        ratio = float(raw)
+    except ValueError:
+        return False
+    if ratio <= 0:
+        return False
+    from sovereign_os.governance.pricing import estimate_cost_cents
+
+    judge_cost = estimate_cost_cents(judge_model or "gpt-4o", est_tokens, 200)
+    return judge_cost > ratio * task_value_cents
+
+
 class JudgeLLMProtocol(Protocol):
     """Async interface for Judge LLM: returns passed, score, reason, suggested_fix."""
 
@@ -227,6 +251,7 @@ class ReviewEngine:
         task_result: TaskResult,
         *,
         min_score: float | None = None,
+        task_value_cents: int = 0,
     ) -> AuditReport:
         """
         1. Identify KPI from Charter.success_kpis for this task.
@@ -246,7 +271,14 @@ class ReviewEngine:
             "GOVERNANCE AUDITOR: Reviewing output for Task [%s]...",
             task_plan_item.task_id,
         )
-        report = await self._judge.evaluate(
+        judge = self._judge
+        if should_skip_audit(task_value_cents, self.judge_model):
+            logger.info(
+                "GOVERNANCE AUDITOR: Task [%s] value %d cents too low for an LLM audit; using rule-based check.",
+                task_plan_item.task_id, task_value_cents,
+            )
+            judge = StubAuditor()
+        report = await judge.evaluate(
             task_id=task_plan_item.task_id,
             task_output=task_result.output,
             verification_prompt=verification_prompt,
