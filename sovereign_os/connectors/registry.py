@@ -78,12 +78,14 @@ def dispatch(name: str, **kwargs):
         return submit_pr(kwargs.get("root", "."), branch=kwargs.get("branch", ""),
                          title=kwargs.get("title", ""), body=kwargs.get("body", ""),
                          base=kwargs.get("base", "main"), runner=kwargs.get("runner"))
-    if key in ("code_workspace", "list_files", "read_file", "run_tests"):
+    if key in ("code_workspace", "list_files", "read_file", "write_file", "run_tests"):
         from sovereign_os.connectors import code_workspace as cw
         action = kwargs.get("action", key if key != "code_workspace" else "list_files")
         root = kwargs.get("root", ".")
         if action == "read_file":
             return cw.read_file(root, kwargs.get("relpath", ""))
+        if action == "write_file":
+            return cw.write_file(root, kwargs.get("relpath", ""), kwargs.get("content", ""))
         if action == "run_tests":
             return cw.run_tests(root, kwargs.get("cmd"))
         return cw.list_files(root, kwargs.get("glob", "**/*"))

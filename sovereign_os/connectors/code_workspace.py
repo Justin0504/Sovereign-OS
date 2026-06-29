@@ -61,6 +61,32 @@ def read_file(root: str | Path, relpath: str) -> dict:
         return {"path": relpath, "text": "", "error": str(e)}
 
 
+MAX_WRITE_BYTES = 1_000_000
+
+
+def write_file(root: str | Path, relpath: str, content: str) -> dict:
+    """
+    Write a file under `root` (the agent applying its fix). Path-escape guarded.
+    DRY-RUN unless SOVEREIGN_CODE_EXEC_ENABLED (writing to the repo is opt-in,
+    same gate as run_tests). Returns {"written", "path", "bytes"|"dry_run", ...}.
+    """
+    target = _safe_path(root, relpath)
+    if target is None:
+        return {"written": False, "error": "path escapes workspace root (refused)"}
+    content = content or ""
+    if len(content.encode("utf-8", "replace")) > MAX_WRITE_BYTES:
+        return {"written": False, "error": "content too large"}
+    if os.getenv("SOVEREIGN_CODE_EXEC_ENABLED", "").lower() not in ("1", "true", "yes"):
+        logger.info("CONNECTOR write_file DRY-RUN: would write %s (%d chars).", relpath, len(content))
+        return {"written": False, "dry_run": True, "path": relpath}
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content, encoding="utf-8")
+        return {"written": True, "path": relpath, "bytes": len(content)}
+    except Exception as e:
+        return {"written": False, "error": str(e), "path": relpath}
+
+
 def run_tests(root: str | Path, cmd: list[str] | None = None, *, timeout: float = 120.0, runner=None) -> dict:
     """
     Run a test command in `root`. DRY-RUN unless SOVEREIGN_CODE_EXEC_ENABLED is

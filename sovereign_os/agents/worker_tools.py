@@ -38,6 +38,14 @@ def code_workspace_tools(root: str) -> tuple[dict[str, Callable[[dict], str]], d
         r = dispatch("read_file", root=root, relpath=str(args.get("relpath", "")))
         return r.get("error") and f"error: {r['error']}" or r.get("text", "")[:3000]
 
+    def _write(args: dict) -> str:
+        r = dispatch("write_file", root=root, relpath=str(args.get("relpath", "")), content=str(args.get("content", "")))
+        if r.get("dry_run"):
+            return "write_file is disabled (dry-run); set SOVEREIGN_CODE_EXEC_ENABLED to apply the fix."
+        if r.get("error") or not r.get("written"):
+            return f"not written: {r.get('error', 'unknown')}"
+        return f"wrote {r.get('path')} ({r.get('bytes')} bytes)"
+
     def _tests(args: dict) -> str:
         r = dispatch("run_tests", root=root, action="run_tests", cmd=args.get("cmd"))
         if r.get("dry_run"):
@@ -55,11 +63,12 @@ def code_workspace_tools(root: str) -> tuple[dict[str, Callable[[dict], str]], d
         return f"PR opened: {r.get('pr_url') or '(no url)'}"
 
     handlers: dict[str, Callable[[dict], str]] = {
-        "list_files": _list, "read_file": _read, "run_tests": _tests, "submit_pr": _pr,
+        "list_files": _list, "read_file": _read, "write_file": _write, "run_tests": _tests, "submit_pr": _pr,
     }
     descs = {
         "list_files": "List files in the repo. args: {glob?}",
         "read_file": "Read a file. args: {relpath}",
+        "write_file": "Write/overwrite a file with your fix (guarded). args: {relpath, content}",
         "run_tests": "Run the test suite (guarded). args: {cmd?}",
         "submit_pr": "Open a PR with your changes (guarded). args: {branch, title, body?}",
     }
