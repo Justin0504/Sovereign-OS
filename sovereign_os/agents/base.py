@@ -72,6 +72,33 @@ class BaseWorker(ABC):
         """
         return None
 
+    # ----------------------------------------------------------- LLM helpers
+    async def _chat_once(self, system: str, user: str) -> tuple[str, dict | None]:
+        """One LLM turn; returns (text, usage). Requires self.llm."""
+        content = await self.llm.chat(  # type: ignore[union-attr]
+            [{"role": "system", "content": system}, {"role": "user", "content": user}]
+        )
+        return (content or "").strip(), getattr(self.llm, "_last_usage", None)
+
+    async def deliver(self, system: str, user: str, *, revise: bool = False) -> tuple[str, dict | None]:
+        """
+        Produce a deliverable. When revise=True, run a draft -> self-critique ->
+        improved-final pass (top-tier quality) before returning. Usage covers the
+        final turn. Caller is responsible for the no-LLM fallback (self.llm check).
+        """
+        draft, usage = await self._chat_once(system, user)
+        if not (revise and self.llm and draft):
+            return draft, usage
+        crit_system = (system + "\n\nYou hold yourself to a top-tier standard and improve your own work before delivering.").strip()
+        crit_user = (
+            f"{user}\n\n--- YOUR DRAFT ---\n{draft}\n\n"
+            "Critically review the draft against the request: coverage of every requirement, "
+            "correctness, specificity (no hand-waving), and format. Then output ONLY the improved "
+            "final deliverable — no preamble, no notes about what you changed."
+        )
+        improved, usage2 = await self._chat_once(crit_system, crit_user)
+        return (improved or draft), (usage2 or usage)
+
 
 class StubWorker(BaseWorker):
     """Default worker when no implementation is registered; returns placeholder result for Auditor."""
