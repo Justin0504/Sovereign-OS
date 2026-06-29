@@ -122,7 +122,13 @@ class DataAnalysisWorker(BaseWorker):
             "- ## Findings & Caveats — what it means and where it could be wrong\n"
         )
         try:
-            out, usage = await _chat(self, system, user, revise=_revise(task))
+            from sovereign_os.agents.worker_tools import use_tools_enabled, web_tools
+
+            if use_tools_enabled(task.context):
+                handlers, descs = web_tools()
+                out, usage, _log = await self.run_with_tools(system, user, handlers, descriptions=descs)
+            else:
+                out, usage = await _chat(self, system, user, revise=_revise(task))
             return _result(self, task, out, usage, "DataAnalysisWorker")
         except Exception as e:
             logger.exception("DataAnalysisWorker failed: %s", e)

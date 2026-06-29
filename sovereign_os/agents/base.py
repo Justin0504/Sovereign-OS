@@ -99,6 +99,68 @@ class BaseWorker(ABC):
         improved, usage2 = await self._chat_once(crit_system, crit_user)
         return (improved or draft), (usage2 or usage)
 
+    async def run_with_tools(
+        self,
+        system: str,
+        user: str,
+        tool_handlers: "dict[str, Any]",
+        *,
+        max_steps: int = 4,
+        descriptions: "dict[str, str] | None" = None,
+    ) -> tuple[str, dict | None, list]:
+        """
+        Provider-agnostic tool-use loop. The model either calls a tool or returns
+        the final deliverable, as JSON. Each tool is a callable(args: dict) -> str
+        observation. Loops up to max_steps, feeding observations back, then forces
+        a final answer. Returns (final_text, usage, tool_log).
+
+        Lets workers gather REAL information mid-task (web_fetch, read_file, run_tests)
+        rather than answering from memory — the path to top-tier delivery.
+        """
+        desc = descriptions or {}
+        tools_block = "\n".join(f'- {name}: {desc.get(name, "")}' for name in tool_handlers)
+        sys = (
+            (system or "").strip()
+            + "\n\nYou can call tools to gather real information before answering.\n"
+            + "Available tools:\n" + tools_block + "\n\n"
+            + 'To call a tool respond with ONLY JSON: {"action":"tool","tool":"<name>","args":{...}}.\n'
+            + 'When you have enough information respond with ONLY JSON: {"action":"final","output":"<the full deliverable>"}.'
+        )
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": sys},
+            {"role": "user", "content": user},
+        ]
+        last_usage: dict | None = None
+        log: list = []
+
+        for _ in range(max(1, max_steps)):
+            content = await self.llm.chat(messages)  # type: ignore[union-attr]
+            last_usage = getattr(self.llm, "_last_usage", None) or last_usage
+            action = _parse_action(content or "")
+            if action is None or action.get("action") == "final":
+                return ((action or {}).get("output") or (content or "")).strip(), last_usage, log
+            name = str(action.get("tool", ""))
+            args = action.get("args") if isinstance(action.get("args"), dict) else {}
+            handler = tool_handlers.get(name)
+            if handler is None:
+                obs = f"(no such tool: {name})"
+            else:
+                try:
+                    obs = str(handler(args))[:4000]
+                except Exception as e:  # noqa: BLE001 - surfaced to the model
+                    obs = f"(tool error: {e})"
+            log.append({"tool": name, "args": args, "obs": obs[:200]})
+            messages.append({"role": "assistant", "content": content or ""})
+            messages.append({"role": "user", "content": f"Tool '{name}' result:\n{obs}\n\nContinue with a tool call or the final JSON."})
+
+        # Out of steps — force a final deliverable.
+        messages.append({"role": "user", "content": 'Now output ONLY {"action":"final","output":"<the deliverable>"}.'})
+        content = await self.llm.chat(messages)  # type: ignore[union-attr]
+        last_usage = getattr(self.llm, "_last_usage", None) or last_usage
+        action = _parse_action(content or "")
+        final = (action or {}).get("output") if action and action.get("action") == "final" else (content or "")
+        return (final or "").strip(), last_usage, log
+
 
 class StubWorker(BaseWorker):
     """Default worker when no implementation is registered; returns placeholder result for Auditor."""
@@ -123,3 +185,25 @@ class StubWorker(BaseWorker):
             output=f"[Stub] Completed: {task.description[:100] or task.task_id}",
             metadata={"worker": "StubWorker"},
         )
+
+
+def _parse_action(content: str) -> dict | None:
+    """Extract a JSON action object from a model reply (tolerates code fences/prose)."""
+    import json
+    import re
+
+    s = (content or "").strip()
+    s = s.removeprefix("```json").removeprefix("```").strip().removesuffix("```").strip()
+    try:
+        obj = json.loads(s)
+        return obj if isinstance(obj, dict) else None
+    except Exception:
+        pass
+    m = re.search(r"\{.*\}", s, re.S)  # first JSON-looking object
+    if m:
+        try:
+            obj = json.loads(m.group(0))
+            return obj if isinstance(obj, dict) else None
+        except Exception:
+            return None
+    return None

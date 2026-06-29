@@ -72,14 +72,21 @@ class ResearchWorker(BaseWorker):
                 )).strip()
                 or "You are a concise researcher. Be factual and brief."
             )
-            messages = [
-                {"role": "system", "content": system},
-                {"role": "user", "content": prompt or "Research."},
-            ]
-            content = await self.llm.chat(messages)
-            output = (content or "").strip() or "[No research produced]"
-            usage = getattr(self.llm, "_last_usage", None)
-            meta = {"worker": "ResearchWorker", "model_id": getattr(self.llm, "model_name", "default")}
+            from sovereign_os.agents.worker_tools import use_tools_enabled, web_tools
+
+            tool_calls = 0
+            if use_tools_enabled(task.context):
+                handlers, descs = web_tools()
+                output, usage, log = await self.run_with_tools(system, prompt or "Research.", handlers, descriptions=descs)
+                output = (output or "").strip() or "[No research produced]"
+                tool_calls = len(log)
+            else:
+                content = await self.llm.chat(
+                    [{"role": "system", "content": system}, {"role": "user", "content": prompt or "Research."}]
+                )
+                output = (content or "").strip() or "[No research produced]"
+                usage = getattr(self.llm, "_last_usage", None)
+            meta = {"worker": "ResearchWorker", "model_id": getattr(self.llm, "model_name", "default"), "tool_calls": tool_calls}
             if usage:
                 meta["input_tokens"] = usage.get("input_tokens", 0)
                 meta["output_tokens"] = usage.get("output_tokens", 0)
