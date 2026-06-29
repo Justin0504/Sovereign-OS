@@ -431,6 +431,11 @@ class GovernanceEngine:
         }
         if getattr(task_plan, "original_goal", None):
             ctx["original_goal"] = task_plan.original_goal
+        # Auto-enable the worker tool loop for tool-benefiting categories when
+        # SOVEREIGN_AUTO_TOOLS is on (off by default -> unchanged single-shot).
+        from sovereign_os.agents.worker_tools import auto_tool_context
+
+        ctx.update(auto_tool_context(task.required_skill))
         task_input = TaskInput(
             task_id=task.task_id,
             description=task.description,

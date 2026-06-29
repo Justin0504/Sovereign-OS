@@ -100,3 +100,29 @@ def use_tools_enabled(ctx: dict[str, Any] | None) -> bool:
         return str((ctx or {}).get("use_tools", "")).lower() in ("1", "true", "yes", "auto")
     except Exception:
         return False
+
+
+# Categories whose deliverables benefit from real tools (web/repo/design access).
+TOOL_CATEGORIES = {"research", "data", "coding", "design"}
+
+
+def auto_tool_context(skill: str) -> dict[str, str]:
+    """
+    Context additions to auto-enable the worker tool loop for tool-benefiting
+    categories. Opt-in globally via SOVEREIGN_AUTO_TOOLS (default off = unchanged).
+    Injects workspace_root (SOVEREIGN_WORKSPACE_ROOT) for coding tasks.
+    """
+    import os
+
+    if os.getenv("SOVEREIGN_AUTO_TOOLS", "").lower() not in ("1", "true", "yes"):
+        return {}
+    from sovereign_os.agents.categories import category_for_skill
+
+    cat = category_for_skill(skill).key
+    if cat not in TOOL_CATEGORIES:
+        return {}
+    out = {"use_tools": "1"}
+    root = os.getenv("SOVEREIGN_WORKSPACE_ROOT")
+    if root and cat == "coding":
+        out["workspace_root"] = root
+    return out
