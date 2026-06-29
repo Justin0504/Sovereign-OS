@@ -34,6 +34,7 @@ CONNECTORS: dict[str, ConnectorSpec] = {
                                 ("SOVEREIGN_SMTP_HOST", "SOVEREIGN_SMTP_USER")),
     "git": ConnectorSpec("git", "mcp", "Clone/read a git repo.", mcp_server="git"),
     "file_read": ConnectorSpec("file_read", "builtin", "Read provided files.", ()),
+    "code_workspace": ConnectorSpec("code_workspace", "builtin", "Read a code checkout (list/read files) + guarded test runner.", ()),
     "code_search": ConnectorSpec("code_search", "mcp", "Search a codebase.", mcp_server="code"),
     "sql": ConnectorSpec("sql", "mcp", "Query a SQL database.", ("DATABASE_URL",), mcp_server="sql"),
     "spreadsheet": ConnectorSpec("spreadsheet", "builtin", "Parse CSV/XLSX data.", ()),
@@ -59,6 +60,19 @@ def dispatch(name: str, **kwargs):
         from sovereign_os.connectors.email_connector import send_email
         return send_email(kwargs.get("to", ""), kwargs.get("subject", ""), kwargs.get("body", ""),
                           live=kwargs.get("live"))
+    if key == "web_fetch":
+        from sovereign_os.connectors.web import web_fetch
+        return web_fetch(kwargs.get("url", ""), opener=kwargs.get("opener"),
+                         max_bytes=kwargs.get("max_bytes", 200_000), timeout=kwargs.get("timeout", 15.0))
+    if key in ("code_workspace", "list_files", "read_file", "run_tests"):
+        from sovereign_os.connectors import code_workspace as cw
+        action = kwargs.get("action", key if key != "code_workspace" else "list_files")
+        root = kwargs.get("root", ".")
+        if action == "read_file":
+            return cw.read_file(root, kwargs.get("relpath", ""))
+        if action == "run_tests":
+            return cw.run_tests(root, kwargs.get("cmd"))
+        return cw.list_files(root, kwargs.get("glob", "**/*"))
     return {"error": f"no built-in handler for connector '{name}'"}
 
 
