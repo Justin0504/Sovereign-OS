@@ -159,8 +159,38 @@ a **permission tier earned per category** (per-category TrustScore), and the
 Inspect it with `sovereign categories` and `sovereign connectors`.
 
 See [docs/OVERSIGHT.md](docs/OVERSIGHT.md), [docs/CATEGORIES.md](docs/CATEGORIES.md),
-[docs/CLAWTASKS.md](docs/CLAWTASKS.md), [docs/COST.md](docs/COST.md), and
-[docs/X402.md](docs/X402.md).
+[docs/CONNECTORS.md](docs/CONNECTORS.md), [docs/CLAWTASKS.md](docs/CLAWTASKS.md),
+[docs/COST.md](docs/COST.md), and [docs/X402.md](docs/X402.md).
+
+### Capability map
+
+```
+ INBOUND platforms                     GOVERNANCE                         AGENTIC WORKERS (by category)
+ TaskBounty · StacksTasker  ──ingest──▶ ┌───────────────┐  ──route──▶  coding   → read·write·run_tests·submit_PR
+ BotBounty · ClawTasks                  │ CFO budget gate│              research → web_fetch
+                                        │  (per-category │              data     → web_fetch
+ OUTBOUND (agent hires)                 │   ceilings)    │              design   → read_figma · generate_image
+ RentAHuman escrow  ◀──post/fund──────  │ Auditor quality│              writing  → draft → self-critique → revise
+   release | dispute  ◀──gate───────────│  (rubric)      │              ─────────────────────────────────────
+                                        └───────────────┘              tools dispatched via connectors/, code
+ Ledger (append-only, thread-safe) · per-model/category cost · TrustScore earned per category · Docker sandbox
+```
+
+Every task is **categorized** → routed to a **top-tier worker** → budget-gated by a
+**per-category ceiling** → executed with **real tools** (web/repo/Figma/image, in a
+**Docker sandbox** for untrusted code) → **quality-gated** before delivery or payout.
+All money/exec is **dry-run by default**.
+
+**Try it (no keys, no funds):**
+
+```bash
+python examples/coding_bounty_demo.py   # bug-fix: route → budget → read·write·test·PR → audit
+python examples/oversight_demo.py       # outbound: budget gate + quality gate (release vs dispute)
+python examples/category_demo.py        # category → worker · budget · permission · connectors
+python examples/oversight_e2e.py        # full readiness check (inbound + outbound + preflights)
+sovereign categories                    # the delivery-category table
+sovereign connectors                    # connector readiness + required MCP servers
+```
 
 ---
 
