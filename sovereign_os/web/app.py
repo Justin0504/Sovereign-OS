@@ -400,6 +400,15 @@ def _fire_job_webhook(
                 _logs.append(("system", f"Delivery: ClawTasks claim+submit {'(live)' if live else '(dry-run)'}."))
         except Exception as e:
             logger.warning("ClawTasks delivery failed for job_id=%s: %s", job.job_id, e)
+    if isinstance(dc, dict) and dc.get("platform") == "taskbounty" and status == "completed":
+        result_summary = "\n".join(getattr(r, "output", "") for r in (results or [])).strip() or ""
+        try:
+            from sovereign_os.delivery.taskbounty import deliver_result_to_taskbounty
+            if deliver_result_to_taskbounty(dc, result_summary, job.job_id):
+                live = os.getenv("TASKBOUNTY_LIVE", "").lower() in ("1", "true", "yes")
+                _logs.append(("system", f"Delivery: TaskBounty PR submit {'(live)' if live else '(dry-run)'}."))
+        except Exception as e:
+            logger.warning("TaskBounty delivery failed for job_id=%s: %s", job.job_id, e)
 
 
 def _run_one_job(job: Job) -> None:
