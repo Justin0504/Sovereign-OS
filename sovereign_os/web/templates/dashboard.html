@@ -588,6 +588,22 @@
     .workers-editor th { font-weight: 600; color: var(--text-muted); font-size: 0.75rem; text-transform: uppercase; }
     .workers-editor input { width: 100%; padding: 8px 10px; border: 1px solid var(--border); border-radius: var(--radius); font-size: 0.9375rem; }
     .workers-editor .btn-small { padding: 6px 10px; font-size: 0.8125rem; }
+    /* Guardrails panel */
+    .gb-badge { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; }
+    .gb-ok { background: var(--accent-soft); color: var(--accent); }
+    .gb-tripped { background: var(--danger); color: #fdf4eb; }
+    .gb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
+    .gb-stat { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
+    .gb-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
+    .gb-value { font-size: 1.5rem; font-weight: 700; color: var(--black); font-family: var(--font-display); margin-top: 4px; }
+    .gb-sub { font-size: 0.78rem; color: var(--text-soft); margin-top: 2px; }
+    .gb-bar-wrap { height: 8px; background: var(--accent-soft); border-radius: 999px; margin-top: 16px; overflow: hidden; }
+    .gb-bar { height: 100%; width: 0%; background: var(--accent); border-radius: 999px; transition: width 0.4s var(--ease-out), background 0.3s; }
+    .gb-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; margin-top: 6px; }
+    .gb-table th, .gb-table td { padding: 9px 12px; text-align: left; border-bottom: 1px solid var(--border); }
+    .gb-table th { font-weight: 600; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
+    .gb-cap { font-family: ui-monospace, monospace; font-size: 0.82rem; color: var(--accent); }
+    .gb-pill { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
   </style>
 </head>
 <body>
@@ -604,6 +620,7 @@
       <div class="nav-section">
         <div class="nav-title">Governance</div>
         <a href="#governance" class="nav-link" data-panel="governance">Charter</a>
+        <a href="#guardrails" class="nav-link" data-panel="guardrails">Guardrails</a>
       </div>
       <div class="nav-section">
         <div class="nav-title">Access</div>
@@ -743,6 +760,38 @@
         </div>
       </div>
     </div>
+    <div id="panel-guardrails" class="content-panel">
+      <header class="hero"><div class="hero-label">Guardrails</div><h1>CFO circuit breaker &amp; JIT permissions</h1><p>Live session spend vs. the fast-fail ceiling, and just-in-time capability leases held by agents right now. Refreshes every 2s.</p></header>
+      <div class="dashboard-panel" style="padding: 24px 32px;">
+        <section class="panel-section">
+          <div class="card-title">CFO · Circuit breaker</div>
+          <div class="card-heading" style="display:flex;align-items:center;gap:12px">
+            Session guard <span id="gbState" class="gb-badge gb-ok">CLOSED</span>
+            <button class="btn" style="margin-left:auto;padding:6px 14px;font-size:0.8rem" onclick="resetBreaker()">Reset session</button>
+          </div>
+          <p class="card-desc" id="gbConfigHint">Fast-fail on session spend ceiling, audit-failure streak, or collapsing ROI.</p>
+          <div class="gb-grid">
+            <div class="gb-stat"><div class="gb-label">Session spend</div><div class="gb-value" id="gbSpent">$0.00</div><div class="gb-sub" id="gbCeiling">no ceiling</div></div>
+            <div class="gb-stat"><div class="gb-label">Revenue</div><div class="gb-value" id="gbRevenue">$0.00</div><div class="gb-sub" id="gbRoi">ROI —</div></div>
+            <div class="gb-stat"><div class="gb-label">Failure streak</div><div class="gb-value" id="gbFails">0</div><div class="gb-sub" id="gbFailLimit">no limit</div></div>
+          </div>
+          <div class="gb-bar-wrap" id="gbBarWrap" style="display:none"><div class="gb-bar" id="gbBar"></div></div>
+          <p class="card-desc" id="gbReason" style="color:var(--accent);margin-top:10px"></p>
+        </section>
+        <section class="panel-section">
+          <div class="card-title">Permissions · Just-in-time</div>
+          <div class="card-heading">Active capability leases</div>
+          <p class="card-desc">High-risk capabilities (execute_shell, spend_usd, …) granted per task, auto-expiring. Zero standing privilege — this list empties as tasks finish.</p>
+          <div id="leaseTable"><span class="empty-feed">No active leases.</span></div>
+        </section>
+        <section class="panel-section">
+          <div class="card-title">Permissions · Trust</div>
+          <div class="card-heading">Agent trust &amp; earned spend</div>
+          <p class="card-desc">TrustScore (0–100) gates capabilities; the spend ceiling is earned through passing audits.</p>
+          <div id="agentTrustTable"><span class="empty-feed">No agents yet.</span></div>
+        </section>
+      </div>
+    </div>
     <div id="panel-access" class="content-panel">
       <header class="hero"><div class="hero-label">Access</div><h1>Who can create jobs</h1><p>Require API key and/or limit by IP. Saves immediately.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
@@ -840,6 +889,7 @@
       if (panel) panel.classList.add("active");
       if (link) link.classList.add("active");
       if (panelId === "governance") fetchGovernance();
+      if (panelId === "guardrails") fetchGuardrails();
       if (panelId === "access") fetchAccess();
       if (panelId === "workers") fetchWorkers();
       if (panelId === "settings") fetchSettings();
@@ -881,6 +931,64 @@
         if (d.ok) { status.textContent = "Saved. Restart recommended."; status.style.color = "var(--success)"; }
         else { status.textContent = d.detail || "Error"; status.style.color = "var(--danger)"; }
       }).catch(function(e) { status.textContent = "Error: " + (e.message || e); status.style.color = "var(--danger)"; });
+    }
+    function usd(cents) { return "$" + ((cents || 0) / 100).toFixed(2); }
+    function esc(s) { return String(s == null ? "" : s).replace(/[&<>"]/g, function(c) { return {"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;"}[c]; }); }
+    function fetchGuardrails() {
+      fetch("/api/governance").then(function(x) { return x.json(); }).then(function(d) {
+        var b = d.breaker || {};
+        var tripped = !!b.tripped;
+        var badge = r("gbState");
+        badge.textContent = tripped ? "TRIPPED" : "CLOSED";
+        badge.className = "gb-badge " + (tripped ? "gb-tripped" : "gb-ok");
+        r("gbSpent").textContent = usd(b.spent_cents);
+        r("gbRevenue").textContent = usd(b.revenue_cents);
+        r("gbFails").textContent = (b.consecutive_failures != null ? b.consecutive_failures : 0);
+        r("gbRoi").textContent = (b.roi != null ? "ROI " + b.roi.toFixed(2) : "ROI —");
+        var ceil = b.session_ceiling_cents || 0;
+        r("gbCeiling").textContent = ceil > 0 ? "ceiling " + usd(ceil) : "no ceiling";
+        var wrap = r("gbBarWrap"), bar = r("gbBar");
+        if (ceil > 0) {
+          wrap.style.display = "block";
+          var pct = Math.min(100, Math.round((b.spent_cents || 0) / ceil * 100));
+          bar.style.width = pct + "%";
+          bar.style.background = pct >= 100 ? "var(--danger)" : (pct >= 80 ? "#d97706" : "var(--accent)");
+        } else { wrap.style.display = "none"; }
+        r("gbConfigHint").textContent = d.breaker_configured
+          ? "Limits active — the loop halts if spend/failures/ROI cross a threshold."
+          : "Visualization only — no limits set. Configure via SOVEREIGN_SESSION_CEILING_CENTS / _MAX_CONSECUTIVE_FAILURES / _ROI_FLOOR.";
+        r("gbReason").textContent = (tripped && b.trip_reason) ? ("Tripped: " + b.trip_reason + " — press Reset session to resume.") : "";
+        // Leases
+        var leases = d.leases || [];
+        if (!leases.length) { r("leaseTable").innerHTML = '<span class="empty-feed">No active leases.</span>'; }
+        else {
+          var lh = '<table class="gb-table"><thead><tr><th>Agent</th><th>Capability</th><th>Task</th><th>Uses</th><th>Expires</th></tr></thead><tbody>';
+          leases.forEach(function(l) {
+            var exp = l.expires_in_s == null ? "no TTL" : (l.expires_in_s + "s");
+            var uses = (l.max_uses ? (l.uses + "/" + l.max_uses) : (l.uses + "/∞"));
+            lh += "<tr><td>" + esc(l.agent_id) + '</td><td><span class="gb-cap">' + esc(l.capability) + "</span></td><td>" + esc(l.task_id) + "</td><td>" + uses + "</td><td>" + exp + "</td></tr>";
+          });
+          r("leaseTable").innerHTML = lh + "</tbody></table>";
+        }
+        // Agent trust
+        var agents = d.agents || {};
+        var ids = Object.keys(agents);
+        if (!ids.length) { r("agentTrustTable").innerHTML = '<span class="empty-feed">No agents yet.</span>'; }
+        else {
+          var ah = '<table class="gb-table"><thead><tr><th>Agent</th><th>Trust</th><th>Spend ceiling</th><th>Audits (✓/✗)</th><th>Category trust</th></tr></thead><tbody>';
+          ids.forEach(function(id) {
+            var a = agents[id] || {};
+            var h = a.history || {};
+            var cats = a.category_trust || {};
+            var catStr = Object.keys(cats).map(function(k) { return '<span class="gb-pill">' + esc(k) + " " + cats[k] + "</span>"; }).join(" ") || "—";
+            ah += "<tr><td>" + esc(id) + "</td><td><strong>" + (a.trust_score != null ? a.trust_score : "—") + "</strong></td><td>" + usd(a.max_spend_cents) + "</td><td>" + (h.success || 0) + " / " + (h.failure || 0) + "</td><td>" + catStr + "</td></tr>";
+          });
+          r("agentTrustTable").innerHTML = ah + "</tbody></table>";
+        }
+      }).catch(function() {});
+    }
+    function resetBreaker() {
+      fetch("/api/governance/reset", { method: "POST" }).then(function(x) { return x.json(); }).then(function() { fetchGuardrails(); }).catch(function() {});
     }
     function fetchAccess() {
       fetch("/api/access").then(function(x) { return x.json(); }).then(function(d) {
@@ -1445,6 +1553,7 @@
     setInterval(fetchCostSummary, 3000);
     setInterval(fetchOversight, 4000);
     setInterval(fetchAuditTrail, 8000);
+    setInterval(function() { if (getPanel() === "guardrails") fetchGuardrails(); }, 2000);
     fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchCategories(); fetchAuditTrail();
   </script>
 </body>
