@@ -8,7 +8,7 @@ and produce a TaskPlan (tasks with dependencies, skills, estimated token budget)
 import json
 import logging
 import re
-from typing import Annotated
+from typing import Annotated, Callable
 
 from pydantic import BaseModel, Field
 
@@ -244,6 +244,83 @@ class Strategist:
             skill,
         )
         return plan
+
+    # ------------------------------------------------------------- reactive CEO
+    @staticmethod
+    def _priority_rank(priority: str) -> int:
+        """Lower rank = drop first. low -> 0, high -> 1."""
+        return 1 if (priority or "").strip().lower() in ("high", "complex", "critical") else 0
+
+    def prune_to_budget(
+        self,
+        plan: TaskPlan,
+        budget_cents: int,
+        cost_of: "Callable[[PlannedTask], int]",
+    ) -> TaskPlan:
+        """
+        Drop the lowest-value tasks until the plan's estimated cost fits `budget_cents`.
+
+        The CEO's spend-allocation complement to the CFO circuit breaker: when funds
+        are tight, protect the mission's highest-priority work and shed the rest —
+        rather than letting the CFO hard-stop the session mid-way. Drops lowest-priority
+        (then latest) tasks first, and NEVER drops a task another kept task depends on
+        (the DAG stays valid). Best-effort: if only interdependent high-priority tasks
+        remain, it returns what it safely can without breaking dependencies.
+        """
+        if budget_cents <= 0:
+            return plan
+        kept = {t.task_id: t for t in plan.tasks}
+
+        def total() -> int:
+            return sum(cost_of(t) for t in kept.values())
+
+        def has_dependents(tid: str) -> bool:
+            return any(tid in t.dependencies for t in kept.values())
+
+        # Drop order: lowest priority first, then later-in-plan first.
+        order = sorted(
+            plan.tasks,
+            key=lambda t: (self._priority_rank(t.priority), -plan.tasks.index(t)),
+        )
+        for t in order:
+            if total() <= budget_cents:
+                break
+            if t.task_id not in kept or has_dependents(t.task_id):
+                continue
+            del kept[t.task_id]
+        new_tasks = [t for t in plan.tasks if t.task_id in kept]
+        dropped = len(plan.tasks) - len(new_tasks)
+        if dropped:
+            logger.info(
+                "GOVERNANCE CEO: pruned %d task(s) to fit budget %d cents (kept %d, est cost %d).",
+                dropped, budget_cents, len(new_tasks), total(),
+            )
+        return plan.model_copy(update={"tasks": new_tasks})
+
+    def corrective_task(
+        self,
+        failed_task: PlannedTask,
+        *,
+        reason: str,
+        suggested_fix: str = "",
+        attempt: int = 2,
+    ) -> PlannedTask:
+        """
+        Build a reactive retry task from a failed audit — the CEO learning within a
+        mission. The retry carries the failure reason and the Auditor's suggested fix
+        into its brief, drops the now-satisfied dependencies, and is marked high
+        priority so the corrected work is funded first.
+        """
+        brief = failed_task.description
+        note = f"\n\nPRIOR ATTEMPT FAILED: {reason}"
+        if suggested_fix:
+            note += f"\nREQUIRED FIX: {suggested_fix}"
+        return failed_task.model_copy(update={
+            "task_id": f"{failed_task.task_id}-retry{attempt}",
+            "description": (brief + note)[:2000],
+            "dependencies": [],
+            "priority": "high",
+        })
 
 
 _MARKER_RE = re.compile(r"^\s*(?:\d+[.)]|[-*•])\s+")

@@ -27,6 +27,20 @@ class AuditFailureError(Exception):
         self.report = report
 
 
+class CircuitBreakerTrippedError(Exception):
+    """
+    Raised when the CFO's session spend circuit breaker trips: cumulative session
+    spend hit its ceiling, too many consecutive audit failures, or the funding path
+    stopped being worth it (ROI floor). Fast-fail — the caller must halt the loop
+    rather than keep burning budget (guards against runaway agent spend).
+    """
+
+    def __init__(self, message: str, *, reason: str = "", spent_cents: int = 0) -> None:
+        super().__init__(message)
+        self.reason = reason
+        self.spent_cents = spent_cents
+
+
 class HumanApprovalRequiredError(Exception):
     """
     Raised when the compliance hook returns REQUEST_HUMAN_APPROVAL for a spend (e.g. above threshold).
