@@ -75,6 +75,9 @@ class JudgeLLMProtocol(Protocol):
         task_output: str,
         verification_prompt: str,
         kpi_name: str,
+        *,
+        min_score: float | None = None,
+        category: str | None = None,
     ) -> AuditReport:
         ...
 
@@ -100,18 +103,22 @@ class JudgeLLM(BaseAuditor):
         kpi_name: str,
         *,
         min_score: float | None = None,
+        category: str | None = None,
     ) -> AuditReport:
         rubric = min_score is not None  # high-value tasks get multi-criteria scoring
+        # Category-tuned analytic criteria, order shuffled per task to blunt positional bias.
+        from sovereign_os.auditor.rubric import shuffled_rubric
+
+        criteria = shuffled_rubric(category, seed=task_id) if rubric else []
         if rubric:
+            crit_lines = "; ".join(f"{k} ({desc})" for k, desc in criteria)
+            crit_keys = ", ".join(f'"{k}"' for k, _ in criteria)
             system = (
-                "You are a rigorous QA auditor for a high-value paid deliverable. "
-                "Score it on four criteria, each 0.0–1.0: "
-                "relevance (addresses exactly what was asked), "
-                "completeness (covers every requirement, no gaps), "
-                "correctness (accurate, no fabrication or errors), "
-                "safety (nothing harmful/inappropriate). "
+                "You are a rigorous QA auditor for a high-value paid deliverable"
+                + (f" in the '{category}' category. " if category else ". ")
+                + f"Score it on these criteria, each 0.0–1.0: {crit_lines}. "
                 "Respond with ONLY a JSON object with keys: "
-                '"relevance", "completeness", "correctness", "safety" (floats 0.0–1.0), '
+                f"{crit_keys} (floats 0.0–1.0), "
                 '"reason" (1–2 sentences), "suggested_fix" (empty if excellent, else what to improve). '
                 "No markdown, no text outside JSON."
             )
@@ -164,7 +171,7 @@ class JudgeLLM(BaseAuditor):
             )
         sub_scores: dict[str, float] = {}
         if rubric:
-            crit = {k: float(data.get(k, 0.0)) for k in ("relevance", "completeness", "correctness", "safety")}
+            crit = {k: float(data.get(k, 0.0)) for k, _ in criteria}
             sub_scores = {k: max(0.0, min(1.0, v)) for k, v in crit.items()}
             score = sum(sub_scores.values()) / len(sub_scores) if sub_scores else 0.0
             # High-value bar; the rubric average must clear it.
@@ -195,6 +202,7 @@ class StubAuditor(BaseAuditor):
         kpi_name: str,
         *,
         min_score: float | None = None,
+        category: str | None = None,
     ) -> AuditReport:
         non_empty = bool(task_output.strip())  # Stub: any non-empty output passes
         score = 0.9 if non_empty else 0.0
@@ -252,6 +260,7 @@ class ReviewEngine:
         *,
         min_score: float | None = None,
         task_value_cents: int = 0,
+        category: str | None = None,
     ) -> AuditReport:
         """
         1. Identify KPI from Charter.success_kpis for this task.
@@ -262,7 +271,13 @@ class ReviewEngine:
         `min_score`: optional value-aware quality bar (see `value_aware_min_score`).
         When set, a deliverable must reach it to pass — used to hold higher-paid
         jobs to a stricter standard. None keeps the default lenient threshold.
+        `category`: work category (coding/writing/...) selecting a tuned rubric.
+        Defaults to the task's skill category when not given.
         """
+        if category is None:
+            from sovereign_os.agents.categories import category_for_skill
+
+            category = category_for_skill(task_plan_item.required_skill).key
         kpi_name, verification_prompt = self._kpi.get_verification_prompt(
             task_plan_item.description,
             task_plan_item.required_skill,
@@ -284,6 +299,7 @@ class ReviewEngine:
             verification_prompt=verification_prompt,
             kpi_name=kpi_name,
             min_score=min_score,
+            category=category,
         )
         outcome = "PASS" if report.passed else "FAIL"
         logger.info(

@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from sovereign_os.governance.auction import BiddingEngine
     from sovereign_os.memory.manager import MemoryManager
     from sovereign_os.mcp.tool_graph import MCPToolGraph
+    from sovereign_os.governance.circuit_breaker import SpendCircuitBreaker
 from sovereign_os.governance.lifecycle import TaskLifecycleManager, TaskState
 from sovereign_os.governance.auction import RequestForProposal
 from sovereign_os.governance.rate_limit import get_global_rate_limiter
@@ -102,6 +103,7 @@ class GovernanceEngine:
         spend_threshold_cents: int = 0,
         compliance_auto_proceed: bool = False,
         budget_policy: "Any | None" = None,
+        circuit_breaker: "SpendCircuitBreaker | None" = None,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
@@ -122,6 +124,8 @@ class GovernanceEngine:
         self._registry = registry or self._default_registry()
         self._review_engine = review_engine
         self._bidding_engine = bidding_engine
+        # CFO runtime fast-fail guard (opt-in; a bare breaker never trips).
+        self._circuit_breaker = circuit_breaker
         # Per-task CFO pre-estimate (cents), used to reconcile actual vs budgeted spend.
         self._task_estimate_cents: dict[str, int] = {}
         # Cumulative actual spend within the current dispatch run (cents), for budget halt.
@@ -620,6 +624,13 @@ class GovernanceEngine:
                 )
             if self._on_event:
                 self._on_event("task_audited", {"task_id": task.task_id, "agent_id": agent_id, "passed": report.passed, "score": report.score, "reason": report.reason})
+            # CFO runtime fast-fail: feed this outcome/spend to the session breaker and
+            # halt the loop if the path stops being worth funding (ceiling / failure
+            # streak / ROI). Off unless a breaker was supplied.
+            if self._circuit_breaker is not None:
+                self._circuit_breaker.record_spend(self._task_estimate_cents.get(task.task_id, 0))
+                self._circuit_breaker.record_outcome(report.passed)
+                self._circuit_breaker.check()
             if not report.passed and abort_on_audit_failure:
                 raise AuditFailureError(task.task_id, report.reason, report=report)
 

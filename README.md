@@ -87,11 +87,11 @@ Five layers. Data flows down; accountability flows back up.
 ```
 Charter (YAML)
     └─ Governance Engine
-          ├─ CEO (Strategist)    — decomposes goals into ordered tasks
-          ├─ CFO (Treasury)      — approves or rejects per-task spend; enforces daily cap & runway
+          ├─ CEO (Strategist)    — decomposes goals into ordered tasks; prunes to budget & re-plans on failure
+          ├─ CFO (Treasury)      — approves/rejects per-task spend; daily cap, runway, margin + session circuit breaker
           └─ Worker Registry     — routes each task to the right worker by skill
                 └─ Workers       — execute; emit TaskResult with token usage
-                      └─ Auditor — verifies output against Charter KPIs; produces signed AuditReport
+                      └─ Auditor — verifies output against Charter KPIs (category-tuned rubric); signed AuditReport
                             └─ Ledger (UnifiedLedger) — append-only USD + token accounting
 ```
 
@@ -120,7 +120,7 @@ flowchart LR
 
 - The Charter is the single source of truth. Changing runtime behavior means changing the Charter, not the code.
 - The Ledger is append-only JSONL. No delete, no update. Every entry carries a sequence number.
-- TrustScore gates capability grants. A new agent cannot spend USD or write files until it earns them through passing audits.
+- TrustScore gates capability grants. A new agent cannot spend USD or write files until it earns them through passing audits. High-risk capabilities are further scoped by **just-in-time leases** — granted per task, auto-expiring, revoked when the task ends (zero standing privilege).
 - Workers are pluggable. The 16 built-in workers cover common content and code tasks. You can add your own in a single Python file.
 
 </td><td valign="top" width="45%">
@@ -198,9 +198,9 @@ sovereign connectors                    # connector readiness + required MCP ser
 
 **Governance**
 - Charter-driven: mission, competencies, KPIs, fiscal boundaries — all in one YAML.
-- CEO (Strategist) decomposes natural-language goals into executable task plans with dependencies.
-- CFO (Treasury) enforces `max_task_cost_usd`, `daily_budget_usd`, `runway_days`, and `min_job_margin_ratio` before any task runs.
-- TrustScore-gated permissions: `READ_FILES`, `WRITE_FILES`, `SPEND_USD`, `CALL_API`.
+- CEO (Strategist) decomposes natural-language goals into executable task plans with dependencies. Reactive: `prune_to_budget` sheds lowest-value tasks to fit a budget without breaking the dependency DAG; `corrective_task` builds a high-priority retry carrying the audit's failure reason and fix.
+- CFO (Treasury) enforces `max_task_cost_usd`, `daily_budget_usd`, `runway_days`, and `min_job_margin_ratio` *before* any task runs. A runtime **SpendCircuitBreaker** adds fast-fail *during* a session — it halts the loop when cumulative spend hits a session ceiling, audits fail past a streak limit, or ROI collapses (the guard that stops runaway agent loops the pre-flight gates miss).
+- **Permissions** — TrustScore-gated capabilities (`READ_FILES`, `WRITE_FILES`, `EXECUTE_SHELL`, `SPEND_USD`, `CALL_EXTERNAL_API`), earned per category, with graduated autonomous-spend ceilings. High-risk grants use **just-in-time leases**: scoped to one task, bounded by TTL and use-count, auto-revoked on completion (`grant_lease` / `use_lease` / `revoke_task_leases`).
 
 **Execution**
 - 16 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`.
@@ -209,7 +209,9 @@ sovereign connectors                    # connector readiness + required MCP ser
 
 **Auditing**
 - Every task output is verified against Charter KPIs by the ReviewEngine.
-- AuditReport carries `score`, `passed`, `reason`, `suggested_fix`, and `proof_hash` (SHA-256 of inputs + output).
+- **Category-tuned analytic rubric**: high-value deliverables are scored criterion-by-criterion on a rubric matched to the work type — coding gets correctness/completeness/robustness/relevance, writing gets clarity/voice, etc. — always ending in a `safety` criterion. Criterion order is deterministically shuffled per task to blunt LLM-judge positional bias.
+- Value-aware bar: higher-paid jobs must clear a stricter passing score; cheap tasks can skip the (relatively expensive) LLM judge.
+- AuditReport carries `score`, `passed`, `reason`, `suggested_fix`, `sub_scores`, and `proof_hash` (SHA-256 of inputs + output).
 - Append-only audit trail (JSONL). Integrity verifiable offline.
 
 **Monetization & job queue**
@@ -251,13 +253,16 @@ sovereign connectors                    # connector readiness + required MCP ser
 sovereign_os/
 ├── models/           # Charter schema (Pydantic v2)
 ├── ledger/           # UnifiedLedger — append-only USD + token accounting
-├── governance/       # CEO (Strategist), CFO (Treasury), GovernanceEngine
-├── agents/           # Workers, WorkerRegistry, SovereignAuth, user_workers/
-├── auditor/          # ReviewEngine, AuditReport (proof_hash), KPIValidator
+├── governance/       # CEO (Strategist), CFO (Treasury), SpendCircuitBreaker, GovernanceEngine
+├── agents/           # Workers, WorkerRegistry, SovereignAuth (+ JIT leases), categories, user_workers/
+├── auditor/          # ReviewEngine, category rubric, AuditReport (proof_hash), KPIValidator
 ├── jobs/             # JobStore (SQLite), RedisJobStore
 ├── ingest/           # HTTP poller → job queue
 ├── ingest_bridge/    # Reddit, scrapers, Shopify/WooCommerce → jobs
-├── payments/         # StripePaymentService, DummyPaymentService
+├── oversight/        # Outbound task posting + escrow (RentAHuman, StacksTasker)
+├── delivery/         # Deliver-back adapters (TaskBounty, StacksTasker, ClawTasks, Reddit)
+├── connectors/       # web_fetch, code_workspace, figma, image_gen, submit_pr, sandbox
+├── payments/         # StripePaymentService, X402PaymentService, DummyPaymentService
 ├── web/              # FastAPI app, dashboard, /api/jobs, /health, Stripe webhook
 └── telemetry/        # OpenTelemetry, Prometheus
 charters/             # Example Charter YAML files
@@ -386,7 +391,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Tests cover governance engine, ledger accounting, auditor, job store, compliance hooks, web API, and webhook delivery.
+Tests (257, all passing) cover the governance engine, CFO circuit breaker, JIT capability leases, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, compliance hooks, web API, and webhook delivery. Run with LLM keys unset so tests use stubs (no network).
 
 ---
 
