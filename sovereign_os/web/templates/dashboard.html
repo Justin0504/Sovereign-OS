@@ -604,6 +604,28 @@
     .gb-table th { font-weight: 600; color: var(--text-muted); font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.03em; }
     .gb-cap { font-family: ui-monospace, monospace; font-size: 0.82rem; color: var(--accent); }
     .gb-pill { display: inline-block; font-size: 0.72rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+    /* Quality scorecard (job result modal) */
+    .job-result-scorecard { margin-bottom: 16px; }
+    .sc-title { font-size: 0.95rem; font-weight: 700; color: var(--black); font-family: var(--font-display); }
+    .sc-sub { font-size: 0.78rem; color: var(--text-muted); margin: 2px 0 12px; }
+    .sc-card { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-bottom: 10px; }
+    .sc-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+    .sc-head strong { color: var(--black); font-size: 0.9rem; }
+    .sc-cat { font-size: 0.7rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.03em; color: var(--accent); background: var(--accent-soft); padding: 2px 8px; border-radius: 999px; }
+    .sc-overall { margin-left: auto; font-size: 1.35rem; font-weight: 800; font-family: var(--font-display); line-height: 1; }
+    .sc-badge { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px; }
+    .sc-pass { background: #dcfce7; color: #15803d; }
+    .sc-fail { background: var(--danger); color: #fdf4eb; }
+    .sc-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
+    @media (max-width: 560px) { .sc-bars { grid-template-columns: 1fr; } }
+    .sc-crit-top { display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 3px; }
+    .sc-crit-name { color: var(--text-soft); text-transform: capitalize; }
+    .sc-crit-val { color: var(--black); font-weight: 700; font-variant-numeric: tabular-nums; }
+    .sc-track { height: 6px; background: rgba(180,83,9,0.1); border-radius: 999px; overflow: hidden; }
+    .sc-fill { height: 100%; border-radius: 999px; transition: width 0.4s var(--ease-out); }
+    .sc-note { font-size: 0.78rem; color: var(--text-muted); font-style: italic; }
+    .sc-reason, .sc-fix { font-size: 0.8rem; color: var(--text-soft); margin-top: 8px; }
+    .sc-fix { color: var(--accent); }
   </style>
 </head>
 <body>
@@ -1458,6 +1480,42 @@
       }
       return escapeHtml(s).replace(/\n/g, '<br>');
     }
+    function scoreColor(v) {
+      // 0..1 -> red (low) to accent (high), warm palette
+      if (v == null) return 'var(--border-strong)';
+      if (v >= 0.85) return '#15803d';        // strong green
+      if (v >= 0.7) return 'var(--accent)';   // amber
+      if (v >= 0.5) return '#d97706';         // deep amber
+      return '#b91c1c';                       // red
+    }
+    function renderScorecard(reports) {
+      var rows = reports.map(function(a) {
+        var overall = (a.score != null) ? a.score : 0;
+        var badge = a.passed
+          ? '<span class="sc-badge sc-pass">PASS</span>'
+          : '<span class="sc-badge sc-fail">FAIL</span>';
+        var cat = a.category ? '<span class="sc-cat">' + escapeHtml(a.category) + ' rubric</span>' : '';
+        var head = '<div class="sc-head"><strong>Task ' + escapeHtml(a.task_id || '') + '</strong> ' + cat
+          + '<span class="sc-overall" style="color:' + scoreColor(overall) + '">' + (overall*100).toFixed(0) + '</span>' + badge + '</div>';
+        var bars = '';
+        var subs = a.sub_scores || {};
+        var keys = Object.keys(subs);
+        if (keys.length) {
+          bars = '<div class="sc-bars">' + keys.map(function(k) {
+            var v = Math.max(0, Math.min(1, subs[k]));
+            return '<div class="sc-crit"><div class="sc-crit-top"><span class="sc-crit-name">' + escapeHtml(k) + '</span><span class="sc-crit-val">' + (v*100).toFixed(0) + '</span></div>'
+              + '<div class="sc-track"><div class="sc-fill" style="width:' + (v*100).toFixed(0) + '%;background:' + scoreColor(v) + '"></div></div></div>';
+          }).join('') + '</div>';
+        } else {
+          bars = '<div class="sc-note">Lenient check (no rubric breakdown for low-value tasks).</div>';
+        }
+        var foot = '';
+        if (a.reason) foot += '<div class="sc-reason"><strong>Judge:</strong> ' + escapeHtml(a.reason) + '</div>';
+        if (!a.passed && a.suggested_fix) foot += '<div class="sc-fix"><strong>Fix:</strong> ' + escapeHtml(a.suggested_fix) + '</div>';
+        return '<div class="sc-card">' + head + bars + foot + '</div>';
+      }).join('');
+      return '<div class="job-result-scorecard"><div class="sc-title">Quality scorecard</div><p class="sc-sub">Each task scored against its category-tuned rubric (criterion order shuffled to blunt judge bias).</p>' + rows + '</div>';
+    }
     function viewJobResult(jobId) {
       fetch('/api/jobs/' + jobId + '/result').then(function(r) { return r.ok ? r.json() : null; }).then(function(d) {
         var el = document.getElementById('jobResultModal');
@@ -1479,6 +1537,9 @@
         if (d.audit_reports && d.audit_reports.length) {
           var failedAudits = d.audit_reports.filter(function(a) { return !a.passed; });
           if (failedAudits.length) parts.push('<div class="job-result-audit" style="background:var(--bg-elevated);padding:12px 14px;border-radius:8px;margin-bottom:14px;border:1px solid var(--border);"><strong>Audit failure details (Judge)</strong><br>' + failedAudits.map(function(a) { return '<div style="margin-top:8px"><strong>Task ' + escapeHtml(a.task_id || '') + '</strong> score ' + (a.score != null ? a.score : '') + '<br><strong>Reason:</strong> ' + escapeHtml(a.reason || '') + (a.suggested_fix ? '<br><strong>Suggested fix:</strong> ' + escapeHtml(a.suggested_fix) : '') + '</div>'; }).join('') + '</div>');
+        }
+        if (d.audit_reports && d.audit_reports.length) {
+          parts.push(renderScorecard(d.audit_reports));
         }
         if (d.goal) parts.push('<p class="job-result-goal"><strong>Goal:</strong> ' + escapeHtml(d.goal.slice(0, 500)) + (d.goal.length > 500 ? '…' : '') + '</p>');
         parts.push('<p class="job-result-download"><a href="/api/jobs/' + jobId + '/result/download" target="_blank" rel="noopener" class="btn" style="display:inline-block;margin-bottom:12px;margin-right:8px">&#8659; Download result</a><a href="/api/jobs/' + jobId + '/result/download?fmt=md" target="_blank" rel="noopener" class="btn" style="display:inline-block;margin-bottom:12px;opacity:0.75">&#8659; .md</a></p>');
