@@ -211,7 +211,7 @@ sovereign connectors                    # connector readiness + required MCP ser
 - Every task output is verified against Charter KPIs by the ReviewEngine.
 - **Category-tuned analytic rubric**: high-value deliverables are scored criterion-by-criterion on a rubric matched to the work type — coding gets correctness/completeness/robustness/relevance, writing gets clarity/voice, etc. — always ending in a `safety` criterion. Criterion order is deterministically shuffled per task to blunt LLM-judge positional bias.
 - Value-aware bar: higher-paid jobs must clear a stricter passing score; cheap tasks can skip the (relatively expensive) LLM judge.
-- AuditReport carries `score`, `passed`, `reason`, `suggested_fix`, `sub_scores`, and `proof_hash` (SHA-256 of inputs + output).
+- AuditReport carries `score`, `passed`, `reason`, `suggested_fix`, `sub_scores`, and `proof_hash` (SHA-256 of inputs + output). Each job's delivery view renders a **quality scorecard** — the per-criterion rubric breakdown (bars per criterion, category label, overall score) so you can see *why* a deliverable passed or failed, not just the verdict.
 - Append-only audit trail (JSONL). Integrity verifiable offline.
 
 **Monetization & job queue**

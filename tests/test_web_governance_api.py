@@ -59,3 +59,33 @@ def test_governance_reset_clears_session(client):
 def test_dashboard_html_has_guardrails_panel(client):
     html = client.get("/").text
     assert "panel-guardrails" in html and "fetchGuardrails" in html
+
+
+def test_dashboard_html_has_quality_scorecard(client):
+    html = client.get("/").text
+    assert "renderScorecard" in html and "Quality scorecard" in html
+    assert "sc-bars" in html  # per-criterion rubric bars
+
+
+def test_job_result_passes_through_rubric_sub_scores(client):
+    """The result API surfaces per-category rubric sub_scores + category for the scorecard."""
+    import sovereign_os.web.app as m
+
+    m._job_results[4242] = {
+        "goal": "Fix the parser bug",
+        "tasks": [{"task_id": "task-1-code_assistant", "skill": "code_assistant",
+                   "output": "patched", "success": True}],
+        "combined_output": "patched",
+        "audit_reports": [{
+            "task_id": "task-1-code_assistant", "passed": True, "score": 0.86,
+            "reason": "solid fix", "suggested_fix": "", "category": "coding",
+            "kpi_name": "default",
+            "sub_scores": {"correctness": 0.9, "completeness": 0.85,
+                           "robustness": 0.8, "relevance": 0.9, "safety": 1.0},
+        }],
+    }
+    d = client.get("/api/jobs/4242/result").json()
+    rep = d["audit_reports"][0]
+    assert rep["category"] == "coding"
+    assert rep["sub_scores"]["robustness"] == 0.8
+    assert set(rep["sub_scores"]) == {"correctness", "completeness", "robustness", "relevance", "safety"}

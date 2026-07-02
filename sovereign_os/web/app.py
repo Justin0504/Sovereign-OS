@@ -460,13 +460,21 @@ def _run_one_job(job: Job) -> None:
         }
         audit_details = []
         if reports:
+            from sovereign_os.agents.categories import category_for_skill
+
             for rep in reports:
+                tid = getattr(rep, "task_id", "")
+                skill = getattr(task_by_id.get(tid), "required_skill", "")
                 audit_details.append({
-                    "task_id": getattr(rep, "task_id", ""),
+                    "task_id": tid,
                     "passed": getattr(rep, "passed", False),
                     "score": getattr(rep, "score", 0.0),
                     "reason": getattr(rep, "reason", ""),
                     "suggested_fix": getattr(rep, "suggested_fix", ""),
+                    # Per-category rubric breakdown (relevance/correctness/robustness/…).
+                    "sub_scores": dict(getattr(rep, "sub_scores", {}) or {}),
+                    "category": category_for_skill(skill).key if skill else "",
+                    "kpi_name": getattr(rep, "kpi_name", ""),
                 })
         _job_results[job.job_id] = {
             "goal": job.goal[:1000],
