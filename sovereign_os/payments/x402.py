@@ -30,8 +30,18 @@ import hashlib
 import logging
 import os
 from dataclasses import dataclass, field
+from typing import Any
 
 logger = logging.getLogger(__name__)
+
+
+def _requests_post_settle(url: str, payload: dict, headers: dict, timeout: float) -> dict:
+    """Default facilitator POST /settle via requests. Overridable via post_settle for tests."""
+    import requests  # type: ignore[import]
+
+    resp = requests.post(url, json=payload, headers=headers, timeout=timeout)
+    resp.raise_for_status()
+    return resp.json()
 
 # USDC has 6 decimals: 1 USD = 1_000_000 atomic units, so 1 cent = 10_000.
 USDC_ATOMIC_PER_CENT = 10_000
@@ -68,6 +78,7 @@ class X402PaymentService:
     facilitator_url: str = ""
     api_key: str = ""
     name: str = "x402"
+    post_settle: "Any | None" = field(default=None, repr=False)  # inject (url,payload,headers,timeout)->dict for tests
     _timeout_s: float = field(default=15.0, repr=False)
 
     @classmethod
@@ -130,13 +141,6 @@ class X402PaymentService:
     ) -> str:
         import asyncio
 
-        try:
-            import requests  # type: ignore[import]
-        except ImportError as e:  # pragma: no cover - optional dependency
-            raise ImportError(
-                "requests is required for live x402 settlement; install with: pip install requests"
-            ) from e
-
         if not self.pay_to:
             raise ValueError("X402_PAY_TO must be set for live x402 settlement.")
 
@@ -160,12 +164,11 @@ class X402PaymentService:
             headers["Idempotency-Key"] = idempotency_key
 
         url = self.facilitator_url.rstrip("/") + "/settle"
+        poster = self.post_settle or _requests_post_settle
 
         def _post() -> str:
-            resp = requests.post(url, json=payload, headers=headers, timeout=self._timeout_s)
-            resp.raise_for_status()
-            data = resp.json()
-            tx = data.get("txHash") or data.get("tx_hash") or data.get("id")
+            data = poster(url, payload, headers, self._timeout_s)
+            tx = (data or {}).get("txHash") or (data or {}).get("tx_hash") or (data or {}).get("id")
             if not tx:
                 raise ValueError(f"x402 facilitator returned no tx hash: {data!r}")
             return str(tx)
