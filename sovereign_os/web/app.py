@@ -561,9 +561,22 @@ def _run_one_job(job: Job) -> None:
         try:
             await _run_mission_and_settle()
         except Exception as e:
-            from sovereign_os.governance.exceptions import HumanApprovalRequiredError, UnprofitableJobError
+            from sovereign_os.governance.exceptions import (
+                CircuitBreakerTrippedError,
+                HumanApprovalRequiredError,
+                UnprofitableJobError,
+            )
             from sovereign_os.agents.auth import PermissionDeniedError
 
+            if isinstance(e, CircuitBreakerTrippedError):
+                job.status = "failed"
+                job.error = f"CFO circuit breaker tripped: {e.reason}"
+                job.updated_ts = time.time()
+                if _job_store is not None:
+                    _job_store.update_job(job.job_id, status="failed", error=job.error)
+                _logs.append(("cfo", f"Job {job.job_id} halted — circuit breaker: {e.reason}. Reset it in Guardrails to resume."))
+                logger.warning("Job %s: circuit breaker tripped — %s", job.job_id, e.reason)
+                return
             if isinstance(e, HumanApprovalRequiredError):
                 job.status = "pending"
                 job.error = str(e)
@@ -2012,6 +2025,41 @@ class {class_name}(BaseWorker):
             _set_ui_overrides_section("access", updates)
         return {"ok": True, "message": "Access settings updated."}
 
+    @app.get("/api/governance")
+    def api_governance():
+        """
+        Live governance guardrails for the dashboard: CFO session circuit breaker
+        status + JIT capability leases currently active on agents.
+        """
+        breaker = getattr(_engine, "_circuit_breaker", None)
+        breaker_status = breaker.status() if breaker is not None else None
+        leases = _auth.active_leases() if _auth and hasattr(_auth, "active_leases") else []
+        # Per-agent trust snapshot (score + earned spend ceiling + category trust).
+        agents = _auth.snapshot() if _auth and hasattr(_auth, "snapshot") else {}
+        return {
+            "breaker": breaker_status,
+            "breaker_configured": bool(
+                breaker_status
+                and (
+                    breaker_status.get("session_ceiling_cents")
+                    or breaker.max_consecutive_failures
+                    or breaker.roi_floor
+                )
+            ) if breaker is not None else False,
+            "leases": leases,
+            "agents": agents,
+        }
+
+    @app.post("/api/governance/reset")
+    def api_governance_reset():
+        """Reset the CFO session circuit breaker counters (start a fresh session)."""
+        breaker = getattr(_engine, "_circuit_breaker", None)
+        if breaker is None:
+            return {"ok": False, "message": "No circuit breaker configured."}
+        breaker.reset()
+        _logs.append(("cfo", "Circuit breaker reset — session counters cleared."))
+        return {"ok": True, "message": "Circuit breaker reset.", "breaker": breaker.status()}
+
     @app.get("/api/jobs")
     def api_jobs(limit: int = 100):
         """List jobs, most recent first. Query param limit (default 100, max 500) caps the number returned."""
@@ -2523,6 +2571,28 @@ def run_web_ui(
     if ledger.total_usd_cents() == 0:
         ledger.record_usd(1000)  # 1000 cents = $10.00 demo balance (seed when empty)
     auth = SovereignAuth()
+    # CFO runtime fast-fail guard. All limits default to 0 => never trips (pure
+    # visualization on the dashboard) until an operator sets a ceiling/streak/ROI floor.
+    from sovereign_os.governance.circuit_breaker import SpendCircuitBreaker
+
+    def _env_int(name: str, default: int = 0) -> int:
+        try:
+            return int((os.getenv(name) or "").strip() or default)
+        except ValueError:
+            return default
+
+    def _env_float(name: str, default: float = 0.0) -> float:
+        try:
+            return float((os.getenv(name) or "").strip() or default)
+        except ValueError:
+            return default
+
+    breaker = SpendCircuitBreaker(
+        session_ceiling_cents=_env_int("SOVEREIGN_SESSION_CEILING_CENTS"),
+        max_consecutive_failures=_env_int("SOVEREIGN_MAX_CONSECUTIVE_FAILURES"),
+        roi_floor=_env_float("SOVEREIGN_ROI_FLOOR"),
+        roi_grace_spend_cents=_env_int("SOVEREIGN_ROI_GRACE_CENTS"),
+    )
     audit_trail_path = os.getenv("SOVEREIGN_AUDIT_TRAIL_PATH")
     use_stub_audit = (os.getenv("SOVEREIGN_AUDIT_STUB") or "").strip().lower() in ("1", "true", "yes")
     if use_stub_audit:
@@ -2555,6 +2625,7 @@ def run_web_ui(
         compliance_hook=compliance_hook,
         spend_threshold_cents=spend_threshold_cents,
         compliance_auto_proceed=compliance_auto_proceed,
+        circuit_breaker=breaker,
     )
 
     # Initialize payment service once per process
