@@ -136,7 +136,7 @@ the agent-task economy — in both directions**, applying the same two gates
 (budget + delivery quality) wherever work flows.
 
 ```
-INBOUND   human/agent posts ─▶ ingest (TaskBounty · StacksTasker · BotBounty · ClawTasks)
+INBOUND   human/agent posts ─▶ ingest (TaskBounty · StacksTasker · BotBounty · ClawTasks · APB/x402)
           ─▶ [CFO budget] ─▶ governed workers ─▶ [Auditor quality] ─▶ submit
 
 OUTBOUND  Sovereign-OS posts ─▶ [CFO budget gate] ─▶ fund escrow (RentAHuman)
@@ -144,7 +144,10 @@ OUTBOUND  Sovereign-OS posts ─▶ [CFO budget gate] ─▶ fund escrow (RentAH
 ```
 
 - **Inbound sources** (`ingest_bridge/`) pull open tasks from real marketplaces
-  (live-validated APIs); Sovereign-OS governs its own agents doing the work.
+  (live-validated APIs); Sovereign-OS governs its own agents doing the work. Includes
+  an **APB (Agent Payment Bounty) source** that discovers x402-native bounties from
+  publishers' `/.well-known/bounties.json` — the standard the x402 Foundation rail is
+  built on (see [docs/AUTONOMY.md](docs/AUTONOMY.md)).
 - **Outbound oversight** (`oversight/`) posts tasks for external workers: the CFO
   approves the spend and reserves escrow *before* funding, and the Auditor must
   pass the deliverable *before* payment is released (else it's disputed/refunded).

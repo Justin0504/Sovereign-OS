@@ -88,6 +88,16 @@ class StacksTaskerSourceConfig:
 
 
 @dataclass
+class APBSourceConfig:
+    enabled: bool = False
+    publishers: list[str] = field(default_factory=list)  # base URLs serving /.well-known/bounties.json
+    well_known_path: str = "/.well-known/bounties.json"
+    min_amount_usd: float = 0.0
+    max_amount_usd: float = 0.0
+    limit: int = 50
+
+
+@dataclass
 class BridgeConfig:
     mode: str = "serve"  # serve | post
     host: str = "0.0.0.0"
@@ -103,6 +113,7 @@ class BridgeConfig:
     taskbounty: TaskBountySourceConfig = field(default_factory=TaskBountySourceConfig)
     stackstasker: StacksTaskerSourceConfig = field(default_factory=StacksTaskerSourceConfig)
     botbounty: BotBountySourceConfig = field(default_factory=BotBountySourceConfig)
+    apb: APBSourceConfig = field(default_factory=APBSourceConfig)
 
     @classmethod
     def from_env(cls, config_path: str | None = None) -> "BridgeConfig":
@@ -175,6 +186,14 @@ class BridgeConfig:
             max_amount_usd=float(os.getenv("BOTBOUNTY_MAX_AMOUNT_USD", "0") or 0),
             limit=int(os.getenv("BOTBOUNTY_LIMIT", "50")),
         )
+        cfg.apb = APBSourceConfig(
+            enabled=os.getenv("BRIDGE_APB_ENABLED", "").lower() in ("1", "true", "yes"),
+            publishers=[s.strip() for s in os.getenv("APB_PUBLISHERS", "").split(",") if s.strip()],
+            well_known_path=os.getenv("APB_WELL_KNOWN_PATH", "/.well-known/bounties.json"),
+            min_amount_usd=float(os.getenv("APB_MIN_AMOUNT_USD", "0") or 0),
+            max_amount_usd=float(os.getenv("APB_MAX_AMOUNT_USD", "0") or 0),
+            limit=int(os.getenv("APB_LIMIT", "50")),
+        )
         if config_path and Path(config_path).exists():
             cfg._apply_yaml(config_path)
         return cfg
@@ -211,6 +230,10 @@ class BridgeConfig:
                 for k, v in value.items():
                     if hasattr(self.botbounty, k):
                         setattr(self.botbounty, k, v)
+            elif key == "apb" and isinstance(value, dict):
+                for k, v in value.items():
+                    if hasattr(self.apb, k):
+                        setattr(self.apb, k, v)
             elif hasattr(self, key):
                 if key == "port" and value is not None:
                     try:

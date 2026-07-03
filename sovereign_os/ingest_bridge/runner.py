@@ -20,6 +20,7 @@ from sovereign_os.ingest_bridge.sources.scraper import ScraperOrderSource
 from sovereign_os.ingest_bridge.sources.retail import RetailOrderSource
 from sovereign_os.ingest_bridge.sources.clawtasks import ClawTasksOrderSource
 from sovereign_os.ingest_bridge.sources.bounty_board import taskbounty_source, stackstasker_source, botbounty_source
+from sovereign_os.ingest_bridge.sources.apb import APBOrderSource
 
 logger = logging.getLogger(__name__)
 
@@ -87,6 +88,14 @@ def _sources_from_config(cfg: BridgeConfig) -> list[Any]:
             min_amount_usd=cfg.botbounty.min_amount_usd,
             max_amount_usd=cfg.botbounty.max_amount_usd,
             limit=cfg.botbounty.limit,
+        ))
+    if cfg.apb.enabled and cfg.apb.publishers:
+        sources.append(APBOrderSource(
+            publishers=cfg.apb.publishers,
+            well_known_path=cfg.apb.well_known_path,
+            min_amount_usd=cfg.apb.min_amount_usd,
+            max_amount_usd=cfg.apb.max_amount_usd,
+            limit=cfg.apb.limit,
         ))
     return sources
 
