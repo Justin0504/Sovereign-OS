@@ -1501,10 +1501,22 @@ def create_app(
     def metrics():
         """Prometheus scrape endpoint: sovereign_jobs_* and LLM/audit metrics."""
         try:
-            from sovereign_os.telemetry.tracer import get_prometheus_metrics_output
+            from sovereign_os.telemetry.tracer import get_prometheus_metrics_output, set_governance_gauges
             from fastapi.responses import Response
             pending = sum(1 for j in _jobs if getattr(j, "status", "") == "pending")
             running = sum(1 for j in _jobs if getattr(j, "status", "") == "running")
+            # Refresh governance gauges on scrape: breaker state, active JIT leases, agent trust.
+            try:
+                breaker = getattr(_engine, "_circuit_breaker", None)
+                leases = _auth.active_leases() if _auth and hasattr(_auth, "active_leases") else None
+                agents = _auth.snapshot() if _auth and hasattr(_auth, "snapshot") else None
+                set_governance_gauges(
+                    breaker_status=breaker.status() if breaker is not None else None,
+                    active_leases=len(leases) if leases is not None else None,
+                    agent_trust=agents,
+                )
+            except Exception:
+                logger.debug("governance gauge refresh skipped", exc_info=True)
             body = get_prometheus_metrics_output(pending=pending, running=running)
             return Response(content=body, media_type="text/plain; charset=utf-8")
         except Exception as e:

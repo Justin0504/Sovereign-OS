@@ -202,6 +202,7 @@ sovereign connectors                    # connector readiness + required MCP ser
 - CFO (Treasury) enforces `max_task_cost_usd`, `daily_budget_usd`, `runway_days`, and `min_job_margin_ratio` *before* any task runs. A runtime **SpendCircuitBreaker** adds fast-fail *during* a session — it halts the loop when cumulative spend hits a session ceiling, audits fail past a streak limit, or ROI collapses (the guard that stops runaway agent loops the pre-flight gates miss). Configure via `SOVEREIGN_SESSION_CEILING_CENTS`, `SOVEREIGN_MAX_CONSECUTIVE_FAILURES`, `SOVEREIGN_ROI_FLOOR` (all default off); watch it live on the dashboard **Guardrails** tab (session spend vs. ceiling, failure streak, ROI, one-click reset).
 - **Permissions** — TrustScore-gated capabilities (`READ_FILES`, `WRITE_FILES`, `EXECUTE_SHELL`, `SPEND_USD`, `CALL_EXTERNAL_API`), earned per category, with graduated autonomous-spend ceilings. High-risk grants use **just-in-time leases**: scoped to one task, bounded by TTL and use-count, auto-revoked on completion (`grant_lease` / `use_lease` / `revoke_task_leases`). Active leases and per-agent trust are shown live on the dashboard **Guardrails** tab.
 - **Two dashboards, same guardrails** — the web dashboard (Guardrails tab + per-task quality scorecard) and a **Textual terminal Command Center** (`python -m sovereign_os.ui.app`) both surface the CFO circuit breaker (session spend vs. ceiling, failure streak, ROI; press `b` to reset), active JIT leases, and the category-rubric breakdown streamed live under each audit verdict.
+- **Prometheus metrics** — all three guardrails export on `/metrics` for Grafana: breaker session spend/ceiling/ROI/trips, active JIT leases, per-agent trust, and per-category audit-quality histograms (overall + per rubric criterion). See [docs/METRICS.md](docs/METRICS.md) for the metric list and PromQL starter panels.
 
 **Execution**
 - 16 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`.
@@ -412,6 +413,7 @@ Tests (257, all passing) cover the governance engine, CFO circuit breaker, JIT c
 | [CEO_CFO_PROFITABILITY.md](docs/CEO_CFO_PROFITABILITY.md) | Unit economics: margin floor, rejecting unprofitable jobs. |
 | [ARCHITECTURE_FAQ.md](docs/ARCHITECTURE_FAQ.md) | Design decisions and trade-offs. |
 | [AUDIT_PROOF.md](docs/AUDIT_PROOF.md) | Verifiable audit trail, `proof_hash`, integrity check. |
+| [METRICS.md](docs/METRICS.md) | Prometheus metrics (breaker, JIT leases, audit quality) + Grafana/PromQL starter. |
 | [MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md) | Redis queue, horizontal scaling, concurrency. |
 | [BACKUP.md](docs/BACKUP.md) | Back up job DB and ledger for disaster recovery. |
 | [FUTURE_DEVELOPMENT.md](docs/FUTURE_DEVELOPMENT.md) | Roadmap: stability, UX, workers, scale, community. |

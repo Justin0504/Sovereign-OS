@@ -57,6 +57,24 @@ try:
     )
     _jobs_queue_pending = Gauge("sovereign_jobs_pending", "Number of jobs pending approval")
     _jobs_queue_running = Gauge("sovereign_jobs_running", "Number of jobs currently running")
+    # --- Governance guardrails ---
+    # CFO circuit breaker (session state; refreshed on scrape / after each audit).
+    _breaker_spend_cents = Gauge("sovereign_breaker_session_spend_cents", "CFO breaker: cumulative session spend (cents)")
+    _breaker_revenue_cents = Gauge("sovereign_breaker_session_revenue_cents", "CFO breaker: cumulative session revenue (cents)")
+    _breaker_ceiling_cents = Gauge("sovereign_breaker_session_ceiling_cents", "CFO breaker: session spend ceiling (cents; 0=off)")
+    _breaker_consecutive_failures = Gauge("sovereign_breaker_consecutive_failures", "CFO breaker: consecutive audit failures")
+    _breaker_roi = Gauge("sovereign_breaker_roi", "CFO breaker: realized ROI (revenue/spend; -1 when undefined)")
+    _breaker_tripped = Gauge("sovereign_breaker_tripped", "CFO breaker: 1 if tripped else 0")
+    _breaker_trips_total = Counter("sovereign_breaker_trips_total", "CFO breaker: cumulative trip count", ["reason"])
+    # JIT capability leases + per-agent trust.
+    _active_leases = Gauge("sovereign_active_leases", "Active JIT capability leases (total)")
+    _agent_trust = Gauge("sovereign_agent_trust_score", "TrustScore (0-100) per agent", ["agent"])
+    # Audit quality (per-category rubric).
+    _AUDIT_BUCKETS = (0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0)
+    _audit_score = Histogram("sovereign_audit_score", "Overall audit score per category", ["category"], buckets=_AUDIT_BUCKETS)
+    _audit_criterion_score = Histogram(
+        "sovereign_audit_criterion_score", "Rubric criterion score", ["category", "criterion"], buckets=_AUDIT_BUCKETS,
+    )
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
     _PROMETHEUS_AVAILABLE = False
@@ -64,6 +82,17 @@ except ImportError:
     _job_duration_seconds = None
     _jobs_queue_pending = None
     _jobs_queue_running = None
+    _breaker_spend_cents = None
+    _breaker_revenue_cents = None
+    _breaker_ceiling_cents = None
+    _breaker_consecutive_failures = None
+    _breaker_roi = None
+    _breaker_tripped = None
+    _breaker_trips_total = None
+    _active_leases = None
+    _agent_trust = None
+    _audit_score = None
+    _audit_criterion_score = None
 
 
 def init_telemetry(
@@ -153,6 +182,84 @@ def set_job_queue_gauges(pending: int, running: int) -> None:
     if _jobs_queue_running is not None:
         try:
             _jobs_queue_running.set(running)
+        except Exception:
+            pass
+
+
+def record_audit_rubric(category: str, score: float, sub_scores: dict | None = None) -> None:
+    """
+    Record one audit outcome for Prometheus: overall score per category plus each
+    rubric criterion score (correctness/robustness/…). Enables Grafana panels for
+    quality distribution and per-criterion weak spots. No-op if client missing.
+    """
+    cat = (category or "unknown")
+    if _audit_score is not None:
+        try:
+            _audit_score.labels(category=cat).observe(max(0.0, min(1.0, float(score))))
+        except Exception:
+            pass
+    if _audit_criterion_score is not None and sub_scores:
+        for crit, val in sub_scores.items():
+            try:
+                _audit_criterion_score.labels(category=cat, criterion=str(crit)).observe(
+                    max(0.0, min(1.0, float(val)))
+                )
+            except Exception:
+                pass
+
+
+def record_breaker_trip(reason: str = "") -> None:
+    """Increment the cumulative CFO circuit-breaker trip counter (labeled by reason kind)."""
+    if _breaker_trips_total is not None:
+        try:
+            _breaker_trips_total.labels(reason=_trip_reason_kind(reason)).inc()
+        except Exception:
+            pass
+
+
+def _trip_reason_kind(reason: str) -> str:
+    """Bucket a free-text trip reason into a low-cardinality label."""
+    r = (reason or "").lower()
+    if "ceiling" in r:
+        return "ceiling"
+    if "consecutive" in r or "failure" in r:
+        return "failure_streak"
+    if "roi" in r:
+        return "roi"
+    return "other"
+
+
+def set_governance_gauges(breaker_status: dict | None = None, active_leases: int | None = None,
+                          agent_trust: dict | None = None) -> None:
+    """
+    Refresh point-in-time governance gauges (breaker session state, active JIT lease
+    count, per-agent trust). Call on /metrics scrape and/or after each audit so the
+    exported values are current. Any argument left None is skipped.
+    """
+    if breaker_status is not None:
+        _set(_breaker_spend_cents, breaker_status.get("spent_cents", 0))
+        _set(_breaker_revenue_cents, breaker_status.get("revenue_cents", 0))
+        _set(_breaker_ceiling_cents, breaker_status.get("session_ceiling_cents", 0))
+        _set(_breaker_consecutive_failures, breaker_status.get("consecutive_failures", 0))
+        roi = breaker_status.get("roi")
+        _set(_breaker_roi, roi if roi is not None else -1)
+        _set(_breaker_tripped, 1 if breaker_status.get("tripped") else 0)
+    if active_leases is not None:
+        _set(_active_leases, active_leases)
+    if agent_trust:
+        for agent_id, info in agent_trust.items():
+            score = info.get("trust_score") if isinstance(info, dict) else info
+            if score is not None and _agent_trust is not None:
+                try:
+                    _agent_trust.labels(agent=str(agent_id)).set(score)
+                except Exception:
+                    pass
+
+
+def _set(gauge: Any, value: Any) -> None:
+    if gauge is not None:
+        try:
+            gauge.set(value)
         except Exception:
             pass
 
