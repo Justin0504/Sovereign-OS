@@ -623,7 +623,13 @@ class GovernanceEngine:
                     report.reason,
                 )
             if self._on_event:
-                self._on_event("task_audited", {"task_id": task.task_id, "agent_id": agent_id, "passed": report.passed, "score": report.score, "reason": report.reason})
+                self._on_event("task_audited", {
+                    "task_id": task.task_id, "agent_id": agent_id,
+                    "passed": report.passed, "score": report.score, "reason": report.reason,
+                    # Per-category rubric breakdown for live scorecards (TUI + web stream).
+                    "sub_scores": dict(getattr(report, "sub_scores", {}) or {}),
+                    "category": category_for_skill(task.required_skill).key,
+                })
             # CFO runtime fast-fail: feed this outcome/spend to the session breaker and
             # halt the loop if the path stops being worth funding (ceiling / failure
             # streak / ROI). Off unless a breaker was supplied.

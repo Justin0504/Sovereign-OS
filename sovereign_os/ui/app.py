@@ -128,6 +128,7 @@ class DashboardApp(App):
     BINDINGS = [
         ("f12", "panic", "PANIC"),
         ("r", "run_demo", "Run demo mission"),
+        ("b", "reset_breaker", "Reset CFO breaker"),
     ]
 
     def __init__(
@@ -136,6 +137,7 @@ class DashboardApp(App):
         ledger: Any = None,
         auth: Any = None,
         engine: Any = None,
+        breaker: Any = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(**kwargs)
@@ -143,6 +145,8 @@ class DashboardApp(App):
         self._ledger = ledger
         self._auth = auth
         self._engine = engine
+        # CFO circuit breaker: prefer an explicit one, else the engine's.
+        self._breaker = breaker if breaker is not None else getattr(engine, "_circuit_breaker", None)
         self._event_queue: deque[tuple[str, dict]] = deque(maxlen=1000)
         self._log_queue: deque[tuple[str, str]] = deque(maxlen=500)
 
@@ -175,6 +179,8 @@ class DashboardApp(App):
             fp.set_ledger(self._ledger)
         if self._auth:
             fp.set_auth(self._auth)
+        if self._breaker is not None:
+            fp.set_breaker(self._breaker)
         self._refresh_finance()
         self.set_interval(2.0, self._refresh_finance)
         self.set_interval(0.5, self._drain_events)
@@ -232,6 +238,8 @@ class DashboardApp(App):
                 ds.push_auditor(f"Task [{task_id}] verified. Score: {score:.2f}.", passed=True)
             else:
                 ds.push_auditor(f"Task [{task_id}] FAILED. Reason: {reason}", passed=False)
+            # Per-category rubric breakdown (bars per criterion) under the verdict.
+            ds.push_rubric(data.get("sub_scores") or {}, data.get("category", ""))
 
     def enqueue_engine_event(self, event_type: str, data: dict[str, Any]) -> None:
         """Thread-safe: call from engine callback to queue an event for the UI."""
@@ -244,6 +252,17 @@ class DashboardApp(App):
         """F12: Global kill switch."""
         self.notify("[bold red]PANIC — Shutting down.[/]", severity="error")
         sys.exit(0)
+
+    def action_reset_breaker(self) -> None:
+        """B: Reset the CFO circuit breaker session counters."""
+        if self._breaker is None:
+            self.notify("No circuit breaker configured.", severity="warning")
+            return
+        self._breaker.reset()
+        self._refresh_finance()
+        ds = self.query_one(DecisionStream)
+        ds.push_cfo("Circuit breaker reset — session counters cleared.")
+        self.notify("CFO circuit breaker reset.")
 
     def action_run_demo(self) -> None:
         """R: Run a demo mission (if engine is configured)."""
@@ -282,6 +301,7 @@ def run_dashboard(
     ledger: Any = None,
     auth: Any = None,
     engine: Any = None,
+    breaker: Any = None,
 ) -> None:
     """Run the Command Center. If engine is provided, set its on_event to enqueue to app."""
     import os
@@ -302,7 +322,7 @@ def run_dashboard(
             t.start()
         except Exception as e:
             logging.getLogger(__name__).warning("Health server not started: %s", e)
-    app = DashboardApp(charter_name=charter_name, ledger=ledger, auth=auth, engine=engine)
+    app = DashboardApp(charter_name=charter_name, ledger=ledger, auth=auth, engine=engine, breaker=breaker)
     if engine is not None:
         engine._on_event = app.enqueue_engine_event
     app.run()
@@ -331,5 +351,28 @@ if __name__ == "__main__":
     run_health_check(ledger=ledger, redis_url=os.environ.get("REDIS_URL"))
     auth = SovereignAuth()
     review = ReviewEngine(charter)
-    engine = GovernanceEngine(charter, ledger, auth=auth, review_engine=review, on_event=lambda e, d: None)
-    run_dashboard(charter_name="Example Charter", ledger=ledger, auth=auth, engine=engine)
+    from sovereign_os.governance.circuit_breaker import SpendCircuitBreaker
+
+    def _int_env(name: str) -> int:
+        try:
+            return int((os.environ.get(name) or "").strip() or 0)
+        except ValueError:
+            return 0
+
+    def _float_env(name: str) -> float:
+        try:
+            return float((os.environ.get(name) or "").strip() or 0.0)
+        except ValueError:
+            return 0.0
+
+    breaker = SpendCircuitBreaker(
+        session_ceiling_cents=_int_env("SOVEREIGN_SESSION_CEILING_CENTS"),
+        max_consecutive_failures=_int_env("SOVEREIGN_MAX_CONSECUTIVE_FAILURES"),
+        roi_floor=_float_env("SOVEREIGN_ROI_FLOOR"),
+        roi_grace_spend_cents=_int_env("SOVEREIGN_ROI_GRACE_CENTS"),
+    )
+    engine = GovernanceEngine(
+        charter, ledger, auth=auth, review_engine=review,
+        on_event=lambda e, d: None, circuit_breaker=breaker,
+    )
+    run_dashboard(charter_name="Example Charter", ledger=ledger, auth=auth, engine=engine, breaker=breaker)

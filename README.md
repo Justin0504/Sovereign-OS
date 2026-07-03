@@ -201,6 +201,7 @@ sovereign connectors                    # connector readiness + required MCP ser
 - CEO (Strategist) decomposes natural-language goals into executable task plans with dependencies. Reactive: `prune_to_budget` sheds lowest-value tasks to fit a budget without breaking the dependency DAG; `corrective_task` builds a high-priority retry carrying the audit's failure reason and fix.
 - CFO (Treasury) enforces `max_task_cost_usd`, `daily_budget_usd`, `runway_days`, and `min_job_margin_ratio` *before* any task runs. A runtime **SpendCircuitBreaker** adds fast-fail *during* a session — it halts the loop when cumulative spend hits a session ceiling, audits fail past a streak limit, or ROI collapses (the guard that stops runaway agent loops the pre-flight gates miss). Configure via `SOVEREIGN_SESSION_CEILING_CENTS`, `SOVEREIGN_MAX_CONSECUTIVE_FAILURES`, `SOVEREIGN_ROI_FLOOR` (all default off); watch it live on the dashboard **Guardrails** tab (session spend vs. ceiling, failure streak, ROI, one-click reset).
 - **Permissions** — TrustScore-gated capabilities (`READ_FILES`, `WRITE_FILES`, `EXECUTE_SHELL`, `SPEND_USD`, `CALL_EXTERNAL_API`), earned per category, with graduated autonomous-spend ceilings. High-risk grants use **just-in-time leases**: scoped to one task, bounded by TTL and use-count, auto-revoked on completion (`grant_lease` / `use_lease` / `revoke_task_leases`). Active leases and per-agent trust are shown live on the dashboard **Guardrails** tab.
+- **Two dashboards, same guardrails** — the web dashboard (Guardrails tab + per-task quality scorecard) and a **Textual terminal Command Center** (`python -m sovereign_os.ui.app`) both surface the CFO circuit breaker (session spend vs. ceiling, failure streak, ROI; press `b` to reset), active JIT leases, and the category-rubric breakdown streamed live under each audit verdict.
 
 **Execution**
 - 16 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`.
@@ -263,6 +264,7 @@ sovereign_os/
 ├── delivery/         # Deliver-back adapters (TaskBounty, StacksTasker, ClawTasks, Reddit)
 ├── connectors/       # web_fetch, code_workspace, figma, image_gen, submit_pr, sandbox
 ├── payments/         # StripePaymentService, X402PaymentService, DummyPaymentService
+├── ui/               # Textual terminal Command Center (TaskTree · DecisionStream · Finance & Guardrails)
 ├── web/              # FastAPI app, dashboard, /api/jobs, /health, Stripe webhook
 └── telemetry/        # OpenTelemetry, Prometheus
 charters/             # Example Charter YAML files
