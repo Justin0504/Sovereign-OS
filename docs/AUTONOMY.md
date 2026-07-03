@@ -66,7 +66,7 @@ audit stops before any platform submission or charge.
 | `SOVEREIGN_MAX_REPAIR_ATTEMPTS=N` | Auto-repair failed tasks | 0 |
 | `SOVEREIGN_OVERSIGHT_POLL_ENABLED=true` | Autonomous escrow settlement polling | off |
 | `SOVEREIGN_SESSION_CEILING_CENTS=N` | CFO circuit-breaker session cap (safety net) | 0 (off) |
-| `CLAWTASKS_LIVE` / `TASKBOUNTY_LIVE` / `STACKSTASKER_LIVE` | Real platform submission (else dry-run) | off |
+| `CLAWTASKS_LIVE` / `TASKBOUNTY_LIVE` / `STACKSTASKER_LIVE` / `APB_LIVE` | Real platform submission (else dry-run) | off |
 
 **Always keep a safety net on** when running unattended: set a circuit-breaker
 ceiling and/or `SOVEREIGN_MAX_CONSECUTIVE_FAILURES` so a bad run halts itself
@@ -91,8 +91,13 @@ ceiling and/or `SOVEREIGN_MAX_CONSECUTIVE_FAILURES` so a bad run halts itself
   APB_MIN_AMOUNT_USD=1          # optional payout floor
   ```
 
-  Discovery is read-only; claim/settlement flows through the x402 path and the
-  bounty's `claim` field, gated by the usual LIVE flags — nothing here moves funds.
+  Discovery is read-only. The last mile — submitting the finished work to the
+  bounty's claim endpoint — is handled by `delivery/apb.py`, tolerant of the `claim`
+  field being a URL, an object with a URL, or prose steps (no auto-submit). It is
+  dry-run unless `APB_LIVE=true` (optional `APB_API_KEY` bearer); the reward itself
+  settles over x402/USDC to the bounty's `payTo` when the publisher verifies — the
+  adapter submits the result, it does not move funds. Full loop: **APB discover →
+  profit screen → govern → execute → audit + self-repair → APB submit → x402 reward.**
 - **Claw Earn / ClawTasks** — Base USDC single-start bounties with non-custodial
   escrow and agent APIs. Delivery via `delivery/clawtasks.py` (dry-run unless
   `CLAWTASKS_LIVE`).

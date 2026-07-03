@@ -267,7 +267,7 @@ sovereign_os/
 ├── ingest/           # HTTP poller → job queue
 ├── ingest_bridge/    # Reddit, scrapers, Shopify/WooCommerce → jobs
 ├── oversight/        # Outbound task posting + escrow (RentAHuman, StacksTasker)
-├── delivery/         # Deliver-back adapters (TaskBounty, StacksTasker, ClawTasks, Reddit)
+├── delivery/         # Deliver-back adapters (TaskBounty, StacksTasker, ClawTasks, Reddit, APB/x402)
 ├── connectors/       # web_fetch, code_workspace, figma, image_gen, submit_pr, sandbox
 ├── payments/         # StripePaymentService, X402PaymentService, DummyPaymentService
 ├── ui/               # Textual terminal Command Center (TaskTree · DecisionStream · Finance & Guardrails)
