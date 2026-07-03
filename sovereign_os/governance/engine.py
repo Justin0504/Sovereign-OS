@@ -37,7 +37,7 @@ from sovereign_os.agents.reply_worker import ReplyWorker
 from sovereign_os.agents.research_worker import ResearchWorker
 from sovereign_os.agents.summarizer_worker import SummarizerWorker
 from sovereign_os.auditor.base import AuditReport
-from sovereign_os.governance.exceptions import AuditFailureError, FiscalInsolvencyError, UnprofitableJobError
+from sovereign_os.governance.exceptions import AuditFailureError, CircuitBreakerTrippedError, FiscalInsolvencyError, UnprofitableJobError
 
 if TYPE_CHECKING:
     from sovereign_os.auditor.review_engine import ReviewEngine
@@ -594,10 +594,17 @@ class GovernanceEngine:
             # Also accrue per-category (delivery-domain) trust from the task's skill.
             from sovereign_os.agents.categories import category_for_skill
 
+            task_category = category_for_skill(task.required_skill).key
             self._auth.record_audit(
-                agent_id, passed=report.passed, score=report.score,
-                category=category_for_skill(task.required_skill).key,
+                agent_id, passed=report.passed, score=report.score, category=task_category,
             )
+            # Prometheus: overall + per-criterion rubric scores for this category.
+            try:
+                from sovereign_os.telemetry.tracer import record_audit_rubric
+
+                record_audit_rubric(task_category, report.score, getattr(report, "sub_scores", {}) or {})
+            except ImportError:
+                pass
             if report.passed:
                 record_mission_success(judge_model, True)
                 if self._memory_manager is not None:
@@ -628,7 +635,7 @@ class GovernanceEngine:
                     "passed": report.passed, "score": report.score, "reason": report.reason,
                     # Per-category rubric breakdown for live scorecards (TUI + web stream).
                     "sub_scores": dict(getattr(report, "sub_scores", {}) or {}),
-                    "category": category_for_skill(task.required_skill).key,
+                    "category": task_category,
                 })
             # CFO runtime fast-fail: feed this outcome/spend to the session breaker and
             # halt the loop if the path stops being worth funding (ceiling / failure
@@ -636,7 +643,23 @@ class GovernanceEngine:
             if self._circuit_breaker is not None:
                 self._circuit_breaker.record_spend(self._task_estimate_cents.get(task.task_id, 0))
                 self._circuit_breaker.record_outcome(report.passed)
-                self._circuit_breaker.check()
+                # Refresh governance gauges so Prometheus reflects live session state
+                # even when scraped via the standalone metrics server (TUI path).
+                try:
+                    from sovereign_os.telemetry.tracer import record_breaker_trip, set_governance_gauges
+
+                    set_governance_gauges(
+                        breaker_status=self._circuit_breaker.status(),
+                        active_leases=len(self._auth.active_leases()) if hasattr(self._auth, "active_leases") else None,
+                    )
+                except ImportError:
+                    record_breaker_trip = None  # type: ignore[assignment]
+                try:
+                    self._circuit_breaker.check()
+                except CircuitBreakerTrippedError as e:
+                    if record_breaker_trip is not None:
+                        record_breaker_trip(e.reason)
+                    raise
             if not report.passed and abort_on_audit_failure:
                 raise AuditFailureError(task.task_id, report.reason, report=report)
 
