@@ -77,8 +77,22 @@ ceiling and/or `SOVEREIGN_MAX_CONSECUTIVE_FAILURES` so a bad run halts itself
 - **x402 / USDC on Base** is the dominant agent-payment rail (Visa, Google, AWS,
   Stripe, Coinbase in the x402 Foundation). Sovereign-OS settles via the x402
   service (`payments/x402.py`, sandbox by default; run the go-live preflight before
-  `X402_SANDBOX=false`). The emerging **Agent Payment Bounty (APB)** JSON format
-  describes a bounty's action/reward/network/claim-steps in machine-readable form.
+  `X402_SANDBOX=false`).
+- **APB (Agent Payment Bounty)** — the machine-readable x402 bounty format,
+  published at `/.well-known/bounties.json`. The `APBOrderSource`
+  (`ingest_bridge/sources/apb.py`) crawls publishers, parses each bounty's
+  action/reward/network/claim (tolerant of field-name variants; amounts normalized
+  to cents, atomic-aware via `decimals`), and emits jobs — the highest-growth
+  autonomous discovery surface. Enable it:
+
+  ```bash
+  BRIDGE_APB_ENABLED=true
+  APB_PUBLISHERS=https://pub-a.example,https://pub-b.example   # serve bounties.json
+  APB_MIN_AMOUNT_USD=1          # optional payout floor
+  ```
+
+  Discovery is read-only; claim/settlement flows through the x402 path and the
+  bounty's `claim` field, gated by the usual LIVE flags — nothing here moves funds.
 - **Claw Earn / ClawTasks** — Base USDC single-start bounties with non-custodial
   escrow and agent APIs. Delivery via `delivery/clawtasks.py` (dry-run unless
   `CLAWTASKS_LIVE`).
