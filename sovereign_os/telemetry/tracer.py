@@ -75,6 +75,9 @@ try:
     _audit_criterion_score = Histogram(
         "sovereign_audit_criterion_score", "Rubric criterion score", ["category", "criterion"], buckets=_AUDIT_BUCKETS,
     )
+    # Autonomous profitability + self-repair.
+    _tasks_screened_total = Counter("sovereign_tasks_screened_total", "Ingest profitability screen decisions", ["decision"])
+    _task_repairs_total = Counter("sovereign_task_repairs_total", "Reactive self-repair outcomes", ["outcome"])
     _PROMETHEUS_AVAILABLE = True
 except ImportError:
     _PROMETHEUS_AVAILABLE = False
@@ -93,6 +96,8 @@ except ImportError:
     _agent_trust = None
     _audit_score = None
     _audit_criterion_score = None
+    _tasks_screened_total = None
+    _task_repairs_total = None
 
 
 def init_telemetry(
@@ -213,6 +218,24 @@ def record_breaker_trip(reason: str = "") -> None:
     if _breaker_trips_total is not None:
         try:
             _breaker_trips_total.labels(reason=_trip_reason_kind(reason)).inc()
+        except Exception:
+            pass
+
+
+def record_task_screened(taken: bool) -> None:
+    """Count an ingest profitability-screen decision (take vs skip)."""
+    if _tasks_screened_total is not None:
+        try:
+            _tasks_screened_total.labels(decision="take" if taken else "skip").inc()
+        except Exception:
+            pass
+
+
+def record_task_repair(recovered: bool) -> None:
+    """Count a reactive self-repair outcome (recovered to passing vs exhausted)."""
+    if _task_repairs_total is not None:
+        try:
+            _task_repairs_total.labels(outcome="recovered" if recovered else "exhausted").inc()
         except Exception:
             pass
 

@@ -449,8 +449,13 @@ def _run_one_job(job: Job) -> None:
 
     async def _run_mission_and_settle() -> None:
         _job_progress[job.job_id] = {"stage": "planning", "tasks_total": 0, "tasks_done": 0, "current_task": "CEO decomposing goal...", "pct": 10}
+        try:
+            _repair_attempts = int((os.getenv("SOVEREIGN_MAX_REPAIR_ATTEMPTS") or "").strip() or 0)
+        except ValueError:
+            _repair_attempts = 0
         plan, results, reports = await _engine.run_mission_with_audit(
-            job.goal, abort_on_audit_failure=False, job_revenue_cents=job.amount_cents
+            job.goal, abort_on_audit_failure=False, job_revenue_cents=job.amount_cents,
+            max_repair_attempts=_repair_attempts,
         )
         task_by_id = {t.task_id: t for t in plan.tasks} if plan else {}
         n_tasks = len(results) if results else 0

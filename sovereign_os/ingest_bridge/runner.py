@@ -5,6 +5,7 @@ Background runner: periodically fetch from all sources, dedup, normalize, buffer
 from __future__ import annotations
 
 import logging
+import os
 import threading
 import time
 from typing import Any
@@ -90,6 +91,34 @@ def _sources_from_config(cfg: BridgeConfig) -> list[Any]:
     return sources
 
 
+def _profit_screen(raw: RawOrder) -> tuple[bool, str]:
+    """
+    Opt-in profitability pre-screen (SOVEREIGN_PROFIT_SCREEN=true). Estimates the
+    fully-loaded cost of a candidate task and returns (take, reason) so unprofitable
+    or fee/gas-eaten tasks are dropped before they consume any compute. Off by
+    default (returns take=True) to preserve existing ingest behavior.
+    """
+    if (os.getenv("SOVEREIGN_PROFIT_SCREEN") or "").strip().lower() not in ("1", "true", "yes", "on"):
+        return True, ""
+    try:
+        from sovereign_os.agents.categories import category_for_skill, route_skill
+        from sovereign_os.governance.economics import screen_task
+
+        skill = route_skill("", raw.goal or "") or "summarize"
+        category = category_for_skill(skill).key
+        opp = screen_task(raw.amount_cents, raw.goal or "", category)
+        try:
+            from sovereign_os.telemetry.tracer import record_task_screened
+
+            record_task_screened(opp.take)
+        except ImportError:
+            pass
+        return opp.take, opp.reason
+    except Exception as e:  # noqa: BLE001 - screening must never break ingest
+        logger.debug("profit screen skipped for %s: %s", raw.source_id, e)
+        return True, ""
+
+
 def _run_once(cfg: BridgeConfig, dedup: Deduplicator, sources: list[Any]) -> int:
     emitted = 0
     for src in sources:
@@ -98,6 +127,10 @@ def _run_once(cfg: BridgeConfig, dedup: Deduplicator, sources: list[Any]) -> int
                 if not isinstance(raw, RawOrder):
                     continue
                 if not dedup.should_emit(raw.source_id):
+                    continue
+                take, reason = _profit_screen(raw)
+                if not take:
+                    logger.info("Bridge SKIP (unprofitable) %s: %s", raw.source_id, reason)
                     continue
                 payload = to_job_payload(raw)
                 if cfg.mode == "serve":

@@ -50,6 +50,17 @@ def test_set_governance_gauges_reflects_state():
     assert 'sovereign_agent_trust_score{agent="agent-x"} 77' in out
 
 
+def test_autonomy_counters():
+    _skip_if_no_prometheus()
+    tracer.record_task_screened(True)
+    tracer.record_task_screened(False)
+    tracer.record_task_repair(True)
+    out = tracer.get_prometheus_metrics_output().decode()
+    assert 'sovereign_tasks_screened_total{decision="take"}' in out
+    assert 'sovereign_tasks_screened_total{decision="skip"}' in out
+    assert 'sovereign_task_repairs_total{outcome="recovered"}' in out
+
+
 def test_roi_none_maps_to_minus_one():
     _skip_if_no_prometheus()
     tracer.set_governance_gauges(breaker_status={"spent_cents": 0, "roi": None, "tripped": False})

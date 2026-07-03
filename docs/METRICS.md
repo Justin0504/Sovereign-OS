@@ -63,6 +63,13 @@ Without it, `/metrics` returns a stub and all recorders are no-ops.
 
 Buckets for both audit histograms: `0.1, 0.3, 0.5, 0.7, 0.85, 0.95, 1.0`.
 
+### Autonomous profitability & self-repair
+
+| Metric | Type | Labels | Meaning |
+|---|---|---|---|
+| `sovereign_tasks_screened_total` | counter | `decision` | Ingest profit-screen decisions; `decision` ∈ {take, skip} |
+| `sovereign_task_repairs_total` | counter | `outcome` | Reactive self-repair results; `outcome` ∈ {recovered, exhausted} |
+
 ## Configuration
 
 The breaker limits (which also drive the `_ceiling` / trip metrics) are set via env:

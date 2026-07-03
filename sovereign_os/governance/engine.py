@@ -551,18 +551,77 @@ class GovernanceEngine:
                     )
             return ordered
 
+    async def _repair_task(
+        self,
+        task: PlannedTask,
+        result: TaskResult,
+        report: AuditReport,
+        *,
+        min_score: float | None,
+        task_value_cents: int,
+        max_attempts: int,
+    ) -> tuple[TaskResult, AuditReport]:
+        """
+        Re-run a failed task with the Auditor's fix folded into its brief, up to
+        max_attempts. Returns the best (result, report): a passing repair as soon as
+        one is found, else the last attempt. Never raises — on any error it returns
+        the original failed (result, report) so the mission proceeds to record it.
+        """
+        attempt = 0
+        while not report.passed and attempt < max_attempts:
+            attempt += 1
+            try:
+                corrective = self._strategist.corrective_task(
+                    task, reason=report.reason, suggested_fix=report.suggested_fix, attempt=attempt + 1,
+                )
+                mini = TaskPlan(goal_summary=task.description[:200], tasks=[corrective],
+                                original_goal=getattr(task, "description", ""))
+                new_results = await self.dispatch(mini)
+                new_result = new_results[0] if new_results else result
+                new_report = await self._review_engine.audit_task(
+                    corrective, new_result, min_score=min_score, task_value_cents=task_value_cents,
+                )
+            except Exception as e:  # noqa: BLE001 - repair is best-effort
+                logger.warning("GOVERNANCE: repair attempt %d for task [%s] errored: %s",
+                               attempt, task.task_id, e)
+                break
+            logger.info("GOVERNANCE: repair attempt %d/%d for task [%s] -> passed=%s (score=%.2f).",
+                        attempt, max_attempts, task.task_id, new_report.passed, new_report.score)
+            if self._on_event:
+                self._on_event("task_repaired", {
+                    "task_id": task.task_id, "attempt": attempt,
+                    "passed": new_report.passed, "score": new_report.score,
+                })
+            result, report = new_result, new_report
+        if attempt > 0:
+            try:
+                from sovereign_os.telemetry.tracer import record_task_repair
+
+                record_task_repair(report.passed)
+            except ImportError:
+                pass
+        return result, report
+
     async def run_mission_with_audit(
         self,
         goal_text: str,
         *,
         abort_on_audit_failure: bool = True,
         job_revenue_cents: int | None = None,
+        max_repair_attempts: int = 0,
     ) -> tuple[TaskPlan, list[TaskResult], list[AuditReport]]:
         """
         Full pipeline: run_mission (with optional profitability check) -> dispatch -> audit each result.
         On audit pass: SovereignAuth.record_audit_success(agent_id).
         On audit fail: SovereignAuth.record_audit_failure(agent_id); optionally abort (raise AuditFailureError).
         When job_revenue_cents is set, CFO enforces min_job_margin_ratio (unit economics).
+
+        `max_repair_attempts`: when > 0, a task that fails audit is automatically
+        re-run with the Auditor's failure reason + suggested fix folded into its
+        brief (reactive self-repair), up to N times, before the outcome is recorded.
+        This lets the system recover deliverable quality with no human in the loop —
+        critical for single-shot escrow platforms where a failed submission burns
+        reputation and the bounty.
         """
         plan = await self.run_mission(goal_text, job_revenue_cents=job_revenue_cents)
         plan.original_goal = goal_text  # So workers receive full client brief for industrial delivery
@@ -583,10 +642,18 @@ class GovernanceEngine:
 
         job_min_score = value_aware_min_score(job_revenue_cents)
         per_task_value = (job_revenue_cents or 0) // max(1, len(plan.tasks))
-        for task, result in zip(plan.tasks, results, strict=True):
+        for idx, (task, result) in enumerate(zip(plan.tasks, results, strict=True)):
             report = await self._review_engine.audit_task(
                 task, result, min_score=job_min_score, task_value_cents=per_task_value,
             )
+            # Reactive self-repair: retry a failed task with the fix folded in.
+            if not report.passed and max_repair_attempts > 0:
+                result, report = await self._repair_task(
+                    task, result, report,
+                    min_score=job_min_score, task_value_cents=per_task_value,
+                    max_attempts=max_repair_attempts,
+                )
+                results[idx] = result
             reports.append(report)
             agent_id = winner_by_task_id.get(task.task_id) or f"{task.required_skill}-{task.task_id}"
             judge_model = getattr(self._review_engine, "judge_model", "audit")
