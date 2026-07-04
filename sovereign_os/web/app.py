@@ -330,6 +330,10 @@ def _enqueue_job(
     _jobs.append(job)
     auto_approve = _effective_auto_approve()
     if auto_approve:
+        ev_ok, ev_reason = _ev_auto_take_ok(job)
+        if not ev_ok:
+            _logs.append(("cfo", f"Job {job.job_id} left pending — CEO declined (low expected value): {ev_reason}"))
+            return job
         job.status = "approved"
         job.updated_ts = time.time()
         if _job_store is not None:
@@ -341,6 +345,30 @@ def _enqueue_job(
     else:
         _logs.append(("system", f"Job {job.job_id} created (pending approval)."))
     return job
+
+
+def _ev_auto_take_ok(job: "Job") -> tuple[bool, str]:
+    """
+    CEO 'which jobs to take' gate for autonomous approval (opt-in via SOVEREIGN_EV_GATE).
+    Uses the expected-value brain with the platform's real economics and our per-category
+    delivery track record, so unattended agents auto-decline work they're unlikely to
+    deliver profitably. Off by default -> always take (unchanged behavior).
+    """
+    if (os.getenv("SOVEREIGN_EV_GATE") or "").strip().lower() not in ("1", "true", "yes", "on"):
+        return True, ""
+    try:
+        from sovereign_os.agents.categories import category_for_skill, route_skill
+        from sovereign_os.governance.opportunity import evaluate_job
+
+        category = category_for_skill(route_skill("", job.goal or "") or "summarize").key
+        dc = getattr(job, "delivery_contact", None)
+        platform = dc.get("platform") if isinstance(dc, dict) else None
+        s, f = _auth.category_history_all(category) if _auth and hasattr(_auth, "category_history_all") else (0, 0)
+        opp = evaluate_job(job.amount_cents, job.goal or "", category, platform=platform, successes=s, failures=f)
+        return opp.take, opp.reason
+    except Exception:  # noqa: BLE001 - gate must never break enqueue
+        logger.debug("EV auto-take gate skipped", exc_info=True)
+        return True, ""
 
 
 def _fire_job_webhook(

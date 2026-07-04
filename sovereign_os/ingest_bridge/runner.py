@@ -102,20 +102,22 @@ def _sources_from_config(cfg: BridgeConfig) -> list[Any]:
 
 def _profit_screen(raw: RawOrder) -> tuple[bool, str]:
     """
-    Opt-in profitability pre-screen (SOVEREIGN_PROFIT_SCREEN=true). Estimates the
-    fully-loaded cost of a candidate task and returns (take, reason) so unprofitable
-    or fee/gas-eaten tasks are dropped before they consume any compute. Off by
-    default (returns take=True) to preserve existing ingest behavior.
+    Opt-in expected-value pre-screen (SOVEREIGN_PROFIT_SCREEN=true). Uses the CEO
+    decision brain — platform-aware settlement economics + fully-loaded cost estimate
+    + a success-probability prior — to drop jobs whose expected value is negative
+    before they consume any compute. Off by default (returns take=True) to preserve
+    existing ingest behavior.
     """
     if (os.getenv("SOVEREIGN_PROFIT_SCREEN") or "").strip().lower() not in ("1", "true", "yes", "on"):
         return True, ""
     try:
         from sovereign_os.agents.categories import category_for_skill, route_skill
-        from sovereign_os.governance.economics import screen_task
+        from sovereign_os.governance.opportunity import evaluate_job
 
         skill = route_skill("", raw.goal or "") or "summarize"
         category = category_for_skill(skill).key
-        opp = screen_task(raw.amount_cents, raw.goal or "", category)
+        platform = raw.contact.get("platform") if isinstance(raw.contact, dict) else None
+        opp = evaluate_job(raw.amount_cents, raw.goal or "", category, platform=platform)
         try:
             from sovereign_os.telemetry.tracer import record_task_screened
 
