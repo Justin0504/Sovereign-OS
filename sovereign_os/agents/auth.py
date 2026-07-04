@@ -135,6 +135,9 @@ class SovereignAuth:
         # agent proven at one category can take its higher-risk work without
         # blanket-trusting it everywhere.
         self._cat_scores: dict[str, dict[str, int]] = {}
+        # Per-(agent, category) audit pass/fail counts — the delivery track record the
+        # CEO's task-selection brain turns into a success probability.
+        self._cat_history: dict[str, dict[str, dict[str, int]]] = {}
         # JIT capability leases — ephemeral (never persisted): {lease_id: CapabilityLease}.
         self._leases: dict[str, CapabilityLease] = {}
         self._lease_seq = itertools.count(1)
@@ -243,6 +246,10 @@ class SovereignAuth:
         self._bump(agent_id, delta, outcome="success" if passed else "failure")
         if category:
             self._bump_category(agent_id, category, delta)
+            cats = self._cat_history.setdefault(agent_id, {})
+            counts = cats.setdefault(category, {"success": 0, "failure": 0})
+            counts["success" if passed else "failure"] += 1
+            self._save()
 
     # ------------------------------------------------------ per-category trust
     def _bump_category(self, agent_id: str, category: str, delta: int) -> None:
@@ -255,6 +262,25 @@ class SovereignAuth:
         """Per-category trust (seeds from global trust until the agent has category history)."""
         cats = self._cat_scores.get(agent_id, {})
         return cats.get(category, self._get_score(agent_id))
+
+    def category_history(self, agent_id: str, category: str) -> tuple[int, int]:
+        """Per-(agent, category) audit outcomes as (successes, failures)."""
+        c = self._cat_history.get(agent_id, {}).get(category, {})
+        return int(c.get("success", 0)), int(c.get("failure", 0))
+
+    def category_history_all(self, category: str) -> tuple[int, int]:
+        """
+        Fleet-wide audit outcomes for a category, summed across agents, as
+        (successes, failures). Used at task-selection time, before a specific agent is
+        chosen, so 'which jobs to take' reflects the whole team's track record.
+        """
+        s = f = 0
+        for cats in self._cat_history.values():
+            c = cats.get(category)
+            if c:
+                s += int(c.get("success", 0))
+                f += int(c.get("failure", 0))
+        return s, f
 
     def effective_trust(self, agent_id: str, category: str | None = None) -> int:
         """Trust to use for a decision: the per-category score when present, else global."""
@@ -436,7 +462,8 @@ class SovereignAuth:
         try:
             self._path.parent.mkdir(parents=True, exist_ok=True)
             self._path.write_text(
-                json.dumps({"scores": self._scores, "history": self._history, "cat_scores": self._cat_scores}),
+                json.dumps({"scores": self._scores, "history": self._history,
+                            "cat_scores": self._cat_scores, "cat_history": self._cat_history}),
                 encoding="utf-8",
             )
         except Exception as e:  # pragma: no cover - best-effort persistence
@@ -453,6 +480,11 @@ class SovereignAuth:
             self._cat_scores = {
                 str(k): {str(kk): int(vv) for kk, vv in v.items()}
                 for k, v in data.get("cat_scores", {}).items()
+            }
+            self._cat_history = {
+                str(k): {str(kk): {str(ck): int(cv) for ck, cv in vv.items()}
+                         for kk, vv in v.items()}
+                for k, v in data.get("cat_history", {}).items()
             }
         except Exception as e:  # pragma: no cover - best-effort load
             logger.warning("AGENTS AUTH: failed to load trust state: %s", e)

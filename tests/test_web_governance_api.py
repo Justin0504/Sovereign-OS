@@ -67,6 +67,22 @@ def test_dashboard_html_has_quality_scorecard(client):
     assert "sc-bars" in html  # per-criterion rubric bars
 
 
+def test_ev_gate_declines_low_value_job(monkeypatch):
+    """With the EV gate on, auto-approve declines a negative-EV job (leaves it pending)."""
+    monkeypatch.setenv("SOVEREIGN_AUTO_APPROVE_JOBS", "true")
+    monkeypatch.setenv("SOVEREIGN_EV_GATE", "true")
+    led = UnifiedLedger(); led.record_usd(5000)
+    auth = SovereignAuth()
+    engine = GovernanceEngine(Charter(mission="m"), led, auth=auth)
+    app = create_app(engine=engine, ledger=led, auth=auth)
+    from fastapi.testclient import TestClient
+    c = TestClient(app)
+    cheap = c.post("/api/jobs", json={"goal": "Fix a subtle concurrency bug", "amount_cents": 5}).json()["job"]
+    rich = c.post("/api/jobs", json={"goal": "Write a 200-word blurb", "amount_cents": 5000}).json()["job"]
+    assert cheap["status"] == "pending"   # CEO declined: negative expected value
+    assert rich["status"] == "approved"   # profitable -> auto-taken
+
+
 def test_job_result_passes_through_rubric_sub_scores(client):
     """The result API surfaces per-category rubric sub_scores + category for the scorecard."""
     import sovereign_os.web.app as m

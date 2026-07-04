@@ -25,22 +25,38 @@ discover ─▶ [profit screen] ─▶ govern (CFO budget + circuit breaker)
 
 Every stage is gated; money and code execution are dry-run by default.
 
-## 1. Profitability-first task selection
+## 1. CEO task selection — which jobs to take, on expected value
 
-`sovereign_os/governance/economics.py` estimates a task's fully-loaded cost (LLM
-tokens by category × complexity, from the real pricing table) and compares it to the
-payout net of fees and gas. Turn on the ingest pre-screen and tune the economics:
+Choosing work is not just "does payout beat cost?" — it's **expected value**: the
+payout weighted by how likely we are to actually deliver it, net of the platform's
+real settlement economics. `sovereign_os/governance/opportunity.py` composes three
+signals into one verdict:
+
+1. **Platform economics** (`platform_economics`) — each rail's true settlement fee,
+   gas, and currency (x402/Base ≈ free + a few cents gas; Stacks a touch more; fiat
+   escrow ≈ 2.9% + 30¢). So net payout is computed correctly *per platform*. Extend or
+   correct the table with `SOVEREIGN_PLATFORM_ECON_JSON` — no code change.
+2. **Success probability** (`success_probability`) — our audit pass/fail track record
+   in the task's category, Beta-smoothed (a new category starts from a modest prior and
+   moves with evidence). This is where **delivery quality feeds task selection**: work
+   we deliver reliably outranks nominally-higher-payout work we tend to fail.
+3. **Cost** — the fully-loaded LLM estimate (`economics.py`).
+
+`EV = P(success) · (payout − fee − gas) − LLM cost`. Take iff EV > 0 and the
+success-case margin clears the floor.
 
 ```bash
-SOVEREIGN_PROFIT_SCREEN=true            # drop unprofitable tasks before compute
-SOVEREIGN_SETTLEMENT_FEE_RATIO=0.029    # your rail's fee (e.g. 2.9%)
-SOVEREIGN_GAS_COST_CENTS=5              # fixed on-chain cost per task
-SOVEREIGN_MIN_MARGIN_RATIO=0.3          # require >= 30% net margin
+SOVEREIGN_PROFIT_SCREEN=true   # ingest: drop negative-EV jobs before any compute
+SOVEREIGN_EV_GATE=true         # auto-approve: CEO auto-declines negative-EV jobs (leaves pending)
+SOVEREIGN_MIN_MARGIN_RATIO=0.3 # require >= 30% success-case margin
 ```
 
-With the screen on, `sovereign_tasks_screened_total{decision="skip"}` climbs for
-work that isn't worth taking. The CFO also enforces `min_job_margin_ratio` at mission
-start as a second line of defense (see [CEO_CFO_PROFITABILITY.md](CEO_CFO_PROFITABILITY.md)).
+With `SOVEREIGN_PROFIT_SCREEN`, `sovereign_tasks_screened_total{decision="skip"}`
+climbs for work that isn't worth taking. With `SOVEREIGN_EV_GATE`, an unattended
+agent that has `SOVEREIGN_AUTO_APPROVE_JOBS` on will still leave low-EV jobs pending
+rather than burn compute on them — using the whole team's per-category track record
+(`category_history_all`). The CFO's `min_job_margin_ratio` remains a second line of
+defense at mission start (see [CEO_CFO_PROFITABILITY.md](CEO_CFO_PROFITABILITY.md)).
 
 ## 2. Delivery quality: audit + automatic self-repair
 
@@ -69,7 +85,8 @@ when `SOVEREIGN_CODE_EXEC_ENABLED=true` (sandboxed execution); a no-op skip othe
 |---|---|---|
 | `SOVEREIGN_AUTO_APPROVE_JOBS=true` | Auto-approve ingested jobs (no manual approve) | off |
 | `SOVEREIGN_COMPLIANCE_AUTO_PROCEED=true` | Skip human approval for high spend | off |
-| `SOVEREIGN_PROFIT_SCREEN=true` | Drop unprofitable tasks at ingest | off |
+| `SOVEREIGN_PROFIT_SCREEN=true` | Drop negative-EV tasks at ingest | off |
+| `SOVEREIGN_EV_GATE=true` | CEO auto-declines negative-EV jobs on auto-approve | off |
 | `SOVEREIGN_MAX_REPAIR_ATTEMPTS=N` | Auto-repair failed tasks | 0 |
 | `SOVEREIGN_OVERSIGHT_POLL_ENABLED=true` | Autonomous escrow settlement polling | off |
 | `SOVEREIGN_SESSION_CEILING_CENTS=N` | CFO circuit-breaker session cap (safety net) | 0 (off) |
