@@ -56,6 +56,13 @@ re-runs it up to N times (`sovereign_task_repairs_total{outcome="recovered"}`). 
 mission where **every** task passes audit proceeds to delivery/settlement — a failed
 audit stops before any platform submission or charge.
 
+For coding specifically, quality is enforced *before* the audit even sees the work:
+the coding worker uses a **verification-driven loop** (`run_with_verified_tools`) that
+will not accept a final answer until the repo's **test suite passes**. A premature
+"done" is rejected with the failing test output and the model must fix and re-verify.
+Code that can't reach green is marked `tests_verified=false`/`success=false`. Enforced
+when `SOVEREIGN_CODE_EXEC_ENABLED=true` (sandboxed execution); a no-op skip otherwise.
+
 ## 3. Human-out-of-loop switches
 
 | Env flag | Effect | Default |

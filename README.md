@@ -211,6 +211,7 @@ sovereign connectors                    # connector readiness + required MCP ser
 
 **Execution**
 - 16 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`.
+- **Verification-driven coding** — the coding worker runs a harness-enforced loop (`run_with_verified_tools`): it won't accept "done" until the **test suite actually passes**. A premature answer bounces back with the failing test output and the model must fix and re-verify — code that can't reach green is marked `tests_verified=false` / `success=false`, so broken work never ships to a paid bounty. Gates only when execution is enabled (`SOVEREIGN_CODE_EXEC_ENABLED`); otherwise it's a no-op skip.
 - Multi-model: Strategist and workers can use different backends (e.g. GPT-4o for planning, Claude for execution).
 - Dynamic worker loading: drop a Python file into `sovereign_os/agents/user_workers/` — no registration boilerplate.
 
