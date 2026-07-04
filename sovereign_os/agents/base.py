@@ -161,6 +161,103 @@ class BaseWorker(ABC):
         final = (action or {}).get("output") if action and action.get("action") == "final" else (content or "")
         return (final or "").strip(), last_usage, log
 
+    async def run_with_verified_tools(
+        self,
+        system: str,
+        user: str,
+        tool_handlers: "dict[str, Any]",
+        *,
+        verifier: "Any",
+        max_steps: int = 8,
+        max_verify_rounds: int = 3,
+        descriptions: "dict[str, str] | None" = None,
+    ) -> tuple[str, dict | None, list, bool]:
+        """
+        Tool-use loop where a proposed final answer is ACCEPTED ONLY after it is
+        verified. This is the difference between a toy coding agent and a top-tier
+        one: the harness — not the model's goodwill — enforces "keep working until the
+        work provably passes." When the model emits `final`, `verifier()` runs; on
+        failure its feedback (e.g. failing test output) is fed back and the model must
+        continue. Returns (final_text, usage, tool_log, verified).
+
+        `verifier`: callable() -> (passed: bool, feedback: str). Runs the real check
+        (e.g. the test suite). If it can't run (e.g. execution disabled), it should
+        return (True, "<why skipped>") so it never blocks — verification only *gates*
+        when it can actually execute.
+        `max_verify_rounds`: how many times a failing verification may bounce back
+        before the loop gives up and returns the best attempt with verified=False.
+        """
+        desc = descriptions or {}
+        tools_block = "\n".join(f'- {name}: {desc.get(name, "")}' for name in tool_handlers)
+        sys = (
+            (system or "").strip()
+            + "\n\nYou can call tools to do and CHECK real work before answering.\n"
+            + "Available tools:\n" + tools_block + "\n\n"
+            + "Your deliverable is not accepted until it passes automated verification "
+            + "(e.g. the test suite). Do the work, run the check, and fix failures — repeat until it passes.\n"
+            + 'To call a tool respond with ONLY JSON: {"action":"tool","tool":"<name>","args":{...}}.\n'
+            + 'When you believe it is done and verified respond with ONLY JSON: {"action":"final","output":"<the full deliverable>"}.'
+        )
+        messages: list[dict[str, Any]] = [
+            {"role": "system", "content": sys},
+            {"role": "user", "content": user},
+        ]
+        last_usage: dict | None = None
+        log: list = []
+        best_final = ""
+        verify_rounds = 0
+
+        def _verify() -> tuple[bool, str]:
+            try:
+                ok, feedback = verifier()
+                return bool(ok), str(feedback or "")
+            except Exception as e:  # noqa: BLE001 - surfaced to the model
+                return False, f"verifier error: {e}"
+
+        for _ in range(max(1, max_steps)):
+            content = await self.llm.chat(messages)  # type: ignore[union-attr]
+            last_usage = getattr(self.llm, "_last_usage", None) or last_usage
+            action = _parse_action(content or "")
+
+            if action is not None and action.get("action") == "final":
+                proposed = (action.get("output") or "").strip()
+                best_final = proposed or best_final
+                ok, feedback = _verify()
+                log.append({"tool": "__verify__", "ok": ok, "obs": feedback[:200]})
+                if ok:
+                    return (proposed or content or "").strip(), last_usage, log, True
+                verify_rounds += 1
+                if verify_rounds >= max(1, max_verify_rounds):
+                    break
+                messages.append({"role": "assistant", "content": content or ""})
+                messages.append({"role": "user", "content": (
+                    f"Verification FAILED:\n{feedback[:3000]}\n\n"
+                    "Do not declare done. Use the tools to fix the cause, then re-verify."
+                )})
+                continue
+
+            if action is None:
+                messages.append({"role": "assistant", "content": content or ""})
+                messages.append({"role": "user", "content": 'Respond with ONLY a tool call or final JSON.'})
+                continue
+
+            name = str(action.get("tool", ""))
+            args = action.get("args") if isinstance(action.get("args"), dict) else {}
+            handler = tool_handlers.get(name)
+            if handler is None:
+                obs = f"(no such tool: {name})"
+            else:
+                try:
+                    obs = str(handler(args))[:4000]
+                except Exception as e:  # noqa: BLE001 - surfaced to the model
+                    obs = f"(tool error: {e})"
+            log.append({"tool": name, "args": args, "obs": obs[:200]})
+            messages.append({"role": "assistant", "content": content or ""})
+            messages.append({"role": "user", "content": f"Tool '{name}' result:\n{obs}\n\nContinue with a tool call or the final JSON."})
+
+        # Budget exhausted (or too many failed verifications): return best attempt, unverified.
+        return (best_final or "").strip(), last_usage, log, False
+
 
 class StubWorker(BaseWorker):
     """Default worker when no implementation is registered; returns placeholder result for Auditor."""

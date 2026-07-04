@@ -23,6 +23,24 @@ def _ctx(task: TaskInput, key: str, default: str = "") -> str:
         return default
 
 
+def _make_test_verifier(root: str, cmd: str | None):
+    """
+    Build a verifier() -> (passed, feedback) that runs the repo's test suite via the
+    run_tests connector. When execution is disabled (dry-run) it returns (True, why)
+    so it never blocks — verification only gates when tests can actually run.
+    """
+    from sovereign_os.connectors import dispatch
+
+    def verify() -> tuple[bool, str]:
+        r = dispatch("run_tests", root=root, action="run_tests", cmd=cmd)
+        if r.get("dry_run"):
+            return True, "tests skipped (execution disabled — set SOVEREIGN_CODE_EXEC_ENABLED to enforce)"
+        passed = bool(r.get("passed"))
+        return passed, f"rc={r.get('rc')} passed={passed}\n{(r.get('output') or '')[:1500]}"
+
+    return verify
+
+
 async def _chat(worker: BaseWorker, system: str, user: str) -> tuple[str, dict[str, int] | None]:
     assert worker.llm is not None
     content = await worker.llm.chat(
@@ -61,21 +79,35 @@ class CodeAssistantWorker(BaseWorker):
             from sovereign_os.agents.worker_tools import code_workspace_tools, use_tools_enabled
 
             tool_calls = 0
+            tests_verified: bool | None = None
             workspace_root = _ctx(task, "workspace_root", "")
             if use_tools_enabled(task.context) and workspace_root:
                 handlers, descs = code_workspace_tools(workspace_root)
-                # Coding needs more steps: read -> write fix -> run tests -> submit PR.
-                out, usage, log = await self.run_with_tools(system, user, handlers, descriptions=descs, max_steps=6)
-                tool_calls = len(log)
+                # Verification-driven delivery: the loop won't accept "done" until the
+                # test suite actually passes (when execution is enabled). This is what
+                # makes coding delivery top-tier — and keeps broken code from ever being
+                # submitted to a paid bounty.
+                verifier = _make_test_verifier(workspace_root, _ctx(task, "test_cmd", "") or None)
+                out, usage, log, verified = await self.run_with_verified_tools(
+                    system, user, handlers, verifier=verifier, descriptions=descs,
+                    max_steps=8, max_verify_rounds=3,
+                )
+                # Count real tool invocations, not internal verification checks.
+                tool_calls = sum(1 for e in log if e.get("tool") != "__verify__")
+                tests_verified = verified
             else:
                 out, usage = await _chat(self, system, user)
             meta = {"worker": "CodeAssistantWorker", "deliverable_type": "markdown",
                     "model_id": getattr(self.llm, "model_name", "default"), "tool_calls": tool_calls}
+            if tests_verified is not None:
+                meta["tests_verified"] = tests_verified
             if usage:
                 meta["input_tokens"], meta["output_tokens"] = usage.get("input_tokens", 0), usage.get("output_tokens", 0)
+            # success reflects verification: only False when tests actually ran and did
+            # not pass within the repair budget (skip/dry-run leaves tests_verified True).
             return TaskResult(
                 task_id=task.task_id,
-                success=True,
+                success=tests_verified is not False,
                 output=(out or "[No analysis]")[:65536],
                 metadata=meta,
             )
