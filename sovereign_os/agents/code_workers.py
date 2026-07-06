@@ -56,8 +56,48 @@ async def _chat(worker: BaseWorker, system: str, user: str) -> tuple[str, dict[s
 class CodeAssistantWorker(BaseWorker):
     """Understand code, suggest changes, or explain behavior. Analysis only; does not execute code."""
 
+    async def _maybe_delegate(self, task: TaskInput, desc: str) -> TaskResult | None:
+        """
+        If an external agent backend (Claude Code / Codex / ...) is configured for the
+        coding skill and a workspace is available, run the whole task through it and
+        return the result. Returns None to use the native LLM path (default). Never
+        raises into dispatch — a backend error falls back to native.
+        """
+        try:
+            from sovereign_os.llm.agent_backend import resolve_backend
+
+            backend = resolve_backend("code_assistant")
+            workspace_root = _ctx(task, "workspace_root", "")
+            if backend is None or not workspace_root:
+                return None
+            system = (self.system_prompt or "You are an expert software engineer.").strip()
+            res = await backend.execute_task(
+                description=desc, skill="code_assistant", system_prompt=system,
+                cwd=workspace_root, context=task.context,
+            )
+            meta = {"worker": "CodeAssistantWorker", "deliverable_type": "markdown",
+                    "backend": res.get("metadata", {}).get("backend", backend.backend_id),
+                    "model_id": res.get("metadata", {}).get("model_id", backend.backend_id)}
+            meta.update({k: v for k, v in res.get("metadata", {}).items() if k not in meta})
+            return TaskResult(
+                task_id=task.task_id,
+                success=bool(res.get("success", False)),
+                output=(res.get("output") or "")[:65536],
+                metadata=meta,
+            )
+        except Exception as e:  # noqa: BLE001 - fall back to native on any backend error
+            logger.warning("CodeAssistantWorker: backend delegation failed (%s); using native path.", e)
+            return None
+
     async def execute(self, task: TaskInput) -> TaskResult:
         desc = (task.description or "").strip() or task.task_id
+        # Delegate the whole task to an external coding agent (Claude Code / Codex / ...)
+        # when one is configured for this skill and a workspace is available. The agent
+        # does its own multi-file editing + test-running; we return its result. Native
+        # (no backend configured) falls through to the LLM path below — unchanged.
+        delegated = await self._maybe_delegate(task, desc)
+        if delegated is not None:
+            return delegated
         if not self.llm:
             return TaskResult(
                 task_id=task.task_id,
