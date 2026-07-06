@@ -213,6 +213,7 @@ sovereign connectors                    # connector readiness + required MCP ser
 - 16 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`.
 - **Verification-driven coding** — the coding worker runs a harness-enforced loop (`run_with_verified_tools`): it won't accept "done" until the **test suite actually passes**. A premature answer bounces back with the failing test output and the model must fix and re-verify — code that can't reach green is marked `tests_verified=false` / `success=false`, so broken work never ships to a paid bounty. Gates only when execution is enabled (`SOVEREIGN_CODE_EXEC_ENABLED`); otherwise it's a no-op skip.
 - Multi-model: Strategist and workers can use different backends (e.g. GPT-4o for planning, Claude for execution).
+- **Pluggable agent backends** — for complex delivery a worker can delegate a whole task to a purpose-built coding agent (**Claude Code, OpenAI Codex, Gemini CLI, Aider**, or any headless CLI via a command template) instead of a single chat call. One stable `AgentBackend` seam; new agents plug in by config (`SOVEREIGN_AGENT_BACKEND` / `SOVEREIGN_BACKEND_<CATEGORY>`), dry-run until `SOVEREIGN_AGENT_BACKEND_ENABLED=true`. Because Claude Agent SDK and Codex both speak MCP, MCP-discovered tools flow in without code changes — see [docs/BACKENDS.md](docs/BACKENDS.md).
 - Dynamic worker loading: drop a Python file into `sovereign_os/agents/user_workers/` — no registration boilerplate.
 
 **Auditing**
@@ -420,6 +421,7 @@ Tests (257, all passing) cover the governance engine, CFO circuit breaker, JIT c
 | [ARCHITECTURE_FAQ.md](docs/ARCHITECTURE_FAQ.md) | Design decisions and trade-offs. |
 | [AUDIT_PROOF.md](docs/AUDIT_PROOF.md) | Verifiable audit trail, `proof_hash`, integrity check. |
 | [METRICS.md](docs/METRICS.md) | Prometheus metrics (breaker, JIT leases, audit quality) + Grafana/PromQL starter. |
+| [BACKENDS.md](docs/BACKENDS.md) | Pluggable agent backends (Claude Code / Codex / CLI agents), MCP compatibility, adapting to platform updates. |
 | [AUTONOMY.md](docs/AUTONOMY.md) | Human-out-of-loop runbook: profit screening, self-repair, platform notes, safety switches. |
 | [MULTI_INSTANCE.md](docs/MULTI_INSTANCE.md) | Redis queue, horizontal scaling, concurrency. |
 | [BACKUP.md](docs/BACKUP.md) | Back up job DB and ledger for disaster recovery. |
