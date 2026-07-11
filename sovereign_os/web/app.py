@@ -2690,6 +2690,16 @@ def run_web_ui(
         circuit_breaker=breaker,
     )
 
+    # Connect any configured MCP servers so their tools are available to workers.
+    try:
+        import asyncio as _asyncio
+        from sovereign_os.mcp.live import connect_from_env
+        n_mcp = _asyncio.run(connect_from_env())
+        if n_mcp:
+            logger.info("MCP: connected %d server(s); their tools are available to workers.", n_mcp)
+    except Exception as e:  # pragma: no cover - MCP is optional
+        logger.warning("MCP: server connect skipped: %s", e)
+
     # Initialize payment service once per process
     global _payment_service
     try:

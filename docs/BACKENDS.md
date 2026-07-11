@@ -64,9 +64,40 @@ otherwise raw stdout is the deliverable.
   a `KNOWN_AGENTS` entry. The engine, auction, audit, and ledger are untouched.
 - **MCP as the universal connector.** Claude Agent SDK and Codex both speak MCP.
   Sovereign-OS ships an MCP *client* (`sovereign_os/mcp/`) that discovers a server's
-  tools at connect time (`MCPToolGraph.get_tools_for_skill`), so tools a platform adds
-  flow to workers without code changes. Point it at new MCP servers to gain new
-  connectors.
+  tools at connect time, so tools a platform adds flow to workers without code changes.
+  Point it at new MCP servers to gain new connectors (see below).
+
+## MCP connectors in every worker
+
+Register MCP servers once and their tools appear inline in **every** worker's tool-use
+loop — alongside built-ins like `web_fetch` and `code_workspace` — so any MCP-provided
+connector (databases, search, SaaS APIs, another agent exposed over MCP, …) is callable
+mid-task. Declare servers via one env var:
+
+```bash
+SOVEREIGN_MCP_SERVERS='[
+  {"id": "analytics", "transport": "stdio", "command": ["my-db-mcp", "--stdio"]},
+  {"id": "search",    "transport": "http",  "url": "http://localhost:7000/mcp"}
+]'
+```
+
+On startup the web app connects each server, lists its tools, and registers them
+(`sovereign_os/mcp/live.py`). From then on a worker's `run_with_tools` /
+`run_with_verified_tools` loop can call them by name; results are flattened to text and
+fed back to the model. Built-in tools win on a name collision. With no servers declared
+this is a no-op — worker behavior is unchanged. A server that fails to connect or list
+tools is logged and skipped, never fatal.
+
+To register servers programmatically instead of via env:
+
+```python
+from sovereign_os.mcp.live import register_client
+from sovereign_os.mcp.client import MCPClient
+
+client = MCPClient(transport="http", url="http://localhost:7000/mcp")
+await client.connect()
+register_client("search", client, tools=await client.list_tools())
+```
 - **Config over forks.** Command templates, prompt delivery, timeouts, per-skill
   routing, and the enable gate are all env-driven — a deployment tracks platform churn
   by editing config, not the codebase.

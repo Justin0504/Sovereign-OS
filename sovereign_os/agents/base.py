@@ -3,6 +3,7 @@ BaseWorker: Abstract base for all agents. Async execution and Pydantic message p
 Optional get_bid(RFP) for auction participation.
 """
 
+import inspect
 from abc import ABC, abstractmethod
 from typing import Annotated, TYPE_CHECKING, Any
 
@@ -72,6 +73,39 @@ class BaseWorker(ABC):
         """
         return None
 
+    # ----------------------------------------------------------- tool helpers
+    async def _with_mcp_tools(
+        self, tool_handlers: "dict[str, Any]", desc: "dict[str, str]"
+    ) -> tuple["dict[str, Any]", "dict[str, str]"]:
+        """
+        Merge every registered live MCP server's tools into this worker's tool set, so
+        any MCP-provided connector is callable inline in the tool-use loop. Built-in
+        tools win on name collision. No servers registered (default) -> unchanged.
+        """
+        try:
+            from sovereign_os.mcp.live import has_servers, mcp_tool_handlers
+
+            if not has_servers():
+                return tool_handlers, desc
+            mcp_handlers, mcp_desc = await mcp_tool_handlers()
+            merged = dict(tool_handlers)
+            merged_desc = dict(desc)
+            for name, handler in mcp_handlers.items():
+                if name not in merged:
+                    merged[name] = handler
+                    merged_desc.setdefault(name, mcp_desc.get(name, ""))
+            return merged, merged_desc
+        except Exception:  # noqa: BLE001 - MCP must never break the worker
+            return tool_handlers, desc
+
+    @staticmethod
+    async def _run_handler(handler: "Any", args: dict) -> str:
+        """Invoke a tool handler, awaiting it if it's async (MCP handlers are)."""
+        res = handler(args)
+        if inspect.isawaitable(res):
+            res = await res
+        return str(res)
+
     # ----------------------------------------------------------- LLM helpers
     async def _chat_once(self, system: str, user: str) -> tuple[str, dict | None]:
         """One LLM turn; returns (text, usage). Requires self.llm."""
@@ -117,7 +151,7 @@ class BaseWorker(ABC):
         Lets workers gather REAL information mid-task (web_fetch, read_file, run_tests)
         rather than answering from memory — the path to top-tier delivery.
         """
-        desc = descriptions or {}
+        tool_handlers, desc = await self._with_mcp_tools(tool_handlers, descriptions or {})
         tools_block = "\n".join(f'- {name}: {desc.get(name, "")}' for name in tool_handlers)
         sys = (
             (system or "").strip()
@@ -146,7 +180,7 @@ class BaseWorker(ABC):
                 obs = f"(no such tool: {name})"
             else:
                 try:
-                    obs = str(handler(args))[:4000]
+                    obs = (await self._run_handler(handler, args))[:4000]
                 except Exception as e:  # noqa: BLE001 - surfaced to the model
                     obs = f"(tool error: {e})"
             log.append({"tool": name, "args": args, "obs": obs[:200]})
@@ -187,7 +221,7 @@ class BaseWorker(ABC):
         `max_verify_rounds`: how many times a failing verification may bounce back
         before the loop gives up and returns the best attempt with verified=False.
         """
-        desc = descriptions or {}
+        tool_handlers, desc = await self._with_mcp_tools(tool_handlers, descriptions or {})
         tools_block = "\n".join(f'- {name}: {desc.get(name, "")}' for name in tool_handlers)
         sys = (
             (system or "").strip()
@@ -248,7 +282,7 @@ class BaseWorker(ABC):
                 obs = f"(no such tool: {name})"
             else:
                 try:
-                    obs = str(handler(args))[:4000]
+                    obs = (await self._run_handler(handler, args))[:4000]
                 except Exception as e:  # noqa: BLE001 - surfaced to the model
                     obs = f"(tool error: {e})"
             log.append({"tool": name, "args": args, "obs": obs[:200]})
