@@ -142,10 +142,14 @@ def score_opportunity(
     margin_floor: float = 0.0,
     platform: str = "default",
     currency: str = "USD",
+    ev_multiplier: float = 1.0,
 ) -> OpportunityScore:
     """
     Expected-value verdict. Take iff EV > 0 AND the success-case net margin clears the
     floor (so we never chase a lottery whose *best* case is still a thin/negative deal).
+    `ev_multiplier` (from the reward system's realized lane yield) scales the reported
+    EV so proven-profitable lanes rank higher in the portfolio; it never flips a job's
+    take/skip sign, only its priority.
     """
     revenue_cents = max(0, int(revenue_cents))
     est_cost_cents = max(0, int(est_cost_cents))
@@ -154,7 +158,7 @@ def score_opportunity(
     gas_cents = max(0, int(gas_cents))
     payout_if_success = revenue_cents - fee_cents - gas_cents
     net_margin = payout_if_success - est_cost_cents            # success-case margin
-    ev = p * payout_if_success - est_cost_cents                # LLM cost paid either way
+    ev = (p * payout_if_success - est_cost_cents) * max(0.0, float(ev_multiplier))  # LLM cost paid either way
 
     if revenue_cents <= 0:
         take = margin_floor <= 0
@@ -192,11 +196,13 @@ def evaluate_job(
     failures: int = 0,
     model: str = "gpt-4o",
     margin_floor: float | None = None,
+    ev_multiplier: float | None = None,
 ) -> OpportunityScore:
     """
     Full CEO decision for a candidate job: platform economics + cost estimate +
     track-record success probability -> expected-value verdict. `margin_floor`
-    defaults from SOVEREIGN_MIN_MARGIN_RATIO.
+    defaults from SOVEREIGN_MIN_MARGIN_RATIO. `ev_multiplier` defaults to the reward
+    system's realized yield for this category×platform lane (proven lanes rank higher).
     """
     econ = platform_economics(platform)
     if margin_floor is None:
@@ -204,10 +210,17 @@ def evaluate_job(
             margin_floor = float((os.getenv("SOVEREIGN_MIN_MARGIN_RATIO") or "").strip() or 0.0)
         except ValueError:
             margin_floor = 0.0
+    if ev_multiplier is None:
+        try:
+            from sovereign_os.governance.portfolio import lane_multiplier
+
+            ev_multiplier = lane_multiplier(category, platform)
+        except Exception:  # noqa: BLE001 - reward loop is best-effort
+            ev_multiplier = 1.0
     est = estimate_task_cost_cents(category, model, complexity=complexity_from_goal(goal))
     p = success_probability(successes, failures)
     return score_opportunity(
         revenue_cents, est, p,
         fee_ratio=econ.fee_ratio, gas_cents=econ.gas_cents, margin_floor=margin_floor,
-        platform=(platform or "default"), currency=econ.currency,
+        platform=(platform or "default"), currency=econ.currency, ev_multiplier=ev_multiplier,
     )

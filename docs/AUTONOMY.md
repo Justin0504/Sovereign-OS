@@ -58,6 +58,25 @@ rather than burn compute on them — using the whole team's per-category track r
 (`category_history_all`). The CFO's `min_job_margin_ratio` remains a second line of
 defense at mission start (see [CEO_CFO_PROFITABILITY.md](CEO_CFO_PROFITABILITY.md)).
 
+## 1b. Profit maximization — thin margins, most total money
+
+Maximizing per-job *margin* leaves money on the table; the objective is **total
+profit under a compute budget**. That's a knapsack, and its budget-optimal ordering is
+by **profit density** (expected profit ÷ compute cost). So a pile of thin, cheap jobs
+beats a few fat expensive ones — "最小利润赚最高的钱." `governance/portfolio.py`:
+
+- `select_portfolio(items, budget_cents)` picks the profit-maximizing set that fits the
+  budget (greedy by density; take every positive-EV job when unconstrained). Set the
+  margin floor to ~0 (`SOVEREIGN_MIN_MARGIN_RATIO=0`) to run pure volume mode.
+- **Reward loop** (`YieldTracker`): every settled job's realized profit is attributed to
+  its category×platform lane. Each lane's *yield* (profit per $ of compute) becomes a
+  bounded EV multiplier (±25%) that the EV brain applies automatically — proven lanes
+  rank higher, money-losing lanes back off. Earn → learn → earn more. Unseen lanes stay
+  neutral, so the loop only acts on evidence, and it never flips a job's take/skip sign.
+- **See the P&L**: `GET /api/finance` returns realized profit, spend, and ROI per lane,
+  each lane's multiplier, and the most profitable lanes — honest attribution of where
+  the money comes from.
+
 ## 2. Delivery quality: audit + automatic self-repair
 
 Every deliverable is scored against a category-tuned rubric (value-aware bar — higher
