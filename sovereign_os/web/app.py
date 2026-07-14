@@ -347,6 +347,26 @@ def _enqueue_job(
     return job
 
 
+def _record_job_yield(job: "Job") -> None:
+    """
+    Reward loop: on a settled job, attribute realized profit to its category×platform
+    lane so future selection favors lanes that actually make money. Cost is the
+    fully-loaded estimate for the goal (honest proxy for compute spent). Best-effort.
+    """
+    try:
+        from sovereign_os.agents.categories import category_for_skill, route_skill
+        from sovereign_os.governance.economics import complexity_from_goal, estimate_task_cost_cents
+        from sovereign_os.governance.portfolio import record_yield
+
+        category = category_for_skill(route_skill("", job.goal or "") or "summarize").key
+        dc = getattr(job, "delivery_contact", None)
+        platform = dc.get("platform") if isinstance(dc, dict) else None
+        cost = estimate_task_cost_cents(category, complexity=complexity_from_goal(job.goal or ""))
+        record_yield(category, platform, revenue_cents=job.amount_cents, cost_cents=cost)
+    except Exception:  # noqa: BLE001 - reward accounting must never break settlement
+        logger.debug("yield recording skipped", exc_info=True)
+
+
 def _ev_auto_take_ok(job: "Job") -> tuple[bool, str]:
     """
     CEO 'which jobs to take' gate for autonomous approval (opt-in via SOVEREIGN_EV_GATE).
@@ -584,6 +604,7 @@ def _run_one_job(job: Job) -> None:
                     purpose="job_income",
                     ref=f"job-{job.job_id}",
                 )
+            _record_job_yield(job)  # reward loop: attribute realized profit to this lane
             job.status = "completed"
             job.updated_ts = time.time()
             if _job_store is not None:
@@ -2086,6 +2107,30 @@ class {class_name}(BaseWorker):
         if updates:
             _set_ui_overrides_section("access", updates)
         return {"ok": True, "message": "Access settings updated."}
+
+    @app.get("/api/finance")
+    def api_finance():
+        """
+        The reward system, made visible: realized profit per category×platform lane,
+        each lane's yield (profit per $ of compute) and its EV multiplier, and the most
+        profitable lanes. Honest P&L for where the money actually comes from.
+        """
+        from sovereign_os.governance.portfolio import _YIELD, yield_snapshot
+
+        snap = yield_snapshot()
+        total_profit = sum(v.get("profit_cents", 0) for v in snap.values())
+        total_spend = sum(v.get("spend_cents", 0) for v in snap.values())
+        lanes = [
+            {"lane": lane, **vals, "multiplier": _YIELD.multiplier(lane)}
+            for lane, vals in snap.items()
+        ]
+        lanes.sort(key=lambda x: x.get("profit_cents", 0), reverse=True)
+        return {
+            "total_profit_cents": round(total_profit, 2),
+            "total_spend_cents": round(total_spend, 2),
+            "overall_roi": round(total_profit / total_spend, 4) if total_spend else 0.0,
+            "lanes": lanes,
+        }
 
     @app.get("/api/governance")
     def api_governance():
