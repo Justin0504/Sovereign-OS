@@ -67,6 +67,18 @@ def test_dashboard_html_has_quality_scorecard(client):
     assert "sc-bars" in html  # per-criterion rubric bars
 
 
+def test_finance_panel_and_endpoint(client):
+    html = client.get("/").text
+    assert "panel-finance" in html and "fetchFinance" in html
+    from sovereign_os.governance.portfolio import record_yield, reset_yield
+    reset_yield()
+    record_yield("coding", "apb", revenue_cents=1000, cost_cents=200)
+    d = client.get("/api/finance").json()
+    assert d["total_profit_cents"] == 800 and d["lanes"]
+    assert d["lanes"][0]["lane"] == "coding:apb" and d["lanes"][0]["multiplier"] > 1.0
+    reset_yield()
+
+
 def test_ev_gate_declines_low_value_job(monkeypatch):
     """With the EV gate on, auto-approve declines a negative-EV job (leaves it pending)."""
     monkeypatch.setenv("SOVEREIGN_AUTO_APPROVE_JOBS", "true")
