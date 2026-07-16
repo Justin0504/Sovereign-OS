@@ -53,9 +53,25 @@ def deliver_result_to_stackstasker(contact: dict, result_summary: str, job_id: s
     post = post_json or _http_post_json
     headers = {"Content-Type": "application/json"}
     notes = (result_summary or "")[:5000]
+    bid_body = {"agentId": agent_id, "message": "Completed via Sovereign-OS", "currency": "STX"}
+    # Dynamic thin-margin bid: when the contact carries the reward ceiling and our cost
+    # estimate, bid the lowest profitable price to win on volume. Absent that data the
+    # bid is unpriced (unchanged behavior).
+    ceiling = (contact or {}).get("reward_cents")
+    est_cost = (contact or {}).get("est_cost_cents")
+    if ceiling and est_cost:
+        try:
+            from sovereign_os.governance.bidding import recommended_bid_cents
+
+            bid = recommended_bid_cents(int(est_cost), int(ceiling))
+            if bid is None:
+                logger.info("StacksTasker: task %s unprofitable at ceiling %s; skipping bid.", task_id, ceiling)
+                return False
+            bid_body["bidAmount"] = bid
+        except Exception as e:  # noqa: BLE001 - pricing must not break delivery
+            logger.debug("StacksTasker bid pricing skipped: %s", e)
     try:
-        post(f"{base}/tasks/{task_id}/bid?currency=STX",
-             {"agentId": agent_id, "message": "Completed via Sovereign-OS", "currency": "STX"}, headers, 15.0)
+        post(f"{base}/tasks/{task_id}/bid?currency=STX", bid_body, headers, 15.0)
         post(f"{base}{('/' + submit_path.lstrip('/'))}",
              {"agentId": agent_id, "result": notes}, headers, 15.0)
         logger.info("StacksTasker: bid+submitted task %s for job %s.", task_id, job_id)

@@ -643,6 +643,7 @@
         <div class="nav-title">Governance</div>
         <a href="#governance" class="nav-link" data-panel="governance">Charter</a>
         <a href="#guardrails" class="nav-link" data-panel="guardrails">Guardrails</a>
+        <a href="#finance" class="nav-link" data-panel="finance">Finance</a>
       </div>
       <div class="nav-section">
         <div class="nav-title">Access</div>
@@ -814,6 +815,25 @@
         </section>
       </div>
     </div>
+    <div id="panel-finance" class="content-panel">
+      <header class="hero"><div class="hero-label">Finance</div><h1>Where the money comes from</h1><p>Realized profit by lane (category × platform), each lane's yield and reward multiplier. Honest P&amp;L. Refreshes every 3s.</p></header>
+      <div class="dashboard-panel" style="padding: 24px 32px;">
+        <section class="panel-section">
+          <div class="card-title">Treasurer · Realized P&amp;L</div>
+          <div class="gb-grid">
+            <div class="gb-stat"><div class="gb-label">Total profit</div><div class="gb-value" id="finProfit">$0.00</div><div class="gb-sub">revenue − compute</div></div>
+            <div class="gb-stat"><div class="gb-label">Compute spend</div><div class="gb-value" id="finSpend">$0.00</div><div class="gb-sub">est. across lanes</div></div>
+            <div class="gb-stat"><div class="gb-label">Overall ROI</div><div class="gb-value" id="finRoi">—</div><div class="gb-sub">profit per $ spent</div></div>
+          </div>
+        </section>
+        <section class="panel-section">
+          <div class="card-title">Reward system · Lane yields</div>
+          <div class="card-heading">Profit by lane</div>
+          <p class="card-desc">Each settled job's profit is attributed to its category×platform lane. Yield (profit per $) drives a bounded EV multiplier that ranks proven lanes higher — earn → learn → earn more.</p>
+          <div id="financeTable"><span class="empty-feed">No settled jobs yet.</span></div>
+        </section>
+      </div>
+    </div>
     <div id="panel-access" class="content-panel">
       <header class="hero"><div class="hero-label">Access</div><h1>Who can create jobs</h1><p>Require API key and/or limit by IP. Saves immediately.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
@@ -912,6 +932,7 @@
       if (link) link.classList.add("active");
       if (panelId === "governance") fetchGovernance();
       if (panelId === "guardrails") fetchGuardrails();
+      if (panelId === "finance") fetchFinance();
       if (panelId === "access") fetchAccess();
       if (panelId === "workers") fetchWorkers();
       if (panelId === "settings") fetchSettings();
@@ -1011,6 +1032,25 @@
     }
     function resetBreaker() {
       fetch("/api/governance/reset", { method: "POST" }).then(function(x) { return x.json(); }).then(function() { fetchGuardrails(); }).catch(function() {});
+    }
+    function fetchFinance() {
+      fetch("/api/finance").then(function(x){ return x.json(); }).then(function(d){
+        r("finProfit").textContent = usd(d.total_profit_cents);
+        r("finProfit").style.color = (d.total_profit_cents >= 0) ? "#15803d" : "#b91c1c";
+        r("finSpend").textContent = usd(d.total_spend_cents);
+        r("finRoi").textContent = d.overall_roi != null ? (d.overall_roi.toFixed(2) + "x") : "—";
+        var lanes = d.lanes || [];
+        if (!lanes.length) { r("financeTable").innerHTML = '<span class="empty-feed">No settled jobs yet.</span>'; return; }
+        var h = '<table class="gb-table"><thead><tr><th>Lane (category × platform)</th><th>Jobs</th><th>Profit</th><th>Yield</th><th>EV mult</th></tr></thead><tbody>';
+        lanes.forEach(function(l){
+          var pc = (l.profit_cents >= 0) ? "#15803d" : "#b91c1c";
+          var mc = (l.multiplier > 1) ? "#15803d" : (l.multiplier < 1 ? "#b91c1c" : "var(--text-soft)");
+          h += "<tr><td><span class=\"gb-cap\">" + esc(l.lane) + "</span></td><td>" + (l.count||0)
+            + '</td><td style="color:'+pc+';font-weight:700">' + usd(l.profit_cents) + "</td><td>" + (l.yield!=null? l.yield.toFixed(2)+"x":"—")
+            + '</td><td style="color:'+mc+'">' + (l.multiplier!=null? l.multiplier.toFixed(2):"1.00") + "</td></tr>";
+        });
+        r("financeTable").innerHTML = h + "</tbody></table>";
+      }).catch(function(){});
     }
     function fetchAccess() {
       fetch("/api/access").then(function(x) { return x.json(); }).then(function(d) {
@@ -1615,6 +1655,7 @@
     setInterval(fetchOversight, 4000);
     setInterval(fetchAuditTrail, 8000);
     setInterval(function() { if (getPanel() === "guardrails") fetchGuardrails(); }, 2000);
+    setInterval(function() { if (getPanel() === "finance") fetchFinance(); }, 3000);
     fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchCategories(); fetchAuditTrail();
   </script>
 </body>

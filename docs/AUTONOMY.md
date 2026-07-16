@@ -73,9 +73,15 @@ beats a few fat expensive ones — "最小利润赚最高的钱." `governance/po
   bounded EV multiplier (±25%) that the EV brain applies automatically — proven lanes
   rank higher, money-losing lanes back off. Earn → learn → earn more. Unseen lanes stay
   neutral, so the loop only acts on evidence, and it never flips a job's take/skip sign.
-- **See the P&L**: `GET /api/finance` returns realized profit, spend, and ROI per lane,
-  each lane's multiplier, and the most profitable lanes — honest attribution of where
-  the money comes from.
+- **See the P&L**: `GET /api/finance` (and the dashboard **Finance** tab) show realized
+  profit, spend, and ROI per lane, each lane's multiplier, and the most profitable
+  lanes — honest attribution of where the money comes from.
+- **Dynamic bid pricing** (`governance/bidding.py`): on platforms where you name a price,
+  `price_bid` / `recommended_bid_cents` bid the lowest profitable price (cost + a thin
+  margin) to maximize win probability and win on volume, skipping jobs whose floor
+  exceeds the poster's ceiling; `undercut_ratio` captures more margin on generous
+  postings. Tune with `SOVEREIGN_BID_MIN_MARGIN` / `SOVEREIGN_BID_UNDERCUT`. Wired into
+  the StacksTasker bid when the reward ceiling + cost estimate are known.
 
 ## 2. Delivery quality: audit + automatic self-repair
 
