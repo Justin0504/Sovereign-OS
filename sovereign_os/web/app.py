@@ -347,24 +347,40 @@ def _enqueue_job(
     return job
 
 
-def _record_job_yield(job: "Job") -> None:
+def _record_job_economics(job: "Job", plan: "Any" = None) -> None:
     """
-    Reward loop: on a settled job, attribute realized profit to its category×platform
-    lane so future selection favors lanes that actually make money. Cost is the
-    fully-loaded estimate for the goal (honest proxy for compute spent). Best-effort.
+    On a settled job, feed two learning loops with the job's REAL compute cost (from
+    the ledger's per-task token spend):
+      1. Reward loop — attribute realized profit (revenue − actual cost) to the
+         category×platform lane so selection favors lanes that make money.
+      2. Cost calibration — compare the raw heuristic estimate to actual so future
+         estimates for this category converge on reality.
+    Falls back to the estimate when no actual cost was recorded (e.g. stub workers).
+    Best-effort; never breaks settlement.
     """
     try:
         from sovereign_os.agents.categories import category_for_skill, route_skill
+        from sovereign_os.governance.cost_model import record_cost
         from sovereign_os.governance.economics import complexity_from_goal, estimate_task_cost_cents
         from sovereign_os.governance.portfolio import record_yield
 
         category = category_for_skill(route_skill("", job.goal or "") or "summarize").key
         dc = getattr(job, "delivery_contact", None)
         platform = dc.get("platform") if isinstance(dc, dict) else None
-        cost = estimate_task_cost_cents(category, complexity=complexity_from_goal(job.goal or ""))
-        record_yield(category, platform, revenue_cents=job.amount_cents, cost_cents=cost)
-    except Exception:  # noqa: BLE001 - reward accounting must never break settlement
-        logger.debug("yield recording skipped", exc_info=True)
+        raw_est = estimate_task_cost_cents(category, complexity=complexity_from_goal(job.goal or ""), calibrated=False)
+
+        actual = 0
+        if _ledger is not None and plan is not None and getattr(plan, "tasks", None):
+            by_task = _ledger.cost_cents_by_task()
+            actual = sum(by_task.get(t.task_id, 0) for t in plan.tasks)
+        if actual > 0:
+            record_cost(category, raw_est, actual)   # learn estimate-vs-actual
+            cost_for_yield = actual
+        else:
+            cost_for_yield = estimate_task_cost_cents(category, complexity=complexity_from_goal(job.goal or ""))
+        record_yield(category, platform, revenue_cents=job.amount_cents, cost_cents=cost_for_yield)
+    except Exception:  # noqa: BLE001 - accounting must never break settlement
+        logger.debug("job economics recording skipped", exc_info=True)
 
 
 def _ev_auto_take_ok(job: "Job") -> tuple[bool, str]:
@@ -604,7 +620,7 @@ def _run_one_job(job: Job) -> None:
                     purpose="job_income",
                     ref=f"job-{job.job_id}",
                 )
-            _record_job_yield(job)  # reward loop: attribute realized profit to this lane
+            _record_job_economics(job, plan)  # reward loop + cost calibration from real spend
             job.status = "completed"
             job.updated_ts = time.time()
             if _job_store is not None:
@@ -2125,11 +2141,14 @@ class {class_name}(BaseWorker):
             for lane, vals in snap.items()
         ]
         lanes.sort(key=lambda x: x.get("profit_cents", 0), reverse=True)
+        from sovereign_os.governance.cost_model import cost_snapshot
+
         return {
             "total_profit_cents": round(total_profit, 2),
             "total_spend_cents": round(total_spend, 2),
             "overall_roi": round(total_profit / total_spend, 4) if total_spend else 0.0,
             "lanes": lanes,
+            "cost_calibration": cost_snapshot(),
         }
 
     @app.get("/api/governance")
