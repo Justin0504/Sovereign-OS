@@ -76,6 +76,14 @@ beats a few fat expensive ones — "最小利润赚最高的钱." `governance/po
 - **See the P&L**: `GET /api/finance` (and the dashboard **Finance** tab) show realized
   profit, spend, and ROI per lane, each lane's multiplier, and the most profitable
   lanes — honest attribution of where the money comes from.
+- **Cost calibration** (`governance/cost_model.py`): every mispriced cost estimate
+  poisons EV, bid floors, and profit attribution. So as jobs settle, the real per-task
+  token cost from the ledger is compared to the raw heuristic estimate and a per-
+  category correction factor is learned (pseudo-count-smoothed actual÷estimated,
+  bounded, scale-independent). `estimate_task_cost_cents` applies it, so estimates
+  converge on reality; profit attribution and yields use the *actual* cost once known.
+  No history → factor 1.0 (cold-start unchanged). Visible under `cost_calibration` in
+  `/api/finance`.
 - **Dynamic bid pricing** (`governance/bidding.py`): on platforms where you name a price,
   `price_bid` / `recommended_bid_cents` bid the lowest profitable price (cost + a thin
   margin) to maximize win probability and win on volume, skipping jobs whose floor

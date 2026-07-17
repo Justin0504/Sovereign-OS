@@ -65,16 +65,31 @@ class Opportunity:
         }
 
 
-def estimate_task_cost_cents(category: str, model: str = "gpt-4o", *, complexity: float = 1.0) -> int:
+def estimate_task_cost_cents(
+    category: str, model: str = "gpt-4o", *, complexity: float = 1.0, calibrated: bool = True
+) -> int:
     """
     Pre-flight LLM cost (cents) for a task of `category`, scaled by `complexity`
-    (1.0 = typical; a long/hard goal can pass e.g. 1.5). Uses the same real
-    per-model pricing the ledger records actuals against.
+    (1.0 = typical; a long/hard goal can pass e.g. 1.5). Uses the same real per-model
+    pricing the ledger records actuals against.
+
+    When `calibrated` (default), the heuristic is multiplied by the per-category
+    correction learned from settled jobs' real costs (`cost_model.cost_factor`), so
+    estimates converge on reality; pass `calibrated=False` to get the raw heuristic
+    (used when recording estimate-vs-actual, to keep the learned factor unbiased).
     """
     base_tokens = _CATEGORY_TOKENS.get((category or "").lower(), _DEFAULT_TOKENS)
     tokens = int(base_tokens * max(0.1, complexity))
     ratio = _CATEGORY_OUTPUT_RATIO.get((category or "").lower(), 0.5)
-    return estimate_budget_cost_cents(model, tokens, output_ratio=ratio)
+    raw = estimate_budget_cost_cents(model, tokens, output_ratio=ratio)
+    if not calibrated:
+        return raw
+    try:
+        from sovereign_os.governance.cost_model import cost_factor
+
+        return max(1, int(round(raw * cost_factor(category))))
+    except Exception:  # noqa: BLE001 - calibration is best-effort
+        return raw
 
 
 def complexity_from_goal(goal: str) -> float:
