@@ -2143,12 +2143,25 @@ class {class_name}(BaseWorker):
         lanes.sort(key=lambda x: x.get("profit_cents", 0), reverse=True)
         from sovereign_os.governance.cost_model import cost_snapshot
 
+        # How today's compute budget would split across lanes by proven ROI.
+        allocation = {}
+        try:
+            from sovereign_os.governance.allocator import plan_allocation
+
+            fb = getattr(getattr(_engine, "_charter", None), "fiscal_boundaries", None)
+            daily_cents = int((getattr(fb, "daily_burn_max_usd", 0) or 0) * 100)
+            if daily_cents > 0:
+                allocation = plan_allocation(daily_cents)
+        except Exception:
+            allocation = {}
+
         return {
             "total_profit_cents": round(total_profit, 2),
             "total_spend_cents": round(total_spend, 2),
             "overall_roi": round(total_profit / total_spend, 4) if total_spend else 0.0,
             "lanes": lanes,
             "cost_calibration": cost_snapshot(),
+            "budget_allocation_cents": allocation,
         }
 
     @app.get("/api/governance")
