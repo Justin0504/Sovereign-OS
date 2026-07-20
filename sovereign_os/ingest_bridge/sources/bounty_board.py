@@ -128,6 +128,22 @@ class GenericBountySource(OrderSource):
             goal = (f"{title}\n\n{description}" if description else title)[:20_000]
             amount_cents = int(round(self._amount_usd(b) * 100))
             currency = (str(b.get(fm.currency_field)) if fm.currency_field and b.get(fm.currency_field) else fm.currency)
+            # Field-drift guard: if the platform renamed a field, our map reads it as
+            # missing and prices the job at $0. Warn loudly instead of silently dropping
+            # revenue — the earliest signal that an integration needs a field-map update.
+            if fm.amount not in b:
+                logger.warning("%s source: bounty %s has no '%s' field — field drift? priced $0.",
+                               self.platform, bid, fm.amount)
+            if not title:
+                logger.warning("%s source: bounty %s has no '%s' field (empty title).",
+                               self.platform, bid, fm.title)
+            # Carry a claim/submit endpoint through to delivery when the platform provides one.
+            contact = {"platform": self.platform, "bounty_id": bid}
+            for src_key, dst_key in (("claimEndpoint", "claim_endpoint"), ("claim_endpoint", "claim_endpoint"),
+                                     ("submitEndpoint", "submit_endpoint"), ("submit_endpoint", "submit_endpoint")):
+                v = b.get(src_key)
+                if isinstance(v, str) and v.strip():
+                    contact[dst_key] = v.strip()
             yield RawOrder(
                 source_id=f"{self.platform}:{bid}",
                 goal=goal,
@@ -135,7 +151,7 @@ class GenericBountySource(OrderSource):
                 currency=currency,
                 charter=self.charter,
                 meta={"platform": self.platform, "tags": (b.get(fm.tags) if fm.tags else []) or []},
-                contact={"platform": self.platform, "bounty_id": bid},
+                contact=contact,
             )
             emitted += 1
         logger.info("%s source: emitted %d order(s) from %d rows", self.platform, emitted, len(rows))
