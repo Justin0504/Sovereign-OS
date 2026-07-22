@@ -67,6 +67,14 @@ def test_dashboard_html_has_quality_scorecard(client):
     assert "sc-bars" in html  # per-criterion rubric bars
 
 
+def test_dashboard_polish_layer_present(client):
+    html = client.get("/").text
+    # accessibility + motion quality
+    assert "prefers-reduced-motion" in html and "focus-visible" in html
+    # loading skeletons + live value-change flash
+    assert ".skeleton" in html and "flashPulse" in html and "MutationObserver" in html
+
+
 def test_finance_panel_and_endpoint(client):
     html = client.get("/").text
     assert "panel-finance" in html and "fetchFinance" in html

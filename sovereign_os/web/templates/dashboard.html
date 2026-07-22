@@ -626,6 +626,78 @@
     .sc-note { font-size: 0.78rem; color: var(--text-muted); font-style: italic; }
     .sc-reason, .sc-fix { font-size: 0.8rem; color: var(--text-soft); margin-top: 8px; }
     .sc-fix { color: var(--accent); }
+
+    /* ============================ Quality polish layer ============================ */
+    /* Accessibility: respect reduced-motion, and give keyboard users clear focus. */
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.001ms !important; animation-iteration-count: 1 !important;
+        transition-duration: 0.001ms !important; scroll-behavior: auto !important;
+      }
+    }
+    a:focus-visible, button:focus-visible, input:focus-visible, textarea:focus-visible,
+    select:focus-visible, [tabindex]:focus-visible {
+      outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
+    }
+    :focus:not(:focus-visible) { outline: none; }
+    ::selection { background: rgba(180, 83, 9, 0.18); color: var(--black); }
+    * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
+
+    /* Coordinated staggered entrance for the active panel's sections. */
+    .content-panel.active .panel-section { animation: fadeInUp 0.5s var(--ease-out) both; }
+    .content-panel.active .panel-section:nth-child(1) { animation-delay: 0.04s; }
+    .content-panel.active .panel-section:nth-child(2) { animation-delay: 0.10s; }
+    .content-panel.active .panel-section:nth-child(3) { animation-delay: 0.16s; }
+    .content-panel.active .panel-section:nth-child(4) { animation-delay: 0.22s; }
+    .content-panel.active .panel-section:nth-child(n+5) { animation-delay: 0.26s; }
+
+    /* Nav: active accent bar slides in, links nudge on hover. */
+    .nav-sidebar a { position: relative; }
+    .nav-sidebar a::before {
+      content: ""; position: absolute; left: 3px; top: 50%;
+      transform: translateY(-50%) scaleY(0); transform-origin: center;
+      height: 58%; width: 3px; border-radius: 3px; background: var(--accent);
+      transition: transform var(--dur-fast) var(--ease-out);
+    }
+    .nav-sidebar a.active::before { transform: translateY(-50%) scaleY(1); }
+    .nav-sidebar a:hover { transform: translateX(2px); }
+
+    /* Small stat/KPI cards lift on hover (big content sections keep the subtle shadow). */
+    .stat, .gb-stat, .gb-card, .sc-card { transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out); }
+    .stat:hover, .gb-stat:hover, .gb-card:hover, .sc-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); }
+
+    /* Primary buttons: a soft light-sweep on hover. */
+    .btn { position: relative; overflow: hidden; }
+    .btn::after {
+      content: ""; position: absolute; inset: 0; pointer-events: none;
+      background: linear-gradient(120deg, transparent 35%, rgba(255,255,255,0.28) 50%, transparent 65%);
+      transform: translateX(-130%); transition: transform 0.65s var(--ease-out);
+    }
+    .btn:hover::after { transform: translateX(130%); }
+
+    /* Skeleton shimmer for content that is still loading. */
+    .skeleton, .skeleton * { color: transparent !important; }
+    .skeleton {
+      background: linear-gradient(90deg, var(--border) 25%, var(--bg-elevated) 37%, var(--border) 63%);
+      background-size: 300% 100%; border-radius: 6px; animation: shimmer 1.4s ease-in-out infinite;
+    }
+
+    /* Live value change: a brief highlight when a number updates. */
+    .flash { animation: flashPulse 0.85s var(--ease-out); }
+    @keyframes flashPulse {
+      0% { background-color: var(--accent-soft); border-radius: 6px; }
+      100% { background-color: transparent; }
+    }
+
+    /* Nicer empty states. */
+    .empty-feed { text-align: left; opacity: 0.85; }
+    .empty-feed::before { content: "◦ "; color: var(--border-strong); }
+
+    /* Rounded, on-theme webkit scrollbars everywhere. */
+    ::-webkit-scrollbar { width: 8px; height: 8px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--border-strong); border-radius: 8px; }
+    ::-webkit-scrollbar-thumb:hover { background: var(--accent); }
   </style>
 </head>
 <body>
@@ -1657,6 +1729,24 @@
     setInterval(function() { if (getPanel() === "guardrails") fetchGuardrails(); }, 2000);
     setInterval(function() { if (getPanel() === "finance") fetchFinance(); }, 3000);
     fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchCategories(); fetchAuditTrail();
+
+    // Polish: shimmer the key numbers until first data, then flash them on every change.
+    (function() {
+      var liveIds = ["balance", "tokens", "trust", "finProfit", "finSpend", "finRoi",
+                     "gbSpent", "gbRevenue", "gbRoi", "gbFails"];
+      var skeletonIds = ["balance", "tokens", "trust"];
+      skeletonIds.forEach(function(id) { var el = r(id); if (el) el.classList.add("skeleton"); });
+      // Never leave a skeleton spinning forever if the value never changes off "—".
+      setTimeout(function() { skeletonIds.forEach(function(id) { var el = r(id); if (el) el.classList.remove("skeleton"); }); }, 4000);
+      function flash(el) { el.classList.remove("flash"); void el.offsetWidth; el.classList.add("flash"); }
+      liveIds.forEach(function(id) {
+        var el = r(id); if (!el) return;
+        var last = el.textContent;
+        new MutationObserver(function() {
+          if (el.textContent !== last) { last = el.textContent; el.classList.remove("skeleton"); flash(el); }
+        }).observe(el, { childList: true, characterData: true, subtree: true });
+      });
+    })();
   </script>
 </body>
 </html>
