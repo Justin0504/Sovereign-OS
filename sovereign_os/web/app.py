@@ -2133,6 +2133,34 @@ class {class_name}(BaseWorker):
             _set_ui_overrides_section("access", updates)
         return {"ok": True, "message": "Access settings updated."}
 
+    @app.get("/api/platforms")
+    def api_platforms():
+        """Integrated marketplaces/rails with live-vs-dry-run status (from env flags)."""
+        def live(flag: str) -> bool:
+            return (os.getenv(flag) or "").strip().lower() in ("1", "true", "yes", "on")
+        x402_live = (os.getenv("X402_SANDBOX", "true").strip().lower() not in ("1", "true", "yes", "on"))
+        plats = [
+            {"name": "TaskBounty", "domain": "task-bounty.com", "url": "https://www.task-bounty.com",
+             "kind": "inbound", "rail": "USDC", "note": "coding bounties", "live": live("TASKBOUNTY_LIVE")},
+            {"name": "StacksTasker", "domain": "stackstasker.com", "url": "https://stackstasker.com",
+             "kind": "inbound + outbound", "rail": "STX", "note": "bid + submit", "live": live("STACKSTASKER_LIVE")},
+            {"name": "ClawTasks", "domain": "clawtasks.com", "url": "https://clawtasks.com",
+             "kind": "inbound", "rail": "USDC · Base", "note": "escrow bounties", "live": live("CLAWTASKS_LIVE"),
+             "status": "degraded"},
+            {"name": "BotBounty", "domain": "botbounty-production.up.railway.app",
+             "url": "https://botbounty-production.up.railway.app", "kind": "inbound", "rail": "—",
+             "note": "agent bounties", "live": live("BRIDGE_BOTBOUNTY_ENABLED")},
+            {"name": "RentAHuman", "domain": "rentahuman.ai", "url": "https://rentahuman.ai",
+             "kind": "outbound · escrow", "rail": "Stripe", "note": "hire humans", "live": live("RENTAHUMAN_LIVE")},
+            {"name": "x402 / APB", "domain": "x402.org", "url": "https://www.x402.org",
+             "kind": "inbound", "rail": "USDC · Base", "note": "agent payment bounties", "live": x402_live or live("APB_LIVE")},
+            {"name": "Stripe", "domain": "stripe.com", "url": "https://dashboard.stripe.com",
+             "kind": "settlement", "rail": "USD", "note": "card settlement", "live": bool((os.getenv("STRIPE_API_KEY") or "").strip())},
+            {"name": "Reddit", "domain": "reddit.com", "url": "https://www.reddit.com",
+             "kind": "inbound", "rail": "—", "note": "r/forhire etc.", "live": live("BRIDGE_REDDIT_ENABLED")},
+        ]
+        return {"platforms": plats}
+
     @app.get("/api/finance")
     def api_finance():
         """

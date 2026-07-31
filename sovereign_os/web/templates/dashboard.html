@@ -12,29 +12,29 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
-      /* Orange-white theme */
-      --bg: #fdf4eb;
-      --bg-card: #fffbf7;
-      --bg-elevated: #fef8f2;
-      --text: #3d2817;
-      --text-soft: #6b4a2e;
-      --text-muted: #7a5638;
-      --border: #ecd9c6;
-      --border-strong: #d4b896;
-      --black: #2d1a0a;
-      --accent: #b45309;
-      --accent-soft: #fef3e6;
-      --accent-link: #ea580c;
-      --success: #2d1a0a;
-      --success-soft: #fef3e6;
-      --warn: #6b4a2e;
-      --danger: #2d1a0a;
-      --danger-soft: rgba(180, 83, 9, 0.1);
+      /* Paper — clean light theme (Stripe/Notion-inspired) */
+      --bg: #fbfbfd;
+      --bg-card: #ffffff;
+      --bg-elevated: #f6f7f9;
+      --text: #14161a;
+      --text-soft: #3f4650;
+      --text-muted: #6b7280;
+      --border: #e8eaee;
+      --border-strong: #d3d7de;
+      --black: #0b0d11;
+      --accent: #4f46e5;
+      --accent-soft: #eef0fc;
+      --accent-link: #4f46e5;
+      --success: #15803d;
+      --success-soft: #eaf7ef;
+      --warn: #b45309;
+      --danger: #dc2626;
+      --danger-soft: #fdecec;
       --font-display: 'Bricolage Grotesque', 'Inter', sans-serif;
       --radius: 12px;
       --radius-lg: 16px;
-      --shadow: 0 1px 3px rgba(180, 83, 9, 0.06), 0 4px 12px rgba(180, 83, 9, 0.04);
-      --shadow-hover: 0 2px 8px rgba(180, 83, 9, 0.08), 0 8px 24px rgba(180, 83, 9, 0.05);
+      --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.05);
+      --shadow-hover: 0 2px 6px rgba(16, 24, 40, 0.06), 0 10px 28px rgba(16, 24, 40, 0.08);
       --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
       --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
       --dur: 0.35s;
@@ -64,10 +64,10 @@
     html { scroll-behavior: smooth; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      /* Warm gradient mesh for depth instead of a flat fill */
+      /* Soft gradient mesh for subtle depth */
       background:
-        radial-gradient(900px 500px at 12% -8%, rgba(234, 88, 12, 0.07), transparent 60%),
-        radial-gradient(1100px 600px at 108% 0%, rgba(180, 83, 9, 0.06), transparent 55%),
+        radial-gradient(900px 500px at 12% -8%, rgba(79, 70, 229, 0.05), transparent 60%),
+        radial-gradient(1100px 600px at 108% 0%, rgba(79, 70, 229, 0.04), transparent 55%),
         var(--bg);
       background-attachment: fixed;
       color: var(--text);
@@ -117,7 +117,7 @@
       width: 20px;
       height: 20px;
       border-radius: 8px;
-      background: linear-gradient(135deg, #b45309 0%, #8b3d09 100%);
+      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -215,7 +215,7 @@
       border-left: 3px solid var(--accent);
     }
     .panel-section:hover {
-      background: linear-gradient(90deg, rgba(234, 88, 12, 0.04), transparent 60%);
+      background: linear-gradient(90deg, rgba(79, 70, 229, 0.035), transparent 60%);
       box-shadow: inset 3px 0 0 var(--accent);
     }
     .card-title, .section-title {
@@ -283,8 +283,8 @@
       transition: background var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
     }
     .btn:hover {
-      background: #8b3d09;
-      box-shadow: 0 2px 8px rgba(180, 83, 9, 0.35);
+      background: #4338ca;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
       transform: translateY(-1px);
     }
     .btn:active {
@@ -383,8 +383,8 @@
     .task-pill.job-completed { background: var(--success-soft); color: var(--success); border: none; }
     .task-pill.job-failed, .task-pill.job-payment_failed { background: var(--danger-soft); color: var(--text-soft); border: none; }
     .task-pill.job-running { background: var(--accent-soft); border: none; }
-    .task-pill .btn-delete { background: rgba(180, 83, 9, 0.12); color: var(--black); border: none; }
-    .task-pill .btn-delete:hover { background: rgba(180, 83, 9, 0.2); }
+    .task-pill .btn-delete { background: rgba(15, 23, 42, 0.06); color: var(--black); border: none; }
+    .task-pill .btn-delete:hover { background: rgba(15, 23, 42, 0.12); }
     .stats {
       display: grid;
       grid-template-columns: repeat(4, 1fr);
@@ -423,17 +423,17 @@
     .burn-bar { margin: 6px 0 12px; }
     .burn-label { font-size: 0.8125rem; color: var(--muted, #8a7e6d); margin-bottom: 4px; }
     .burn-track { height: 8px; border-radius: 6px; background: var(--border); overflow: hidden; }
-    .burn-fill { height: 100%; background: hsl(36 70% 55%); transition: width .4s ease; }
+    .burn-fill { height: 100%; background: var(--accent); transition: width .4s ease; }
     .burn-fill.over { background: hsl(8 70% 55%); }
     .ov-chips { margin-bottom: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
     .ov-chip { font-size: 0.75rem; padding: 2px 8px; border-radius: 999px; background: var(--border); color: var(--text); }
-    .ov-funded { background: hsl(36 70% 85%); }
+    .ov-funded { background: var(--success-soft); }
     .ov-released { background: hsl(140 50% 82%); }
     .ov-disputed, .ov-rejected { background: hsl(8 70% 86%); }
     .ov-form { display: flex; gap: 6px; margin-bottom: 8px; flex-wrap: wrap; }
     .ov-input { flex: 1; min-width: 120px; padding: 6px 10px; border: 1px solid var(--border); border-radius: 8px; background: var(--bg); color: var(--text); font-size: 0.8125rem; }
     .ov-input.ov-price { flex: 0 0 80px; min-width: 70px; }
-    .ov-btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: hsl(36 70% 55%); color: #fff; font-size: 0.8125rem; cursor: pointer; }
+    .ov-btn { padding: 6px 12px; border: 1px solid var(--border); border-radius: 8px; background: var(--accent); color: #fff; font-size: 0.8125rem; cursor: pointer; }
     .ov-btn-alt { background: var(--bg); color: var(--text); }
     .ov-msg { font-size: 0.78rem; color: var(--muted, #8a7e6d); min-height: 1em; margin-bottom: 6px; }
     .token-table { width: 100%; min-width: 420px; border-collapse: collapse; font-size: 0.875rem; background: transparent; table-layout: fixed; }
@@ -497,7 +497,7 @@
     /* Job progress bar */
     .job-progress { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); }
     .job-progress-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-    .job-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent) 0%, #e87c1e 100%); border-radius: 3px; transition: width 0.5s var(--ease-out); }
+    .job-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent) 0%, #6366f1 100%); border-radius: 3px; transition: width 0.5s var(--ease-out); }
     .job-progress-label { min-width: 90px; font-weight: 500; }
     /* Batch select */
     .batch-bar { display: none; align-items: center; gap: 10px; padding: 8px 12px; background: var(--accent-soft); border-radius: 8px; margin-bottom: 10px; font-size: 0.85rem; }
@@ -558,8 +558,8 @@
       margin: 0 8px;
       border-radius: 8px;
     }
-    .nav-sidebar a:hover { background: rgba(180, 83, 9, 0.1); color: var(--black); }
-    .nav-sidebar a.active { background: rgba(180, 83, 9, 0.14); color: var(--black); font-weight: 600; }
+    .nav-sidebar a:hover { background: rgba(79, 70, 229, 0.07); color: var(--black); }
+    .nav-sidebar a.active { background: rgba(79, 70, 229, 0.11); color: var(--black); font-weight: 600; }
     .main-content { flex: 1; overflow: auto; }
     .content-panel { display: none; }
     .content-panel.active { display: block; }
@@ -621,7 +621,7 @@
     .sc-crit-top { display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 3px; }
     .sc-crit-name { color: var(--text-soft); text-transform: capitalize; }
     .sc-crit-val { color: var(--black); font-weight: 700; font-variant-numeric: tabular-nums; }
-    .sc-track { height: 6px; background: rgba(180,83,9,0.1); border-radius: 999px; overflow: hidden; }
+    .sc-track { height: 6px; background: rgba(79, 70, 229, 0.07); border-radius: 999px; overflow: hidden; }
     .sc-fill { height: 100%; border-radius: 999px; transition: width 0.4s var(--ease-out); }
     .sc-note { font-size: 0.78rem; color: var(--text-muted); font-style: italic; }
     .sc-reason, .sc-fix { font-size: 0.8rem; color: var(--text-soft); margin-top: 8px; }
@@ -640,7 +640,7 @@
       outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
     }
     :focus:not(:focus-visible) { outline: none; }
-    ::selection { background: rgba(180, 83, 9, 0.18); color: var(--black); }
+    ::selection { background: rgba(79, 70, 229, 0.16); color: var(--black); }
     * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 
     /* Coordinated staggered entrance for the active panel's sections. */
@@ -693,6 +693,25 @@
     .empty-feed { text-align: left; opacity: 0.85; }
     .empty-feed::before { content: "◦ "; color: var(--border-strong); }
 
+    /* Platforms panel */
+    .plat-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(230px, 1fr)); gap: 14px; }
+    .plat-card { display: flex; flex-direction: column; gap: 10px; padding: 16px; border: 1px solid var(--border); border-radius: var(--radius); background: var(--bg-card); transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out), border-color var(--dur-fast); text-decoration: none; color: inherit; }
+    .plat-card:hover { transform: translateY(-2px); box-shadow: var(--shadow-hover); border-color: var(--border-strong); }
+    .plat-top { display: flex; align-items: center; gap: 11px; }
+    .plat-logo { width: 34px; height: 34px; border-radius: 9px; object-fit: contain; background: var(--bg-elevated); border: 1px solid var(--border); flex: none; }
+    .plat-mono { width: 34px; height: 34px; border-radius: 9px; display: none; align-items: center; justify-content: center; font-family: var(--font-display); font-weight: 700; font-size: 1rem; color: #fff; flex: none; }
+    .plat-name { font-weight: 700; color: var(--black); font-size: 0.98rem; line-height: 1.1; }
+    .plat-note { font-size: 0.76rem; color: var(--text-muted); margin-top: 1px; }
+    .plat-badges { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 2px; }
+    .plat-badge { font-size: 0.68rem; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--bg-elevated); color: var(--text-soft); border: 1px solid var(--border); }
+    .plat-foot { display: flex; align-items: center; gap: 7px; margin-top: auto; padding-top: 6px; }
+    .plat-dot { width: 8px; height: 8px; border-radius: 50%; flex: none; }
+    .plat-dot.live { background: var(--success); box-shadow: 0 0 0 3px rgba(21,128,61,0.14); }
+    .plat-dot.dry { background: var(--warn); box-shadow: 0 0 0 3px rgba(180,83,9,0.14); }
+    .plat-dot.down { background: var(--danger); box-shadow: 0 0 0 3px rgba(220,38,38,0.14); }
+    .plat-status { font-size: 0.74rem; color: var(--text-soft); }
+    .plat-open { margin-left: auto; font-size: 0.76rem; color: var(--accent); font-weight: 600; }
+
     /* Rounded, on-theme webkit scrollbars everywhere. */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -716,6 +735,7 @@
         <a href="#governance" class="nav-link" data-panel="governance">Charter</a>
         <a href="#guardrails" class="nav-link" data-panel="guardrails">Guardrails</a>
         <a href="#finance" class="nav-link" data-panel="finance">Finance</a>
+        <a href="#platforms" class="nav-link" data-panel="platforms">Platforms</a>
       </div>
       <div class="nav-section">
         <div class="nav-title">Access</div>
@@ -906,6 +926,12 @@
         </section>
       </div>
     </div>
+    <div id="panel-platforms" class="content-panel">
+      <header class="hero"><div class="hero-label">Platforms</div><h1>Connected marketplaces &amp; rails</h1><p>The agent-work platforms and payment rails Sovereign-OS integrates. A green dot means live submission/settlement is enabled; amber means dry-run (safe default).</p></header>
+      <div class="dashboard-panel" style="padding: 24px 32px;">
+        <div id="platformGrid" class="plat-grid"><span class="empty-feed">Loading platforms…</span></div>
+      </div>
+    </div>
     <div id="panel-access" class="content-panel">
       <header class="hero"><div class="hero-label">Access</div><h1>Who can create jobs</h1><p>Require API key and/or limit by IP. Saves immediately.</p></header>
       <div class="dashboard-panel" style="padding: 28px 32px;">
@@ -1005,6 +1031,7 @@
       if (panelId === "governance") fetchGovernance();
       if (panelId === "guardrails") fetchGuardrails();
       if (panelId === "finance") fetchFinance();
+      if (panelId === "platforms") fetchPlatforms();
       if (panelId === "access") fetchAccess();
       if (panelId === "workers") fetchWorkers();
       if (panelId === "settings") fetchSettings();
@@ -1104,6 +1131,36 @@
     }
     function resetBreaker() {
       fetch("/api/governance/reset", { method: "POST" }).then(function(x) { return x.json(); }).then(function() { fetchGuardrails(); }).catch(function() {});
+    }
+    var PLAT_COLORS = ["#4f46e5","#0e7c86","#b45309","#7c3aed","#0369a1","#be185d","#15803d","#c2410c"];
+    function fetchPlatforms() {
+      fetch("/api/platforms").then(function(x){ return x.json(); }).then(function(d){
+        var plats = (d && d.platforms) || [];
+        if (!plats.length) { r("platformGrid").innerHTML = '<span class="empty-feed">No platforms.</span>'; return; }
+        r("platformGrid").innerHTML = plats.map(function(p, i){
+          var col = PLAT_COLORS[i % PLAT_COLORS.length];
+          var mono = esc((p.name || "?").charAt(0));
+          var fav = "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(p.domain || "");
+          var isDown = p.status === "degraded" || p.status === "down";
+          var dotCls = isDown ? "down" : (p.live ? "live" : "dry");
+          var statusText = isDown ? "degraded" : (p.live ? "live" : "dry-run");
+          var badges = [p.kind, p.rail].filter(function(b){ return b && b !== "—"; })
+            .map(function(b){ return '<span class="plat-badge">' + esc(b) + '</span>'; }).join("");
+          return '<a class="plat-card" href="' + esc(p.url) + '" target="_blank" rel="noopener">'
+            + '<div class="plat-top">'
+            +   '<img class="plat-logo" src="' + fav + '" alt="" '
+            +        'onerror="this.style.display=\'none\';this.nextElementSibling.style.display=\'flex\'"/>'
+            +   '<div class="plat-mono" style="background:' + col + '">' + mono + '</div>'
+            +   '<div><div class="plat-name">' + esc(p.name) + '</div>'
+            +   (p.note ? '<div class="plat-note">' + esc(p.note) + '</div>' : '') + '</div>'
+            + '</div>'
+            + '<div class="plat-badges">' + badges + '</div>'
+            + '<div class="plat-foot"><span class="plat-dot ' + dotCls + '"></span>'
+            +   '<span class="plat-status">' + statusText + '</span>'
+            +   '<span class="plat-open">Open &#8599;</span></div>'
+            + '</a>';
+        }).join("");
+      }).catch(function(){ r("platformGrid").innerHTML = '<span class="empty-feed">Failed to load platforms.</span>'; });
     }
     function fetchFinance() {
       fetch("/api/finance").then(function(x){ return x.json(); }).then(function(d){
