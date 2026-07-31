@@ -12,29 +12,29 @@
   <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
   <style>
     :root {
-      /* Paper — clean light theme (Stripe/Notion-inspired) */
-      --bg: #fbfbfd;
+      /* Minimal — OpenAI/Gemini-inspired near-monochrome */
+      --bg: #ffffff;
       --bg-card: #ffffff;
-      --bg-elevated: #f6f7f9;
-      --text: #14161a;
-      --text-soft: #3f4650;
-      --text-muted: #6b7280;
-      --border: #e8eaee;
-      --border-strong: #d3d7de;
-      --black: #0b0d11;
-      --accent: #4f46e5;
-      --accent-soft: #eef0fc;
-      --accent-link: #4f46e5;
-      --success: #15803d;
-      --success-soft: #eaf7ef;
+      --bg-elevated: #f7f7f8;
+      --text: #0d0d0d;
+      --text-soft: #565869;
+      --text-muted: #8e8ea0;
+      --border: #ececee;
+      --border-strong: #dcdce2;
+      --black: #0d0d0d;
+      --accent: #0d0d0d;
+      --accent-soft: #f2f2f3;
+      --accent-link: #0d0d0d;
+      --success: #10a37f;
+      --success-soft: #e7f6f1;
       --warn: #b45309;
-      --danger: #dc2626;
-      --danger-soft: #fdecec;
-      --font-display: 'Bricolage Grotesque', 'Inter', sans-serif;
-      --radius: 12px;
-      --radius-lg: 16px;
-      --shadow: 0 1px 2px rgba(16, 24, 40, 0.04), 0 4px 12px rgba(16, 24, 40, 0.05);
-      --shadow-hover: 0 2px 6px rgba(16, 24, 40, 0.06), 0 10px 28px rgba(16, 24, 40, 0.08);
+      --danger: #e02e2a;
+      --danger-soft: #fdeceb;
+      --font-display: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      --radius: 14px;
+      --radius-lg: 20px;
+      --shadow: 0 1px 2px rgba(0, 0, 0, 0.03), 0 1px 3px rgba(0, 0, 0, 0.04);
+      --shadow-hover: 0 2px 8px rgba(0, 0, 0, 0.05), 0 10px 28px rgba(0, 0, 0, 0.06);
       --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
       --ease-in-out: cubic-bezier(0.65, 0, 0.35, 1);
       --dur: 0.35s;
@@ -64,12 +64,8 @@
     html { scroll-behavior: smooth; }
     body {
       font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-      /* Soft gradient mesh for subtle depth */
-      background:
-        radial-gradient(900px 500px at 12% -8%, rgba(79, 70, 229, 0.05), transparent 60%),
-        radial-gradient(1100px 600px at 108% 0%, rgba(79, 70, 229, 0.04), transparent 55%),
-        var(--bg);
-      background-attachment: fixed;
+      /* Flat white — minimal, no tint (OpenAI/Gemini style) */
+      background: var(--bg);
       color: var(--text);
       min-height: 100vh;
       font-size: 16px;
@@ -79,15 +75,7 @@
       animation: fadeIn var(--dur) var(--ease-out);
     }
     /* Subtle film grain for tactile, non-flat surfaces */
-    body::before {
-      content: "";
-      position: fixed;
-      inset: 0;
-      z-index: 0;
-      pointer-events: none;
-      opacity: 0.035;
-      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
-    }
+    /* (grain overlay removed for a flat, minimal surface) */
     .topbar, .wrap { position: relative; z-index: 1; }
     /* Tabular figures so numbers in tables/stats align */
     .token-table, .stats .value, .burn-label, .cost-total, .ov-chip { font-variant-numeric: tabular-nums; }
@@ -117,7 +105,7 @@
       width: 20px;
       height: 20px;
       border-radius: 8px;
-      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      background: linear-gradient(135deg, #0d0d0d 0%, #2b2b2b 100%);
       display: inline-flex;
       align-items: center;
       justify-content: center;
@@ -215,7 +203,7 @@
       border-left: 3px solid var(--accent);
     }
     .panel-section:hover {
-      background: linear-gradient(90deg, rgba(79, 70, 229, 0.035), transparent 60%);
+      background: linear-gradient(90deg, rgba(0, 0, 0, 0.01), transparent 60%);
       box-shadow: inset 3px 0 0 var(--accent);
     }
     .card-title, .section-title {
@@ -283,8 +271,8 @@
       transition: background var(--dur-fast), box-shadow var(--dur-fast), transform var(--dur-fast);
     }
     .btn:hover {
-      background: #4338ca;
-      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.28);
+      background: #262626;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.16);
       transform: translateY(-1px);
     }
     .btn:active {
@@ -497,7 +485,7 @@
     /* Job progress bar */
     .job-progress { display: flex; align-items: center; gap: 6px; margin-top: 8px; font-size: 0.75rem; color: var(--text-muted); }
     .job-progress-bar { flex: 1; height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
-    .job-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent) 0%, #6366f1 100%); border-radius: 3px; transition: width 0.5s var(--ease-out); }
+    .job-progress-fill { height: 100%; background: linear-gradient(90deg, var(--accent) 0%, #3f3f46 100%); border-radius: 3px; transition: width 0.5s var(--ease-out); }
     .job-progress-label { min-width: 90px; font-weight: 500; }
     /* Batch select */
     .batch-bar { display: none; align-items: center; gap: 10px; padding: 8px 12px; background: var(--accent-soft); border-radius: 8px; margin-bottom: 10px; font-size: 0.85rem; }
@@ -529,7 +517,7 @@
     .nav-sidebar {
       width: 200px;
       min-width: 200px;
-      background: #fceee0;
+      background: var(--bg-elevated);
       border-right: 1px solid var(--border);
       padding: 24px 0;
       flex-shrink: 0;
@@ -558,8 +546,8 @@
       margin: 0 8px;
       border-radius: 8px;
     }
-    .nav-sidebar a:hover { background: rgba(79, 70, 229, 0.07); color: var(--black); }
-    .nav-sidebar a.active { background: rgba(79, 70, 229, 0.11); color: var(--black); font-weight: 600; }
+    .nav-sidebar a:hover { background: rgba(0, 0, 0, 0.045); color: var(--black); }
+    .nav-sidebar a.active { background: rgba(0, 0, 0, 0.06); color: var(--black); font-weight: 600; }
     .main-content { flex: 1; overflow: auto; }
     .content-panel { display: none; }
     .content-panel.active { display: block; }
@@ -591,7 +579,7 @@
     /* Guardrails panel */
     .gb-badge { font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; padding: 3px 10px; border-radius: 999px; text-transform: uppercase; }
     .gb-ok { background: var(--accent-soft); color: var(--accent); }
-    .gb-tripped { background: var(--danger); color: #fdf4eb; }
+    .gb-tripped { background: var(--danger); color: #ffffff; }
     .gb-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; margin-top: 16px; }
     .gb-stat { background: var(--bg-elevated); border: 1px solid var(--border); border-radius: var(--radius); padding: 14px 16px; }
     .gb-label { font-size: 0.72rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-muted); }
@@ -615,13 +603,13 @@
     .sc-overall { margin-left: auto; font-size: 1.35rem; font-weight: 800; font-family: var(--font-display); line-height: 1; }
     .sc-badge { font-size: 0.66rem; font-weight: 700; letter-spacing: 0.04em; padding: 3px 9px; border-radius: 999px; }
     .sc-pass { background: #dcfce7; color: #15803d; }
-    .sc-fail { background: var(--danger); color: #fdf4eb; }
+    .sc-fail { background: var(--danger); color: #ffffff; }
     .sc-bars { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 18px; }
     @media (max-width: 560px) { .sc-bars { grid-template-columns: 1fr; } }
     .sc-crit-top { display: flex; justify-content: space-between; font-size: 0.78rem; margin-bottom: 3px; }
     .sc-crit-name { color: var(--text-soft); text-transform: capitalize; }
     .sc-crit-val { color: var(--black); font-weight: 700; font-variant-numeric: tabular-nums; }
-    .sc-track { height: 6px; background: rgba(79, 70, 229, 0.07); border-radius: 999px; overflow: hidden; }
+    .sc-track { height: 6px; background: rgba(0, 0, 0, 0.045); border-radius: 999px; overflow: hidden; }
     .sc-fill { height: 100%; border-radius: 999px; transition: width 0.4s var(--ease-out); }
     .sc-note { font-size: 0.78rem; color: var(--text-muted); font-style: italic; }
     .sc-reason, .sc-fix { font-size: 0.8rem; color: var(--text-soft); margin-top: 8px; }
@@ -640,7 +628,7 @@
       outline: 2px solid var(--accent); outline-offset: 2px; border-radius: 6px;
     }
     :focus:not(:focus-visible) { outline: none; }
-    ::selection { background: rgba(79, 70, 229, 0.16); color: var(--black); }
+    ::selection { background: rgba(13, 13, 13, 0.10); color: var(--black); }
     * { scrollbar-width: thin; scrollbar-color: var(--border-strong) transparent; }
 
     /* Coordinated staggered entrance for the active panel's sections. */

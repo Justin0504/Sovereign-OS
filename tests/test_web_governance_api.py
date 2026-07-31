@@ -69,8 +69,8 @@ def test_dashboard_html_has_quality_scorecard(client):
 
 def test_paper_theme_and_platforms(client):
     html = client.get("/").text
-    # Paper light theme replaced the orange palette
-    assert "Paper — clean light" in html and "#4f46e5" in html
+    # Minimal OpenAI/Gemini-style monochrome theme replaced the orange palette
+    assert "Minimal — OpenAI/Gemini" in html and "--accent: #0d0d0d" in html
     # Platforms panel + nav + logos
     assert "panel-platforms" in html and 'data-panel="platforms"' in html
     assert "fetchPlatforms" in html and "s2/favicons" in html
