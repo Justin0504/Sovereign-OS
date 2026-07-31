@@ -67,6 +67,21 @@ def test_dashboard_html_has_quality_scorecard(client):
     assert "sc-bars" in html  # per-criterion rubric bars
 
 
+def test_paper_theme_and_platforms(client):
+    html = client.get("/").text
+    # Paper light theme replaced the orange palette
+    assert "Paper — clean light" in html and "#4f46e5" in html
+    # Platforms panel + nav + logos
+    assert "panel-platforms" in html and 'data-panel="platforms"' in html
+    assert "fetchPlatforms" in html and "s2/favicons" in html
+    # endpoint returns the integrated marketplaces with status
+    plats = client.get("/api/platforms").json()["platforms"]
+    names = {p["name"] for p in plats}
+    assert {"TaskBounty", "StacksTasker", "x402 / APB", "Stripe"} <= names
+    tb = next(p for p in plats if p["name"] == "TaskBounty")
+    assert tb["domain"] == "task-bounty.com" and "live" in tb
+
+
 def test_dashboard_polish_layer_present(client):
     html = client.get("/").text
     # accessibility + motion quality
