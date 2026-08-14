@@ -700,6 +700,17 @@
     .plat-status { font-size: 0.74rem; color: var(--text-soft); }
     .plat-open { margin-left: auto; font-size: 0.76rem; color: var(--accent); font-weight: 600; }
 
+    /* Colorful section icons (logo-chip feel, breaks the monochrome) */
+    .sec-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 13px; line-height: 1; margin-right: 9px; flex: none; }
+    .card-heading { display: flex; align-items: center; }
+    /* Collapsible right-column sections */
+    .sidebar .panel-section > .card-heading { cursor: pointer; user-select: none; }
+    .sidebar .panel-section > .card-heading:hover { color: var(--accent-link); }
+    .sec-chev { margin-left: auto; color: var(--text-muted); font-size: 0.66rem; transition: transform var(--dur-fast) var(--ease-out); }
+    .panel-section.collapsed > .card-heading .sec-chev { transform: rotate(-90deg); }
+    .panel-section.collapsed > *:not(.card-title):not(.card-heading) { display: none; }
+    .panel-section.collapsed { padding-bottom: 14px; }
+
     /* Rounded, on-theme webkit scrollbars everywhere. */
     ::-webkit-scrollbar { width: 8px; height: 8px; }
     ::-webkit-scrollbar-track { background: transparent; }
@@ -1790,6 +1801,47 @@
         new MutationObserver(function() {
           if (el.textContent !== last) { last = el.textContent; el.classList.remove("skeleton"); flash(el); }
         }).observe(el, { childList: true, characterData: true, subtree: true });
+      });
+    })();
+
+    // Colorful section icons + collapsible right-column sections.
+    (function() {
+      var ICONS = {
+        "Run a mission": "🎯", "Tasks": "🧩", "Activity": "📡",
+        "Health check": "🩺", "Token usage": "💰", "Cost breakdown": "📊",
+        "Outbound escrows": "🛡️", "Delivery categories": "🗂️", "Job queue": "⚙️", "Audit trail": "🔏",
+        "Session guard": "⚡", "Active capability leases": "🔑", "Agent trust": "🤝",
+        "Profit by lane": "📈", "Run a mission ": "🎯"
+      };
+      // 1) collapse the (long) right column — capture label BEFORE injecting an icon.
+      var DEFAULT_COLLAPSED = { "Cost breakdown": 1, "Outbound escrows": 1, "Delivery categories": 1, "Audit trail": 1 };
+      document.querySelectorAll(".sidebar .panel-section").forEach(function(sec) {
+        var h = sec.querySelector(".card-heading"); if (!h) return;
+        var label = h.textContent.trim();
+        h.setAttribute("data-label", label);
+        var chev = document.createElement("span"); chev.className = "sec-chev"; chev.textContent = "▾";
+        h.appendChild(chev);
+        var saved = null; try { saved = localStorage.getItem("sec_" + label); } catch (e) {}
+        var collapsed = (saved === null) ? !!DEFAULT_COLLAPSED[label] : (saved === "1");
+        if (collapsed) sec.classList.add("collapsed");
+        h.addEventListener("click", function() {
+          sec.classList.toggle("collapsed");
+          try { localStorage.setItem("sec_" + label, sec.classList.contains("collapsed") ? "1" : "0"); } catch (e) {}
+        });
+      });
+      // 2) colorful icon chips on panel headings (prefix match tolerates trailing badges).
+      function iconFor(label) {
+        if (ICONS[label]) return ICONS[label];
+        for (var k in ICONS) { if (label.indexOf(k) === 0) return ICONS[k]; }
+        return null;
+      }
+      document.querySelectorAll(".content-panel .card-heading").forEach(function(h) {
+        var label = (h.getAttribute("data-label") || h.textContent).trim();
+        var em = iconFor(label);
+        if (em && !h.querySelector(".sec-icon")) {
+          var s = document.createElement("span"); s.className = "sec-icon"; s.textContent = em;
+          h.insertBefore(s, h.firstChild);
+        }
       });
     })();
   </script>
