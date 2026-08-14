@@ -74,9 +74,10 @@ def test_paper_theme_and_platforms(client):
     # Platforms panel + nav + logos
     assert "panel-platforms" in html and 'data-panel="platforms"' in html
     assert "fetchPlatforms" in html and "s2/favicons" in html
-    # colorful section icons + collapsible right column
-    assert "sec-icon" in html and "sec-chev" in html
+    # monochrome SVG section icons + collapsible right column + platforms on homepage
+    assert "sec-icon" in html and "sec-chev" in html and "iconSvg" in html
     assert "panel-section.collapsed" in html and "DEFAULT_COLLAPSED" in html
+    assert 'id="platformGridHome"' in html  # platform cards surfaced on the homepage
     # endpoint returns the integrated marketplaces with status
     plats = client.get("/api/platforms").json()["platforms"]
     names = {p["name"] for p in plats}

@@ -700,8 +700,9 @@
     .plat-status { font-size: 0.74rem; color: var(--text-soft); }
     .plat-open { margin-left: auto; font-size: 0.76rem; color: var(--accent); font-weight: 600; }
 
-    /* Colorful section icons (logo-chip feel, breaks the monochrome) */
-    .sec-icon { display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 7px; background: var(--bg-elevated); border: 1px solid var(--border); font-size: 13px; line-height: 1; margin-right: 9px; flex: none; }
+    /* Monochrome SVG section icons (clean, consistent) */
+    .sec-icon { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; border-radius: 7px; background: var(--bg-elevated); border: 1px solid var(--border); color: var(--text); line-height: 1; margin-right: 9px; flex: none; }
+    .sec-icon svg { display: block; }
     .card-heading { display: flex; align-items: center; }
     /* Collapsible right-column sections */
     .sidebar .panel-section > .card-heading { cursor: pointer; user-select: none; }
@@ -849,6 +850,12 @@
         </section>
       </aside>
     </div>
+    <section class="panel-section" id="homePlatforms" style="margin-top:18px">
+      <div class="card-title">Platforms</div>
+      <div class="card-heading">Connected marketplaces &amp; rails</div>
+      <p class="card-desc">Where Sovereign-OS discovers work and settles payment. Green = live, amber = dry-run (safe default). Click a card to open the platform.</p>
+      <div id="platformGridHome" class="plat-grid"><span class="empty-feed">Loading platforms…</span></div>
+    </section>
     <div class="stats">
       <div class="stat"><div class="label">Balance</div><div class="value" id="finBalance">$0.00</div></div>
       <div class="stat"><div class="label">Tokens burned</div><div class="value" id="finTokens">0</div></div>
@@ -1133,10 +1140,12 @@
     }
     var PLAT_COLORS = ["#4f46e5","#0e7c86","#b45309","#7c3aed","#0369a1","#be185d","#15803d","#c2410c"];
     function fetchPlatforms() {
+      var grids = document.querySelectorAll(".plat-grid");
+      if (!grids.length) return;
       fetch("/api/platforms").then(function(x){ return x.json(); }).then(function(d){
         var plats = (d && d.platforms) || [];
-        if (!plats.length) { r("platformGrid").innerHTML = '<span class="empty-feed">No platforms.</span>'; return; }
-        r("platformGrid").innerHTML = plats.map(function(p, i){
+        if (!plats.length) { grids.forEach(function(g){ g.innerHTML = '<span class="empty-feed">No platforms.</span>'; }); return; }
+        var cards = plats.map(function(p, i){
           var col = PLAT_COLORS[i % PLAT_COLORS.length];
           var mono = esc((p.name || "?").charAt(0));
           var fav = "https://www.google.com/s2/favicons?sz=64&domain=" + encodeURIComponent(p.domain || "");
@@ -1159,7 +1168,8 @@
             +   '<span class="plat-open">Open &#8599;</span></div>'
             + '</a>';
         }).join("");
-      }).catch(function(){ r("platformGrid").innerHTML = '<span class="empty-feed">Failed to load platforms.</span>'; });
+        grids.forEach(function(g){ g.innerHTML = cards; });
+      }).catch(function(){ document.querySelectorAll(".plat-grid").forEach(function(g){ g.innerHTML = '<span class="empty-feed">Failed to load platforms.</span>'; }); });
     }
     function fetchFinance() {
       fetch("/api/finance").then(function(x){ return x.json(); }).then(function(d){
@@ -1784,7 +1794,7 @@
     setInterval(fetchAuditTrail, 8000);
     setInterval(function() { if (getPanel() === "guardrails") fetchGuardrails(); }, 2000);
     setInterval(function() { if (getPanel() === "finance") fetchFinance(); }, 3000);
-    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchCategories(); fetchAuditTrail();
+    fetchStatus(); fetchTasks(); fetchLogs(); fetchJobs(); fetchHealth(); fetchTokenUsage(); fetchCostSummary(); fetchOversight(); fetchCategories(); fetchAuditTrail(); fetchPlatforms();
 
     // Polish: shimmer the key numbers until first data, then flash them on every change.
     (function() {
@@ -1804,15 +1814,28 @@
       });
     })();
 
-    // Colorful section icons + collapsible right-column sections.
+    // Monochrome SVG section icons + collapsible right-column sections.
     (function() {
-      var ICONS = {
-        "Run a mission": "🎯", "Tasks": "🧩", "Activity": "📡",
-        "Health check": "🩺", "Token usage": "💰", "Cost breakdown": "📊",
-        "Outbound escrows": "🛡️", "Delivery categories": "🗂️", "Job queue": "⚙️", "Audit trail": "🔏",
-        "Session guard": "⚡", "Active capability leases": "🔑", "Agent trust": "🤝",
-        "Profit by lane": "📈", "Run a mission ": "🎯"
+      var SVG = {
+        "Run a mission": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/>',
+        "Tasks": '<line x1="6" y1="4" x2="6" y2="13.5"/><circle cx="6" cy="18" r="2.4"/><circle cx="18" cy="6" r="2.4"/><path d="M18 8.4a9 9 0 0 1-9 9"/>',
+        "Activity": '<polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/>',
+        "Health check": '<path d="M3 12h4l2-7 4 14 2-7h4"/>',
+        "Token usage": '<line x1="12" y1="2" x2="12" y2="22"/><path d="M16.5 6.5H10a3 3 0 0 0 0 6h4a3 3 0 0 1 0 6H7"/>',
+        "Cost breakdown": '<line x1="6" y1="20" x2="6" y2="14"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="18" y1="20" x2="18" y2="10"/>',
+        "Outbound escrows": '<path d="M12 22s7.5-3.5 7.5-9.5V5L12 2 4.5 5v7.5C4.5 18.5 12 22 12 22z"/>',
+        "Delivery categories": '<polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/>',
+        "Job queue": '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.6" cy="6" r="0.9"/><circle cx="3.6" cy="12" r="0.9"/><circle cx="3.6" cy="18" r="0.9"/>',
+        "Audit trail": '<path d="M22 11.5V12a10 10 0 1 1-5.9-9.1"/><polyline points="22 4 12 14.02 9 11.02"/>',
+        "Session guard": '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+        "Active capability leases": '<circle cx="8" cy="15" r="4"/><line x1="10.8" y1="12.2" x2="19" y2="4"/><line x1="18" y1="5" x2="20" y2="7"/><line x1="15" y1="8" x2="17" y2="10"/>',
+        "Agent trust": '<circle cx="12" cy="9" r="5"/><polyline points="8.5 13 7 22 12 19 17 22 15.5 13"/>',
+        "Profit by lane": '<polyline points="22 7 13.5 15.5 8.5 10.5 2 17"/><polyline points="16 7 22 7 22 13"/>'
       };
+      function iconSvg(inner) {
+        return '<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" '
+          + 'stroke-width="2" stroke-linecap="round" stroke-linejoin="round">' + inner + '</svg>';
+      }
       // 1) collapse the (long) right column — capture label BEFORE injecting an icon.
       var DEFAULT_COLLAPSED = { "Cost breakdown": 1, "Outbound escrows": 1, "Delivery categories": 1, "Audit trail": 1 };
       document.querySelectorAll(".sidebar .panel-section").forEach(function(sec) {
@@ -1829,17 +1852,17 @@
           try { localStorage.setItem("sec_" + label, sec.classList.contains("collapsed") ? "1" : "0"); } catch (e) {}
         });
       });
-      // 2) colorful icon chips on panel headings (prefix match tolerates trailing badges).
-      function iconFor(label) {
-        if (ICONS[label]) return ICONS[label];
-        for (var k in ICONS) { if (label.indexOf(k) === 0) return ICONS[k]; }
+      // 2) monochrome SVG icon chips on panel headings (prefix match tolerates trailing badges).
+      function innerFor(label) {
+        if (SVG[label]) return SVG[label];
+        for (var k in SVG) { if (label.indexOf(k) === 0) return SVG[k]; }
         return null;
       }
       document.querySelectorAll(".content-panel .card-heading").forEach(function(h) {
         var label = (h.getAttribute("data-label") || h.textContent).trim();
-        var em = iconFor(label);
-        if (em && !h.querySelector(".sec-icon")) {
-          var s = document.createElement("span"); s.className = "sec-icon"; s.textContent = em;
+        var inner = innerFor(label);
+        if (inner && !h.querySelector(".sec-icon")) {
+          var s = document.createElement("span"); s.className = "sec-icon"; s.innerHTML = iconSvg(inner);
           h.insertBefore(s, h.firstChild);
         }
       });
