@@ -143,33 +143,33 @@
     .wrap {
       max-width: 1360px;
       margin: 0 auto;
-      padding: 36px 32px 56px;
+      padding: 20px 32px 48px;
       text-align: left;
     }
     .hero {
-      margin-bottom: 32px;
+      margin-bottom: 24px;
       text-align: left;
       animation: fadeInUp 0.5s var(--ease-out) 0.05s both;
     }
     .hero-label {
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 600;
       text-transform: uppercase;
       letter-spacing: 0.08em;
       color: var(--text-muted);
-      margin-bottom: 8px;
+      margin-bottom: 5px;
     }
     .hero h1 {
       font-family: var(--font-display);
-      font-size: 2.05rem;
+      font-size: 1.7rem;
       font-weight: 800;
       letter-spacing: -0.025em;
       color: var(--black);
-      line-height: 1.2;
-      margin-bottom: 10px;
+      line-height: 1.18;
+      margin-bottom: 7px;
     }
     .hero p {
-      font-size: 1rem;
+      font-size: 0.9rem;
       color: var(--text-soft);
       font-weight: 400;
       max-width: 560px;
@@ -703,18 +703,19 @@
     .plat-open { margin-left: auto; font-size: 0.76rem; color: var(--accent); font-weight: 600; }
 
     /* Hero row: headline left, compact platforms right */
-    .hero-row { display: flex; gap: 28px; align-items: flex-start; }
-    .hero-row .hero { flex: 0 1 360px; min-width: 260px; margin-bottom: 8px; }
-    .hero-plat { flex: 1 1 0; min-width: 0; padding: 16px 18px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); }
-    .hero-plat .card-title { margin-bottom: 12px; }
+    .hero-row { display: flex; gap: 24px; align-items: flex-start; margin-bottom: 16px; }
+    .hero-row .hero { flex: 0 1 320px; min-width: 240px; margin-bottom: 0; }
+    .hero-plat { flex: 1 1 0; min-width: 0; padding: 12px 14px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); }
+    .hero-plat .card-title { margin-bottom: 9px; }
     .hp-sub { color: var(--text-muted); font-weight: 500; text-transform: none; letter-spacing: 0; }
-    .hero-plat .plat-grid { grid-template-columns: repeat(auto-fill, minmax(158px, 1fr)); gap: 10px; }
-    .hero-plat .plat-card { padding: 11px 12px; gap: 7px; }
-    .hero-plat .plat-logo, .hero-plat .plat-mono { width: 26px; height: 26px; }
-    .hero-plat .plat-name { font-size: 0.86rem; }
-    .hero-plat .plat-note, .hero-plat .plat-badges { display: none; }
-    .hero-plat .plat-foot { padding-top: 2px; }
-    .hero-plat .plat-status { font-size: 0.72rem; }
+    .hero-plat .plat-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+    .hero-plat .plat-card { flex-direction: row; align-items: center; padding: 8px 10px; gap: 9px; }
+    .hero-plat .plat-top { flex: 1; min-width: 0; }
+    .hero-plat .plat-logo, .hero-plat .plat-mono { width: 24px; height: 24px; }
+    .hero-plat .plat-name { font-size: 0.84rem; }
+    .hero-plat .plat-note, .hero-plat .plat-badges, .hero-plat .plat-open { display: none; }
+    .hero-plat .plat-foot { padding-top: 0; margin: 0; }
+    .hero-plat .plat-status { display: none; }
     @media (max-width: 1000px) { .hero-row { flex-direction: column; } .hero-row .hero { flex: none; } }
 
     /* Monochrome SVG section icons (clean, consistent) */
