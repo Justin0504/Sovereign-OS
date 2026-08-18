@@ -798,7 +798,7 @@
       <header class="hero">
         <div class="hero-label">Command Center</div>
         <h1>Run missions &amp; get paid</h1>
-        <p>Describe a goal, approve jobs, and watch the audit stream. Ledger · CEO/CFO · 24/7 · <a href="/health" target="_blank">/health</a></p>
+        <p>Describe a goal, approve jobs, and watch the audit stream. Ledger · governed · 24/7 · <a href="/health" target="_blank">/health</a></p>
       </header>
       <section class="panel-section hero-plat" id="homePlatforms">
         <div class="card-title">Platforms · <span class="hp-sub">connected marketplaces &amp; rails</span></div>
@@ -811,7 +811,7 @@
         <section class="panel-section">
           <div class="card-title">Mission</div>
           <div class="card-heading">Run a mission</div>
-          <p class="card-desc">Describe the goal; the entity will plan, get CFO approval, dispatch agents, and audit.</p>
+          <p class="card-desc">Describe the goal; the entity will plan, check the budget, dispatch agents, and audit.</p>
           <div class="prompt-row">
             <input type="text" id="goal" placeholder="e.g. Summarize the market in one paragraph" value="Summarize the market in one paragraph." />
             <button class="btn" onclick="runMission()">Run</button>
@@ -945,10 +945,10 @@
       </div>
     </div>
     <div id="panel-guardrails" class="content-panel">
-      <header class="hero"><div class="hero-label">Guardrails</div><h1>CFO circuit breaker &amp; JIT permissions</h1><p>Live session spend vs. the fast-fail ceiling, and just-in-time capability leases held by agents right now. Refreshes every 2s.</p></header>
+      <header class="hero"><div class="hero-label">Guardrails</div><h1>Spend circuit breaker &amp; JIT permissions</h1><p>Live session spend vs. the fast-fail ceiling, and just-in-time capability leases held by agents right now. Refreshes every 2s.</p></header>
       <div class="dashboard-panel" style="padding: 24px 32px;">
         <section class="panel-section">
-          <div class="card-title">CFO · Circuit breaker</div>
+          <div class="card-title">Spending · Circuit breaker</div>
           <div class="card-heading" style="display:flex;align-items:center;gap:12px">
             Session guard <span id="gbState" class="gb-badge gb-ok">CLOSED</span>
             <button class="btn" style="margin-left:auto;padding:6px 14px;font-size:0.8rem" onclick="resetBreaker()">Reset session</button>
@@ -1487,7 +1487,7 @@
           fetch('/api/jobs/' + j.job_id + '/progress').then(x => x.json()).then(p => {
             var el = document.getElementById('jprog-' + j.job_id);
             if (!el) return;
-            var stages = {planning:'Planning...',approving:'CFO Approving...',executing:'Executing...',auditing:'Auditing...',settling:'Payment...',done:'Done'};
+            var stages = {planning:'Planning...',approving:'Checking budget...',executing:'Executing...',auditing:'Auditing...',settling:'Payment...',done:'Done'};
             var lbl = stages[p.stage] || p.stage;
             if (p.tasks_total > 0 && p.stage === 'executing') lbl = 'Task ' + p.tasks_done + '/' + p.tasks_total;
             if (p.current_task) lbl = p.current_task.slice(0,30);
@@ -1550,7 +1550,7 @@
         if (_logsSnapshot === snapshot) return;
         _logsSnapshot = snapshot;
         var savedScroll = div.scrollTop;
-        var badges = { ceo: 'CEO', cfo: 'CFO', auditor_pass: 'Audit ✓', auditor_fail: 'Audit ✗', system: 'System' };
+        var badges = { ceo: 'Plan', cfo: 'Budget', auditor_pass: 'Audit ✓', auditor_fail: 'Audit ✗', system: 'System' };
         div.innerHTML = logs.length ? logs.map(l => {
           var badge = badges[l.source] || l.source;
           return '<div class="feed-item ' + l.source + '"><span class="feed-badge">' + escapeHtml(badge) + '</span>' + escapeHtml(l.message) + '</div>';
