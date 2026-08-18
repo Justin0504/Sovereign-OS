@@ -721,9 +721,12 @@
     /* Colorful "delivery capabilities" cards (pastel art + line icon) */
     .cap-row { padding: 24px 30px; border: 1px solid var(--border); border-radius: var(--radius-lg); background: var(--bg-card); }
     .cap-head { font-size: 0.92rem; font-weight: 700; color: var(--black); margin-bottom: 13px; font-family: var(--font-display); }
-    .cap-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(186px, 1fr)); gap: 14px; }
-    .cap-card { border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-card); transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out); }
+    .cap-grid { display: grid; grid-auto-flow: column; grid-auto-columns: minmax(150px, 1fr); gap: 12px; overflow-x: auto; padding-bottom: 4px; }
+    .cap-card { position: relative; cursor: pointer; border: 1px solid var(--border); border-radius: var(--radius); overflow: hidden; background: var(--bg-card); transition: transform var(--dur) var(--ease-out), box-shadow var(--dur) var(--ease-out); }
     .cap-card:hover { transform: translateY(-3px); box-shadow: var(--shadow-hover); }
+    .cap-card:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+    .cap-use { position: absolute; top: 10px; right: 10px; font-size: 0.68rem; font-weight: 600; color: var(--black); background: rgba(255,255,255,0.85); border: 1px solid var(--border); border-radius: 999px; padding: 2px 8px; opacity: 0; transform: translateY(-2px); transition: opacity var(--dur-fast), transform var(--dur-fast); }
+    .cap-card:hover .cap-use { opacity: 1; transform: translateY(0); }
     .cap-art { height: 88px; display: flex; align-items: center; justify-content: center; color: #17171a; }
     .cap-art svg { width: 38px; height: 38px; }
     .cap-body { padding: 12px 14px 14px; }
@@ -1927,6 +1930,35 @@
           var s = document.createElement("span"); s.className = "sec-icon"; s.innerHTML = iconSvg(inner);
           h.insertBefore(s, h.firstChild);
         }
+      });
+    })();
+
+    // Capability cards: click to prefill the mission runner with a starter goal.
+    (function() {
+      var GOALS = {
+        "Coding": "Fix the failing tests in this repository and open a pull request.",
+        "Research": "Research the top 5 competitors in the AI-agents market and summarize with citations.",
+        "Writing": "Write a 300-word product announcement email in a confident, friendly tone.",
+        "Data": "Analyze the attached dataset and produce a short report with the key metrics and trends.",
+        "Design": "Write a design brief for a SaaS landing-page hero section.",
+        "Automation": "Draft a step-by-step automation spec for onboarding new users."
+      };
+      document.querySelectorAll(".cap-card").forEach(function(card) {
+        var nameEl = card.querySelector(".cap-name"); if (!nameEl) return;
+        var goal = GOALS[nameEl.textContent.trim()]; if (!goal) return;
+        card.setAttribute("role", "button"); card.setAttribute("tabindex", "0");
+        var hint = document.createElement("span"); hint.className = "cap-use"; hint.textContent = "Use →";
+        card.appendChild(hint);
+        function go() {
+          if (location.hash && location.hash !== "#dashboard") { location.hash = "#dashboard"; }
+          var g = r("goal"); if (!g) return;
+          g.value = goal; g.focus();
+          g.scrollIntoView({ behavior: "smooth", block: "center" });
+          g.classList.remove("flash"); void g.offsetWidth; g.classList.add("flash");
+          setTimeout(function() { g.classList.remove("flash"); }, 850);
+        }
+        card.addEventListener("click", go);
+        card.addEventListener("keydown", function(e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
       });
     })();
   </script>
