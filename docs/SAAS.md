@@ -34,12 +34,26 @@ This keeps the MVP out of the money-transmission / custody / KYC swamp:
 - `run_tenant_mission(...)` enforces plan limits, runs under the tenant's keys/engine,
   and meters realized token spend.
 
+## Multi-tenant API + console
+
+`saas/api.py` — a standalone FastAPI app (`create_saas_app`), separate from the
+single-tenant dashboard. Auth is the tenant API key (`X-Tenant-Key`). Endpoints:
+
+- `POST /saas/tenants` — sign up (name, plan) → returns the tenant + its API key **once**.
+- `GET  /saas/tenants/me` — the tenant, its plan, and today's usage (key-authed).
+- `PUT  /saas/tenants/me/config` — set BYO keys, charter, earning toggle (secrets masked back).
+- `POST /saas/tenants/me/missions` — run a governed mission under the tenant's key/engine;
+  402 when a plan limit or missing key blocks it.
+- `GET  /` — a minimal signup console (create workspace → save key → configure keys → run).
+
+Each tenant's ledger is seeded once with a monthly operating budget (a governance
+ceiling; real LLM cost bills the tenant's own key). Run: `python -m sovereign_os.saas.api`.
+
 ## Status & next steps
 
-Done: tenancy core, plan/limit enforcement, per-tenant isolation, BYO-key context
-(validated by the test suite).
+Done: tenancy core + plan/limit enforcement + per-tenant isolation + BYO-key context;
+multi-tenant API + signup console (all validated by the test suite).
 
-Next: (1) multi-tenant web routing — resolve the tenant from an API key / subdomain and
-scope the dashboard + API to that tenant; (2) a signup/console UI and Stripe-billed
-subscriptions for the platform itself; (3) turn on the earning module for `team` tenants
-once the live x402/Stripe settlement loop is verified end-to-end.
+Next: (1) marketing site (landing page) + deployment config for a custom domain;
+(2) Stripe-billed platform subscriptions (the plan price → real billing); (3) turn on the
+earning module for `team` tenants once the live x402/Stripe settlement loop is verified.
