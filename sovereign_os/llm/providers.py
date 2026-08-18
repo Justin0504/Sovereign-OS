@@ -56,8 +56,45 @@ def _anthropic_system(system_text: str | None):
     return system_text
 
 
+import contextvars
+
+# Per-tenant BYO keys for the current async context (SaaS multi-tenancy). When set,
+# workers use the tenant's own LLM keys instead of the process env — so one tenant's
+# usage bills their key, never a shared platform key. None (default) => env behavior.
+_tenant_keys: contextvars.ContextVar["dict | None"] = contextvars.ContextVar("_tenant_keys", default=None)
+
+
+def set_tenant_keys(keys: "dict | None") -> "contextvars.Token":
+    """Bind the current context's tenant keys, e.g. {'provider','openai','anthropic'}.
+    Returns a token; pass it to reset_tenant_keys() to restore."""
+    return _tenant_keys.set(keys or None)
+
+
+def reset_tenant_keys(token: "contextvars.Token") -> None:
+    _tenant_keys.reset(token)
+
+
+def _tenant_key_for(provider: str) -> "str | None":
+    tk = _tenant_keys.get()
+    if not tk:
+        return None
+    if provider == "openai":
+        return (tk.get("openai") or "").strip() or None
+    if provider in ("anthropic", "claude"):
+        return (tk.get("anthropic") or "").strip() or None
+    return None
+
+
 def _default_provider() -> str:
-    """If SOVEREIGN_LLM_PROVIDER not set: use anthropic when only ANTHROPIC_API_KEY is set."""
+    """Tenant keys win; else SOVEREIGN_LLM_PROVIDER; else infer from which key is set."""
+    tk = _tenant_keys.get()
+    if tk:
+        if (tk.get("provider") or "").strip():
+            return tk["provider"].strip()
+        if (tk.get("anthropic") or "").strip() and not (tk.get("openai") or "").strip():
+            return "anthropic"
+        if (tk.get("openai") or "").strip() and not (tk.get("anthropic") or "").strip():
+            return "openai"
     if _env("SOVEREIGN_LLM_PROVIDER"):
         return _env("SOVEREIGN_LLM_PROVIDER", "openai") or "openai"
     if _env("ANTHROPIC_API_KEY") and not _env("OPENAI_API_KEY"):
@@ -273,9 +310,9 @@ def create_llm_client(role: str, *, model_override: str | None = None) -> ChatLL
     model = model_override or cfg.model
 
     if provider == "openai":
-        return OpenAIChatLLM(model=model)
+        return OpenAIChatLLM(model=model, api_key=_tenant_key_for("openai"))
     if provider in {"anthropic", "claude"}:
-        return AnthropicChatLLM(model=model)
+        return AnthropicChatLLM(model=model, api_key=_tenant_key_for("anthropic"))
 
     # Placeholders for future providers; they raise clear errors instead of failing silently.
     if provider in {"deepseek", "deepseek-ai"}:
