@@ -123,7 +123,20 @@ class TenantStore:
             created_ts=time.time(),
         )
         self._tenants[tenant.id] = tenant
-        self.data_dir(tenant).mkdir(parents=True, exist_ok=True)
+        d = self.data_dir(tenant)
+        d.mkdir(parents=True, exist_ok=True)
+        # Seed the tenant's ledger with a monthly operating budget (a governance ceiling;
+        # real LLM cost bills the tenant's own key). Daily limits + the circuit breaker are
+        # the live guardrails. Seeded once, at signup.
+        try:
+            from sovereign_os.ledger.unified_ledger import UnifiedLedger
+
+            led = UnifiedLedger(persist_path=str(d / "ledger.jsonl"))
+            if led.total_usd_cents() == 0:
+                led.record_usd(max(5000, get_plan(tenant.plan).max_daily_spend_cents * 30),
+                               purpose="trial_credit")
+        except Exception:  # noqa: BLE001 - seeding is best-effort
+            pass
         self._save_tenants()
         return tenant
 
