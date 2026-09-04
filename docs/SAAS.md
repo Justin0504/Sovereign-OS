@@ -1,8 +1,15 @@
-# Sovereign-OS as a SaaS (multi-tenant)
+# Multi-tenant mode (optional team self-host)
 
-The SaaS sells the **governed agent control plane** — budget control, earned-autonomy
-permissions, tamper-evident audit, and verified delivery — not a cut of any "earnings."
-This keeps the MVP out of the money-transmission / custody / KYC swamp:
+> **Sovereign-OS is local-first.** The primary product is the single-tenant workspace each
+> operator runs on their own machine — see [DEPLOY.md](DEPLOY.md). This document covers the
+> *optional* multi-tenant mode, for a team that wants **one instance they self-host** for
+> their own seats. It is not a service anyone else operates for you: the platform still
+> never holds funds or custodies keys on a tenant's behalf.
+
+Multi-tenant mode offers the **governed agent control plane** — budget control,
+earned-autonomy permissions, tamper-evident audit, and verified delivery — with isolated
+workspaces, never a cut of any "earnings." That keeps it out of the
+money-transmission / custody / KYC swamp:
 
 - **Bring your own keys.** Each tenant supplies its own LLM key and, optionally, its own
   Stripe account and wallet. The platform never holds funds or custodies keys on a
@@ -52,8 +59,11 @@ ceiling; real LLM cost bills the tenant's own key). Run: `python -m sovereign_os
 ## Status & next steps
 
 Done: tenancy core + plan/limit enforcement + per-tenant isolation + BYO-key context;
-multi-tenant API + signup console (all validated by the test suite).
+multi-tenant API + signup console (all validated by the test suite). Marketing site
+([`site/`](../site)) + deployment config ([DEPLOY.md](DEPLOY.md), GitHub Pages workflow)
+shipped, framed local-first.
 
-Next: (1) marketing site (landing page) + deployment config for a custom domain;
-(2) Stripe-billed platform subscriptions (the plan price → real billing); (3) turn on the
-earning module for `team` tenants once the live x402/Stripe settlement loop is verified.
+Next (only if/when a managed edition is warranted): (1) Stripe-billed subscriptions for the
+optional hosted edition; (2) turn on the earning module for `team` tenants once the live
+x402/Stripe settlement loop is verified end-to-end. Both stay off by default — the product
+never over-promises, and the local-first workspace needs neither.
