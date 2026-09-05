@@ -9,8 +9,12 @@
 </p>
 
 <p align="center">
-  <strong>A governed AI workforce, ready to deploy on day one.<br>
-  Submit a goal — Sovereign-OS plans it, approves the budget, executes with built-in workers, and delivers a cryptographically verified result.</strong>
+  <strong>Governance for an autonomous AI workforce — runs on your machine, on your keys.<br>
+  Submit a goal: Sovereign-OS plans it, checks the budget, executes with built-in workers, and delivers a cryptographically verified result.</strong>
+</p>
+
+<p align="center">
+  <em>Open source &bull; self-hosted &bull; bring your own keys &bull; no fund custody</em>
 </p>
 
 <p align="center">
@@ -47,7 +51,7 @@ The Ledger is append-only. The Auditor is cryptographically bound. Neither can b
 
 |                  | Typical agent frameworks                   | Sovereign-OS                                                                       |
 |------------------|--------------------------------------------|------------------------------------------------------------------------------------|
-| **Cost control** | API key = burn until empty.                | Every cent and token is tracked. CFO approves before every task. Daily caps enforced. |
+| **Cost control** | API key = burn until empty.                | Every cent and token is tracked. The budget is checked before every task. Daily caps + circuit breaker enforced. |
 | **Quality**      | Hope the output is correct.                | Every task verified against Charter KPIs. Fail audit → TrustScore drops. Proof hash on every report. |
 | **Permissions**  | All-or-nothing.                            | Agents start sandboxed. They earn capabilities (`SPEND_USD`, `CALL_API`, `WRITE_FILES`) via TrustScore. |
 | **Monetization** | None.                                      | Built-in job queue, Stripe integration, ingest from any source, webhook on delivery. |
@@ -56,27 +60,37 @@ The Ledger is append-only. The Auditor is cryptographically bound. Neither can b
 
 ## Quick Start
 
-**CLI — run a single mission in 30 seconds:**
+Everything runs on your machine, on your keys — nothing is sent to a central service.
+
+**Docker — the whole workspace:**
 
 ```bash
 git clone https://github.com/Justin0504/Sovereign-OS.git && cd Sovereign-OS
+export ANTHROPIC_API_KEY=sk-ant-…        # or OPENAI_API_KEY
+docker compose up -d redis web           # web console on :8000
+# Open http://localhost:8000
+```
+
+**CLI — run a single mission in 30 seconds:**
+
+```bash
 pip install -e .
 sovereign run --charter charter.example.yaml "Summarize the current AI agent landscape."
 ```
 
-Output: task plan → CFO approval → execution → audit report → ledger entry.
+Output: task plan → budget check → execution → audit report → ledger entry.
 
-**Web dashboard — accept paid jobs, run 24/7:**
+**Web dashboard — submit missions and watch the governed run:**
 
 ```bash
 pip install -e ".[llm]"
 cp .env.example .env
-# Edit .env: set OPENAI_API_KEY or ANTHROPIC_API_KEY, and optionally STRIPE_API_KEY
+# Edit .env: set ANTHROPIC_API_KEY or OPENAI_API_KEY (optionally STRIPE_API_KEY)
 python -m sovereign_os.web.app
 # Open http://localhost:8000
 ```
 
-From the dashboard you can submit missions, inspect the job queue, approve or retry jobs, and monitor token usage and the audit trail in real time.
+From the dashboard you can submit missions, inspect the job queue, retry jobs, and monitor token usage and the audit trail in real time. Deploying to a server or a custom domain? See **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ---
 
