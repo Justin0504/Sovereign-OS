@@ -803,8 +803,8 @@
     <div class="hero-row">
       <header class="hero">
         <div class="hero-label">Command Center</div>
-        <h1>Run missions &amp; get paid</h1>
-        <p>Describe a goal, approve jobs, and watch the audit stream. Ledger · governed · 24/7 · <a href="/health" target="_blank">/health</a></p>
+        <h1>Run governed missions</h1>
+        <p>State a goal; every action clears budget and permission checks, and ships with a verifiable audit trail. Governed · append-only ledger · <a href="/health" target="_blank">/health</a></p>
       </header>
       <section class="panel-section hero-plat" id="homePlatforms">
         <div class="card-title">Platforms · <span class="hp-sub">connected marketplaces &amp; rails</span></div>
@@ -817,7 +817,7 @@
         <section class="panel-section">
           <div class="card-title">Mission</div>
           <div class="card-heading">Run a mission</div>
-          <p class="card-desc">Describe the goal; the entity will plan, check the budget, dispatch agents, and audit.</p>
+          <p class="card-desc">State the goal; Sovereign-OS plans it, checks the budget, dispatches workers under scoped permissions, and audits the result.</p>
           <div class="prompt-row">
             <input type="text" id="goal" placeholder="e.g. Summarize the market in one paragraph" value="Summarize the market in one paragraph." />
             <button class="btn" onclick="runMission()">Run</button>
@@ -836,7 +836,7 @@
         <section class="panel-section">
           <div class="card-title">Decision stream</div>
           <div class="card-heading">Activity</div>
-          <p class="flow-summary">Order → Plan → Approve → Execute (permission check) → Audit → Deliver & pay.</p>
+          <p class="flow-summary">Plan → Budget check → Permission → Execute → Audit → Settle.</p>
           <p class="card-desc">Plans, approvals, execution, and audit results in real time.</p>
           <div class="feed" id="logs"></div>
         </section>
@@ -878,7 +878,7 @@
         <section class="panel-section">
           <div class="card-title">Operations</div>
           <div class="card-heading">Job queue</div>
-          <p class="card-desc">External jobs; approve to run 24/7.</p>
+          <p class="card-desc">Inbound work ingested from connected sources; approve to dispatch under governance.</p>
           <div class="batch-bar" id="batchBar">
             <span id="batchCount">0 selected</span>
             <button class="btn" onclick="batchApprove()">Approve</button>
@@ -1560,7 +1560,7 @@
         div.innerHTML = logs.length ? logs.map(l => {
           var badge = badges[l.source] || l.source;
           return '<div class="feed-item ' + l.source + '"><span class="feed-badge">' + escapeHtml(badge) + '</span>' + escapeHtml(l.message) + '</div>';
-        }).join('') : '<div class="empty-feed">When your company thinks, this stream becomes your audit trail.</div>';
+        }).join('') : '<div class="empty-feed">Plans, approvals, execution, and audit results appear here in real time.</div>';
         requestAnimationFrame(function() {
           div.scrollTop = Math.min(savedScroll, Math.max(0, div.scrollHeight - div.clientHeight));
         });
