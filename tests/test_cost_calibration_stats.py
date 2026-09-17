@@ -236,3 +236,51 @@ def test_reset_clears_samples(cal):
     cal.reset()
     assert cal.stats("coding").n == 0
     assert cal.samples_for("coding") == []
+
+
+# ------------------------------------------------------- model pricing regressions
+
+def test_current_claude_rates_are_correct():
+    """
+    Rates verified against platform.claude.com/docs/en/about-claude/pricing (2026-09-17).
+    Pinned because every downstream money decision — EV screening, bid floors, portfolio
+    selection — is computed from these numbers.
+    """
+    from sovereign_os.governance.pricing import get_model_pricing
+
+    expected = {
+        "claude-opus-5": (5.00, 25.00),
+        "claude-sonnet-5": (2.00, 10.00),
+        "claude-sonnet-4-6": (3.00, 15.00),
+        "claude-haiku-4-5": (1.00, 5.00),
+        "claude-fable-5-1": (10.00, 50.00),
+    }
+    for model, rate in expected.items():
+        assert get_model_pricing(model) == rate, model
+
+
+def test_opus_45_plus_is_not_priced_at_the_retired_opus_4_rate():
+    """
+    Regression: "claude-opus-4" is a prefix of "claude-opus-4-5"/"-4-8", so longest-prefix
+    matching charged Opus 4.5+ at the retired Opus 4 rate of $15/$75 — 3x the real $5/$25.
+    A 3x cost overestimate makes the EV screen reject work that is actually profitable.
+    """
+    from sovereign_os.governance.pricing import get_model_pricing
+
+    for model in ("claude-opus-4-5", "claude-opus-4-5-20251101",
+                  "claude-opus-4-6", "claude-opus-4-7", "claude-opus-4-8"):
+        assert get_model_pricing(model) == (5.00, 25.00), model
+
+    # The genuinely retired ids keep their own, higher rate.
+    assert get_model_pricing("claude-opus-4-1") == (15.00, 75.00)
+    assert get_model_pricing("claude-opus-4-20250514") == (15.00, 75.00)
+
+
+def test_default_anthropic_model_is_live_and_priced():
+    """The previous default (claude-sonnet-4-20250514) was retired and 404s."""
+    from sovereign_os.governance.pricing import FALLBACK_PRICING, get_model_pricing
+    from sovereign_os.llm.providers import _default_model
+
+    model = _default_model("anthropic")
+    assert model == "claude-sonnet-5"
+    assert get_model_pricing(model) != FALLBACK_PRICING

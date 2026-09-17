@@ -105,7 +105,10 @@ def _default_provider() -> str:
 def _default_model(provider: str) -> str:
     """Default model per provider when SOVEREIGN_LLM_MODEL not set."""
     if provider in ("anthropic", "claude"):
-        return "claude-sonnet-4-20250514"
+        # claude-sonnet-4-20250514 was retired and now 404s, which broke every call for
+        # a deployment carrying only an Anthropic key. Sonnet 5 is the current default
+        # and is priced in governance.pricing.
+        return "claude-sonnet-5"
     return "gpt-4o"
 
 

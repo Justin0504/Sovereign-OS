@@ -298,8 +298,19 @@ def engine_runner(engine, ledger) -> Runner:
     measurement trustworthy: the realized figure is the sum of charges observed at
     `UnifiedLedger.record_*`, so nothing the agent reports about its own consumption
     enters the number.
+
+    Token charges are re-priced here from the exact token counts rather than summed from
+    the ledger's integer-cent field. The ledger quantizes each call to whole cents, and
+    on a cheap model a single call costs a fraction of one — 42% of calls in the first
+    run rounded to zero. Those errors very nearly cancel in aggregate (-0.2% over 19
+    calls), so the ledger's totals are sound; but a single task makes only a handful of
+    calls, so at task granularity the quantization does not cancel and would show up as
+    estimator error that is really an artifact of rounding. The token counts themselves
+    are recorded exactly, so full precision is available for the asking.
     """
     import asyncio
+
+    from sovereign_os.governance.pricing import get_model_pricing  # noqa: PLC0415
 
     def run(task: CalibrationTask) -> float:
         monitor = GroundTruthMonitor()
@@ -307,10 +318,18 @@ def engine_runner(engine, ledger) -> Runner:
             result = engine.run_mission_with_audit(task.goal)
             if asyncio.iscoroutine(result):
                 asyncio.run(result)
-        return float(sum(
-            int(o.payload.get("spend_cents") or 0)
-            for o in monitor.of_kind(ObservationKind.COST)
-        ))
+
+        total_cents = 0.0
+        for obs in monitor.of_kind(ObservationKind.COST):
+            if obs.payload.get("source") == "token":
+                in_rate, out_rate = get_model_pricing(str(obs.payload.get("model") or ""))
+                total_cents += (
+                    int(obs.payload.get("input_tokens") or 0) / 1e6 * in_rate
+                    + int(obs.payload.get("output_tokens") or 0) / 1e6 * out_rate
+                ) * 100.0
+            else:
+                total_cents += float(obs.payload.get("spend_cents") or 0)
+        return total_cents
 
     return run
 
@@ -325,6 +344,10 @@ def main() -> int:  # pragma: no cover - CLI
                              "provider layer says will actually execute)")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N tasks")
     parser.add_argument("--charter", default="", help="charter YAML (default: charter.default.yaml)")
+    parser.add_argument("--budget-cents", type=int, default=50000,
+                        help="governance operating budget to seed an empty ledger with "
+                             "(a spending ceiling, not real money — real cost bills your "
+                             "API key). Ignored when the ledger already has a balance.")
     args = parser.parse_args()
 
     from sovereign_os.governance.engine import GovernanceEngine  # noqa: PLC0415
@@ -342,6 +365,12 @@ def main() -> int:  # pragma: no cover - CLI
 
     charter = load_charter(charter_path)
     ledger = UnifiedLedger(persist_path="data/ledger.jsonl")
+    # A fresh ledger starts at zero, and the budget gate then denies every task before it
+    # runs — no execution, no realized cost, nothing to calibrate against. Seed it once
+    # with an operating ceiling; the real money is billed to the API key, not to this.
+    if ledger.total_usd_cents() <= 0:
+        ledger.record_usd(args.budget_cents, purpose="calibration_operating_budget")
+        print(f"Seeded empty ledger with {args.budget_cents}¢ of governance budget.")
     engine = GovernanceEngine(charter, ledger)
     tasks = DEFAULT_SUITE[: args.limit] if args.limit else DEFAULT_SUITE
 

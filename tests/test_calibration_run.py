@@ -230,11 +230,12 @@ def test_unpriced_model_is_flagged_loudly():
     from sovereign_os.bench.calibration_run import check_model_is_priced
 
     assert check_model_is_priced("gpt-4o") == ""
-    assert check_model_is_priced("claude-sonnet-4-20250514") == ""
+    assert check_model_is_priced("claude-sonnet-5") == ""
+    assert check_model_is_priced("claude-haiku-4-5-20251001") == ""
 
-    warning = check_model_is_priced("claude-sonnet-5")
+    warning = check_model_is_priced("zzz-unknown-model")
     assert "not in the pricing table" in warning
-    assert "claude-sonnet-5" in warning
+    assert "zzz-unknown-model" in warning
 
 
 def test_report_carries_the_pricing_warning(tasks):
@@ -246,6 +247,6 @@ def test_report_carries_the_pricing_warning(tasks):
     assert priced["warnings"] == []
 
     _, unpriced = run_calibration(_biased_runner(2.0), tasks,
-                                  model="claude-opus-5", calibrator=CostCalibrator())
+                                  model="zzz-unknown-model", calibrator=CostCalibrator())
     assert unpriced["suite"]["model_priced"] is False
     assert len(unpriced["warnings"]) == 1
