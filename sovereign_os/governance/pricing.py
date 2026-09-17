@@ -34,14 +34,30 @@ DEFAULT_MODEL_PRICING: dict[str, tuple[float, float]] = {
     "o1-mini": (1.10, 4.40),
     "o1-preview": (15.00, 60.00),
     "o1": (15.00, 60.00),
-    # Anthropic
+    # Anthropic — rates verified against platform.claude.com/docs/en/about-claude/pricing
+    # (2026-09-17). Entries are deliberately listed most-specific first: lookup takes the
+    # LONGEST matching prefix, so "claude-opus-4-5" must exist in its own right or a
+    # dated id like "claude-opus-4-5-20251101" falls back to the "claude-opus-4" entry.
+    # That is not hypothetical — it was mispricing every Opus 4.5+ call at the retired
+    # Opus 4 rate, 3x the real one, which makes the EV screen reject profitable work.
+    "claude-fable-5-1": (10.00, 50.00),
+    "claude-fable-5": (10.00, 50.00),
+    "claude-opus-5": (5.00, 25.00),
+    "claude-opus-4-8": (5.00, 25.00),
+    "claude-opus-4-7": (5.00, 25.00),
+    "claude-opus-4-6": (5.00, 25.00),
+    "claude-opus-4-5": (5.00, 25.00),
+    "claude-sonnet-5": (2.00, 10.00),
+    "claude-sonnet-4-6": (3.00, 15.00),
+    "claude-sonnet-4-5": (3.00, 15.00),
+    "claude-haiku-4-5": (1.00, 5.00),
     "claude-3-5-haiku": (0.80, 4.00),
     "claude-3-5-sonnet": (3.00, 15.00),
     "claude-3-haiku": (0.25, 1.25),
     "claude-3-opus": (15.00, 75.00),
     "claude-haiku-4": (1.00, 5.00),
     "claude-sonnet-4": (3.00, 15.00),
-    "claude-opus-4": (15.00, 75.00),
+    "claude-opus-4": (15.00, 75.00),   # retired Opus 4 / 4.1 only
 }
 
 # Conservative fallback when a model is unknown (prevents silent under-costing).
