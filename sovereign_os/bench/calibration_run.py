@@ -36,8 +36,48 @@ from pathlib import Path
 from sovereign_os.bench.oracle import GroundTruthMonitor, ObservationKind
 from sovereign_os.governance.cost_model import CostCalibrator
 from sovereign_os.governance.economics import complexity_from_goal, estimate_task_cost_cents
+from sovereign_os.governance.pricing import FALLBACK_PRICING, get_model_pricing
 
 logger = logging.getLogger(__name__)
+
+
+def resolve_execution_model(role: str = "worker") -> str:
+    """
+    The model that will actually run, according to the provider layer.
+
+    The estimate must be priced for the model that executes it. Pricing the prediction
+    against one model while another does the work folds a pricing-table mismatch into
+    the measured error — gpt-4o and claude-sonnet-4 differ by 50% on output tokens, which
+    is large enough to swamp the effect being measured.
+
+    Reads the provider layer's own resolution rather than reimplementing the precedence
+    rules, so the harness cannot drift away from what the system really does.
+    """
+    from sovereign_os.llm import providers  # noqa: PLC0415 - avoid import cycle at module load
+
+    cfg = providers._get_llm_config(role)
+    if cfg is not None:
+        return cfg.model
+    return providers._default_model(providers._default_provider())
+
+
+def check_model_is_priced(model: str) -> str:
+    """
+    Return a warning string when `model` has no entry in the pricing table, else "".
+
+    An unpriced model silently falls back to a generic rate, so both the estimate and the
+    realized cost are computed from a price that belongs to neither — an error the run
+    would otherwise absorb without complaint.
+    """
+    if get_model_pricing(model) == FALLBACK_PRICING:
+        return (
+            f"model {model!r} is not in the pricing table and fell back to "
+            f"{FALLBACK_PRICING} $/1M (in, out). Estimates and realized costs for this "
+            f"run are priced at a rate that is not this model's — add it to "
+            f"DEFAULT_MODEL_PRICING or set SOVEREIGN_MODEL_PRICING_JSON before trusting "
+            f"these numbers."
+        )
+    return ""
 
 
 @dataclass(frozen=True)
@@ -166,12 +206,22 @@ def run_calibration(
     Run the suite, record each (estimate, actual) pair, and return the rows plus the
     calibration report computed over them.
 
+    `model` prices the estimate and must name the model that actually executes — see
+    `resolve_execution_model`. A run whose model is absent from the pricing table is
+    still performed, but the report carries a `warnings` entry saying the numbers are
+    priced at a rate that is not this model's.
+
     A task that raises is recorded with `ok=False` and excluded from the statistics —
     a crashed run carries no information about cost estimation, and silently folding it
     in as a zero would bias the result toward over-estimation.
     """
     cal = calibrator or CostCalibrator()
     rows: list[CalibrationRow] = []
+    warnings: list[str] = []
+    pricing_warning = check_model_is_priced(model)
+    if pricing_warning:
+        logger.warning("CALIBRATION: %s", pricing_warning)
+        warnings.append(pricing_warning)
 
     for task in tasks:
         estimated, complexity = estimate_for(task, model)
@@ -200,7 +250,9 @@ def run_calibration(
         "completed": sum(1 for r in rows if r.ok),
         "failed": sum(1 for r in rows if not r.ok),
         "model": model,
+        "model_priced": not pricing_warning,
     }
+    report["warnings"] = warnings
 
     if out_path:
         write_rows(rows, out_path, report=report)
@@ -268,7 +320,9 @@ def main() -> int:  # pragma: no cover - CLI
 
     parser = argparse.ArgumentParser(description="Run the cost-calibration suite.")
     parser.add_argument("--out", default="data/calibration.jsonl")
-    parser.add_argument("--model", default="gpt-4o")
+    parser.add_argument("--model", default="",
+                        help="model to price estimates against (default: whatever the "
+                             "provider layer says will actually execute)")
     parser.add_argument("--limit", type=int, default=0, help="run only the first N tasks")
     parser.add_argument("--charter", default="", help="charter YAML (default: charter.default.yaml)")
     args = parser.parse_args()
@@ -280,13 +334,19 @@ def main() -> int:  # pragma: no cover - CLI
     charter_path = args.charter or ("charter.default.yaml"
                                     if Path("charter.default.yaml").exists()
                                     else "charter.example.yaml")
+    model = args.model or resolve_execution_model()
+    warning = check_model_is_priced(model)
+    print(f"Pricing estimates against: {model}")
+    if warning:
+        print(f"\n!! {warning}\n")
+
     charter = load_charter(charter_path)
     ledger = UnifiedLedger(persist_path="data/ledger.jsonl")
     engine = GovernanceEngine(charter, ledger)
     tasks = DEFAULT_SUITE[: args.limit] if args.limit else DEFAULT_SUITE
 
     rows, report = run_calibration(
-        engine_runner(engine, ledger), tasks, model=args.model, out_path=args.out
+        engine_runner(engine, ledger), tasks, model=model, out_path=args.out
     )
     print(json.dumps(report, indent=2))
     print(f"\n{len(rows)} rows -> {args.out}")

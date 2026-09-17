@@ -191,3 +191,61 @@ def test_estimates_are_positive_for_every_task():
         estimated, complexity = estimate_for(task)
         assert estimated > 0, f"{task.id} has no usable prediction"
         assert 0.5 <= complexity <= 2.0
+
+
+# ------------------------------------------------- pricing / execution-model match
+
+def test_execution_model_follows_the_configured_provider(monkeypatch):
+    """
+    The estimate must be priced for the model that actually runs. An Anthropic-only
+    environment executes on Claude, so that is what the harness must price against.
+    """
+    from sovereign_os.bench.calibration_run import resolve_execution_model
+
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("SOVEREIGN_LLM_PROVIDER", raising=False)
+    monkeypatch.delenv("SOVEREIGN_LLM_MODEL", raising=False)
+    monkeypatch.delenv("SOVEREIGN_LLM_MODEL_WORKER", raising=False)
+    monkeypatch.delenv("SOVEREIGN_LLM_PROVIDER_WORKER", raising=False)
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant-test")
+    assert resolve_execution_model().startswith("claude")
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-test")
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    assert resolve_execution_model().startswith("gpt")
+
+
+def test_explicit_model_override_is_respected(monkeypatch):
+    from sovereign_os.bench.calibration_run import resolve_execution_model
+
+    monkeypatch.setenv("SOVEREIGN_LLM_MODEL", "claude-haiku-4-5")
+    assert resolve_execution_model() == "claude-haiku-4-5"
+
+
+def test_unpriced_model_is_flagged_loudly():
+    """
+    An unpriced model falls back to a generic rate, so estimate and actual are both
+    computed from a price belonging to neither. That must never pass silently.
+    """
+    from sovereign_os.bench.calibration_run import check_model_is_priced
+
+    assert check_model_is_priced("gpt-4o") == ""
+    assert check_model_is_priced("claude-sonnet-4-20250514") == ""
+
+    warning = check_model_is_priced("claude-sonnet-5")
+    assert "not in the pricing table" in warning
+    assert "claude-sonnet-5" in warning
+
+
+def test_report_carries_the_pricing_warning(tasks):
+    from sovereign_os.governance.cost_model import CostCalibrator
+
+    _, priced = run_calibration(_biased_runner(2.0), tasks,
+                                model="gpt-4o", calibrator=CostCalibrator())
+    assert priced["suite"]["model_priced"] is True
+    assert priced["warnings"] == []
+
+    _, unpriced = run_calibration(_biased_runner(2.0), tasks,
+                                  model="claude-opus-5", calibrator=CostCalibrator())
+    assert unpriced["suite"]["model_priced"] is False
+    assert len(unpriced["warnings"]) == 1
