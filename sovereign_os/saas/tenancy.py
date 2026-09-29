@@ -22,6 +22,18 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sovereign_os.saas.plans import DEFAULT_PLAN, get_plan
+from sovereign_os.saas.secrets import (
+    SecretBox,
+    hash_api_key,
+    is_hashed,
+    needs_migration,
+    new_api_key,
+    verify_api_key,
+)
+
+# Config fields holding a tenant-supplied credential. Encrypted at rest; everything
+# else in the config is ordinary settings data.
+SECRET_FIELDS = ("anthropic_api_key", "openai_api_key", "stripe_api_key")
 
 
 def _today_utc() -> str:
@@ -69,7 +81,11 @@ class Tenant:
     id: str
     name: str
     api_key: str
+    """Only populated in the object returned from `create`, so it can be shown once.
+    Never persisted — `api_key_hash` is what the store keeps."""
+
     plan: str = DEFAULT_PLAN
+    api_key_hash: str = ""
     config: TenantConfig = field(default_factory=TenantConfig)
     created_ts: float = 0.0
 
@@ -78,14 +94,23 @@ class Tenant:
 
     def to_json(self) -> dict:
         d = asdict(self)
+        # The plaintext key is deliberately dropped here: it exists only long enough to
+        # be handed to the tenant at signup. A stolen store must yield no usable key.
+        d["api_key"] = ""
         return d
 
     @classmethod
     def from_json(cls, d: dict) -> "Tenant":
         cfg = TenantConfig(**(d.get("config") or {}))
-        return cls(id=d["id"], name=d.get("name", ""), api_key=d["api_key"],
+        stored = d.get("api_key_hash") or ""
+        legacy = d.get("api_key") or ""
+        return cls(id=d["id"], name=d.get("name", ""), api_key="",
                    plan=d.get("plan", DEFAULT_PLAN), config=cfg,
-                   created_ts=float(d.get("created_ts", 0.0)))
+                   created_ts=float(d.get("created_ts", 0.0)),
+                   # A store written before hashing kept the key itself; carry it as the
+                   # stored credential so those tenants still authenticate, and let
+                   # `migrate_secrets` upgrade it.
+                   api_key_hash=stored or legacy)
 
     def public(self) -> dict:
         """Serialization for the API: no api_key, redacted config."""
@@ -103,7 +128,12 @@ class TenantUsage:
 class TenantStore:
     """JSON-backed tenant registry + per-day usage meter with isolated data dirs."""
 
-    def __init__(self, root: str | Path) -> None:
+    def __init__(self, root: str | Path, *, secret: str | None = None) -> None:
+        # Encryption is optional so a single-operator self-host keeps working unchanged,
+        # and required for a hosted deployment — see `require_encryption`.
+        self._box: SecretBox | None = None
+        if SecretBox.is_available(secret):
+            self._box = SecretBox(secret)
         self.root = Path(root)
         self.root.mkdir(parents=True, exist_ok=True)
         self._tenants_path = self.root / "tenants.json"
@@ -114,10 +144,12 @@ class TenantStore:
 
     # ------------------------------------------------------------------ CRUD
     def create(self, name: str, *, plan: str = DEFAULT_PLAN, config: TenantConfig | None = None) -> Tenant:
+        api_key = new_api_key()
         tenant = Tenant(
             id="ten_" + uuid.uuid4().hex[:12],
             name=name.strip() or "Untitled",
-            api_key="sk_ten_" + secrets.token_urlsafe(24),
+            api_key=api_key,                 # returned once; never written to disk
+            api_key_hash=hash_api_key(api_key),
             plan=get_plan(plan).name,
             config=config or TenantConfig(),
             created_ts=time.time(),
@@ -148,7 +180,7 @@ class TenantStore:
         if not key:
             return None
         for t in self._tenants.values():
-            if secrets.compare_digest(t.api_key, key):
+            if verify_api_key(key, t.api_key_hash):
                 return t
         return None
 
@@ -207,6 +239,8 @@ class TenantStore:
             try:
                 data = json.loads(self._tenants_path.read_text("utf-8"))
                 self._tenants = {tid: Tenant.from_json(td) for tid, td in data.items()}
+                for t in self._tenants.values():
+                    self._decrypt_in_place(t)
             except Exception:
                 self._tenants = {}
         if self._usage_path.exists():
@@ -215,9 +249,84 @@ class TenantStore:
             except Exception:
                 self._usage = {}
 
+    def _encrypted_json(self, tenant: Tenant) -> dict:
+        """Serialize a tenant with its provider credentials encrypted."""
+        d = tenant.to_json()
+        if self._box is not None:
+            cfg = dict(d.get("config") or {})
+            for field_name in SECRET_FIELDS:
+                cfg[field_name] = self._box.encrypt(cfg.get(field_name) or "")
+            d["config"] = cfg
+        return d
+
+    def _decrypt_in_place(self, tenant: Tenant) -> None:
+        if self._box is None:
+            return
+        for field_name in SECRET_FIELDS:
+            setattr(tenant.config, field_name,
+                    self._box.decrypt(getattr(tenant.config, field_name) or ""))
+
+    def require_encryption(self) -> None:
+        """
+        Assert that secrets are being encrypted. A hosted deployment calls this at
+        startup so a missing deployment secret fails loudly instead of quietly writing
+        every tenant's provider keys to disk in the clear.
+        """
+        if self._box is None:
+            from sovereign_os.saas.secrets import SECRET_ENV, SecretsNotConfigured
+
+            raise SecretsNotConfigured(
+                f"{SECRET_ENV} is not set, so tenant provider keys would be stored in "
+                f"plaintext. Set it before serving other people's credentials."
+            )
+
+    def pending_migrations(self) -> dict[str, list[str]]:
+        """Tenants still holding plaintext secrets or an unhashed API key."""
+        out: dict[str, list[str]] = {}
+        raw = self._raw_tenants()
+        for tid, d in raw.items():
+            stale = [f for f in SECRET_FIELDS
+                     if needs_migration((d.get("config") or {}).get(f) or "")]
+            if not is_hashed(d.get("api_key_hash") or d.get("api_key") or ""):
+                stale.append("api_key")
+            if stale:
+                out[tid] = stale
+        return out
+
+    def migrate_secrets(self) -> int:
+        """
+        Rewrite the store so existing plaintext is encrypted and unhashed API keys are
+        hashed. Returns how many tenants changed.
+
+        An API key that was stored in plaintext can be hashed in place without
+        invalidating it, since the hash is derived from the key itself.
+        """
+        self.require_encryption()
+        changed = 0
+        for tenant in self._tenants.values():
+            before = (tenant.api_key_hash, tuple(
+                getattr(tenant.config, f) for f in SECRET_FIELDS))
+            if tenant.api_key_hash and not is_hashed(tenant.api_key_hash):
+                tenant.api_key_hash = hash_api_key(tenant.api_key_hash)
+            after = (tenant.api_key_hash, tuple(
+                getattr(tenant.config, f) for f in SECRET_FIELDS))
+            if before != after:
+                changed += 1
+        self._save_tenants()
+        return changed
+
+    def _raw_tenants(self) -> dict:
+        if not self._tenants_path.exists():
+            return {}
+        try:
+            return json.loads(self._tenants_path.read_text("utf-8"))
+        except Exception:  # noqa: BLE001
+            return {}
+
     def _save_tenants(self) -> None:
         self._tenants_path.write_text(
-            json.dumps({tid: t.to_json() for tid, t in self._tenants.items()}), encoding="utf-8")
+            json.dumps({tid: self._encrypted_json(t) for tid, t in self._tenants.items()}),
+            encoding="utf-8")
 
     def _save_usage(self) -> None:
         self._usage_path.write_text(json.dumps(self._usage), encoding="utf-8")

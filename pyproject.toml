@@ -18,6 +18,7 @@ dependencies = [
     "pyyaml>=6.0.2",
     "rich>=13.0.0",
     "textual>=0.47.0",
+    "cryptography>=42.0",   # AES-GCM for tenant credentials at rest
 ]
 
 [project.optional-dependencies]
