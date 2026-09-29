@@ -3,10 +3,10 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Sovereign-OS — Governance for autonomous AI agents</title>
-<meta name="description" content="Sovereign-OS is an open-source, self-hosted control plane for autonomous AI agents: a budget, earned permissions, and a tamper-evident audit trail on every action. Runs on your machine, on your keys.">
+<title>Sovereign-OS — Know what agent work costs before it runs</title>
+<meta name="description" content="Sovereign-OS is an open-source, self-hosted control plane for autonomous AI agents. We measured how well it predicts what its own work will cost across 49 governed runs, and fixed what the measurement found.">
 <meta property="og:title" content="Sovereign-OS">
-<meta property="og:description" content="Governance for autonomous AI agents — budget, earned permissions, and a tamper-evident audit trail. Open source, self-hosted, bring your own keys.">
+<meta property="og:description" content="Measured cost prediction for autonomous AI agents: 49 governed runs, 95% of estimate error systematic, 94% of predictions within 2x after the fix. Open source, self-hosted.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -19,6 +19,7 @@
     --accent:#0c5c46; --accent-2:#0e7c62; --accent-soft:#e7f2ee;
     --btn:#0e1116; --btn-ink:#ffffff;
     --console:#0d1017; --console-line:#1b2230; --console-ink:#c6ccd8; --console-dim:#69748a; --console-ok:#4bd6a8;
+    --series-pred:#3d6fb8; --series-act:#10a37f;
     --sky:#dbeafe; --coral:#fde4d9; --cream:#f4efe1; --sage:#d7e8dd; --lav:#ece4f7; --peach:#fde8cf; --art-ink:#16181c;
     --radius:16px; --radius-s:11px;
     --measure:64ch;
@@ -146,6 +147,33 @@
   .band .li .t{font-weight:600}
   .band .li .d{color:#98a2b3;font-size:.9rem}
 
+
+  /* ---- figure: measured calibration ---- */
+  .fig{border:1px solid var(--line);border-radius:var(--radius);background:var(--surface);padding:20px 20px 16px}
+  .fig h3{font-size:.98rem;font-weight:700;letter-spacing:-.01em}
+  .fig .sub{color:var(--muted);font-size:.82rem;margin-top:4px}
+  .legend{display:flex;gap:18px;margin:14px 0 2px;font-size:.8rem;color:var(--ink-2)}
+  .legend span{display:inline-flex;align-items:center;gap:7px}
+  .swatch{width:11px;height:11px;border-radius:3px;flex:none}
+  .fig svg{width:100%;height:auto;display:block;overflow:visible}
+  .cg{stroke:var(--line-2);stroke-width:1}
+  .cx-axis{stroke:var(--line);stroke-width:1}
+  .ca,.cx,.cn,.cv{font-family:"JetBrains Mono",monospace}
+  .ca{font-size:10px;fill:var(--faint)}
+  .cx{font-size:11px;fill:var(--ink-2);text-anchor:middle;font-weight:600}
+  .cn{font-size:9px;fill:var(--faint);text-anchor:middle}
+  .cv{font-size:10px;fill:var(--muted);text-anchor:middle}
+  .cb-p{fill:var(--series-pred)}
+  .cb-a{fill:var(--series-act)}
+  .cb-p,.cb-a{transition:opacity .12s var(--ease)}
+  .cb-p:hover,.cb-a:hover{opacity:.78}
+  .fig .note{font-size:.74rem;color:var(--faint);margin-top:12px;line-height:1.55}
+  .fig details{margin-top:10px;font-size:.78rem;color:var(--muted)}
+  .fig summary{cursor:pointer}
+  .fig table{border-collapse:collapse;margin-top:9px;font-family:"JetBrains Mono",monospace;font-size:.72rem}
+  .fig th,.fig td{border:1px solid var(--line);padding:4px 9px;text-align:right;color:var(--ink-2)}
+  .fig th:first-child,.fig td:first-child{text-align:left}
+
   /* ---- quickstart ---- */
   .qs{display:grid;grid-template-columns:1fr 1.18fr;gap:40px;align-items:center}
   .qs .note{display:flex;flex-direction:column;gap:20px}
@@ -219,9 +247,9 @@
 
 <header class="wrap hero">
   <div>
-    <div class="eyebrow">Governed AI workforce</div>
-    <h1>AI agents that answer to a <em>charter</em>.</h1>
-    <p class="lede">Governance for autonomous agents — a budget, earned permissions, and a tamper-evident audit trail on every action. Runs on your machine, on your keys.</p>
+    <div class="eyebrow">Measured cost prediction</div>
+    <h1>Know what the work costs <em>before</em> it runs.</h1>
+    <p class="lede">Agent budgets are guesses, and nobody checks them. We measured ours across 49 governed runs — then fixed what the measurement found.</p>
     <div class="hero-cta">
       <a class="btn btn-primary" href="#quickstart">Run it yourself</a>
       <a class="btn btn-ghost" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">
@@ -236,30 +264,68 @@
     </div>
   </div>
 
-  <div class="console" aria-label="A governed mission run">
-    <div class="console-bar">
-      <span class="dot" style="background:#ff5f57"></span><span class="dot" style="background:#febc2e"></span><span class="dot" style="background:#28c840"></span>
-      <span class="lbl mono">governed run · sovereign-os</span>
+  <figure class="fig" style="margin:0">
+    <h3>Predicted cost was flat. Real cost was not.</h3>
+    <div class="sub">49 governed runs · 3 repeats · <span class="mono">claude-haiku-4-5</span></div>
+    <div class="legend">
+      <span><i class="swatch" style="background:var(--series-pred)"></i>Predicted</span>
+      <span><i class="swatch" style="background:var(--series-act)"></i>Actual</span>
     </div>
-    <div class="console-body">
-      <div class="cl"><span class="prompt">›</span><span class="v">mission "Fix the failing tests, open a PR"</span></div>
-      <div class="cl"><span class="k">plan</span><span class="v">3 tasks · dependency DAG</span></div>
-      <div class="cl"><span class="k">budget</span><span class="v">est. $0.12 ≤ cap $5.00 <span class="ok">✓</span></span></div>
-      <div class="cl"><span class="k">permission</span><span class="v">write_files · lease t‑1 <span style="color:var(--console-dim)">(ttl 120s)</span></span></div>
-      <div class="cl"><span class="k">execute</span><span class="v">coding → run tests → <span class="ok">green</span></span></div>
-      <div class="cl"><span class="k">audit</span><span class="v">correctness .94 · safety 1.00 <span class="ok">✓</span></span></div>
-      <div class="cl"><span class="k">proof</span><span class="v"><span class="hashv">0x9f2a…e71</span> <span style="color:var(--console-dim)">sha‑256 · append‑only</span></span></div>
-      <div class="cl"><span class="k">settle</span><span class="v">$5.00 · x402 / USDC <span class="ok">✓</span></span></div>
-    </div>
-  </div>
+<svg viewBox="0 0 520 300" role="img" aria-label="Predicted versus actual task cost by task size">
+<line class="cg" x1="48" y1="236.0" x2="500" y2="236.0"/>
+<text class="ca" x="39" y="240.0" text-anchor="end">0¢</text>
+<line class="cg" x1="48" y1="183.0" x2="500" y2="183.0"/>
+<text class="ca" x="39" y="187.0" text-anchor="end">2¢</text>
+<line class="cg" x1="48" y1="130.0" x2="500" y2="130.0"/>
+<text class="ca" x="39" y="134.0" text-anchor="end">4¢</text>
+<line class="cg" x1="48" y1="77.0" x2="500" y2="77.0"/>
+<text class="ca" x="39" y="81.0" text-anchor="end">6¢</text>
+<line class="cg" x1="48" y1="24.0" x2="500" y2="24.0"/>
+<text class="ca" x="39" y="28.0" text-anchor="end">8¢</text>
+<path class="cb-p" d="M78.33333333333333,236 L78.33333333333333,141.685 Q78.33333333333333,137.685 82.33333333333333,137.685 L118.33333333333333,137.685 Q122.33333333333333,137.685 122.33333333333333,141.685 L122.33333333333333,236 Z"><title>Small: predicted 3.71¢</title></path>
+<text class="cv" x="100.3" y="131.7">3.71¢</text>
+<path class="cb-a" d="M124.33333333333333,236 L124.33333333333333,188.06 Q124.33333333333333,184.06 128.33333333333331,184.06 L164.33333333333331,184.06 Q168.33333333333331,184.06 168.33333333333331,188.06 L168.33333333333331,236 Z"><title>Small: actual 1.96¢ (n=17)</title></path>
+<text class="cv" x="146.3" y="178.1">1.96¢</text>
+<text class="cx" x="123.3" y="258">Small</text>
+<text class="cn" x="123.3" y="274">n=17</text>
+<path class="cb-p" d="M229.0,236 L229.0,130.29000000000002 Q229.0,126.29 233.0,126.29 L269.0,126.29 Q273.0,126.29 273.0,130.29000000000002 L273.0,236 Z"><title>Medium: predicted 4.14¢</title></path>
+<text class="cv" x="251.0" y="120.3">4.14¢</text>
+<path class="cb-a" d="M275.0,236 L275.0,142.215 Q275.0,138.215 279.0,138.215 L315.0,138.215 Q319.0,138.215 319.0,142.215 L319.0,236 Z"><title>Medium: actual 3.69¢ (n=14)</title></path>
+<text class="cv" x="297.0" y="132.2">3.69¢</text>
+<text class="cx" x="274.0" y="258">Medium</text>
+<text class="cn" x="274.0" y="274">n=14</text>
+<path class="cb-p" d="M379.66666666666663,236 L379.66666666666663,125.255 Q379.66666666666663,121.255 383.66666666666663,121.255 L419.66666666666663,121.255 Q423.66666666666663,121.255 423.66666666666663,125.255 L423.66666666666663,236 Z"><title>Large: predicted 4.33¢</title></path>
+<text class="cv" x="401.7" y="115.3">4.33¢</text>
+<path class="cb-a" d="M425.66666666666663,236 L425.66666666666663,53.17500000000001 Q425.66666666666663,49.17500000000001 429.66666666666663,49.17500000000001 L465.66666666666663,49.17500000000001 Q469.66666666666663,49.17500000000001 469.66666666666663,53.17500000000001 L469.66666666666663,236 Z"><title>Large: actual 7.05¢ (n=18)</title></path>
+<text class="cv" x="447.7" y="43.2">7.05¢</text>
+<text class="cx" x="424.7" y="258">Large</text>
+<text class="cn" x="424.7" y="274">n=18</text>
+<line class="cx-axis" x1="48" y1="236" x2="500" y2="236"/>
+</svg>
+    <p class="note">Across work whose real cost moved <strong>3.6&times;</strong>, the estimate moved
+      <strong>1.17&times;</strong> — it read the goal's string length, not the work. 95% of that error is
+      systematic, not run-to-run noise. Estimating from the planner's task graph instead cuts the
+      scatter 47% and lands 94% of predictions within 2&times;.</p>
+    <details>
+      <summary>Show the numbers</summary>
+      <table>
+        <thead><tr><th>Task size</th><th>Predicted</th><th>Actual</th><th>n</th></tr></thead>
+        <tbody>
+          <tr><td>Small</td><td>3.71¢</td><td>1.96¢</td><td>17</td></tr>
+          <tr><td>Medium</td><td>4.14¢</td><td>3.69¢</td><td>14</td></tr>
+          <tr><td>Large</td><td>4.33¢</td><td>7.05¢</td><td>18</td></tr>
+        </tbody>
+      </table>
+    </details>
+  </figure>
 </header>
 
 <div class="wrap">
   <div class="facts">
-    <div class="fact"><div class="n">100<span class="u">%</span></div><div class="l">fiscal violations blocked, 30 scenarios</div></div>
-    <div class="fact"><div class="n">0</div><div class="l">audit-integrity failures, 1,200+ reports</div></div>
-    <div class="fact"><div class="n">417</div><div class="l">automated tests across the system</div></div>
-    <div class="fact"><div class="n">4</div><div class="l">gates on every action, before it runs</div></div>
+    <div class="fact"><div class="n">49</div><div class="l">governed runs measured, over three repeats</div></div>
+    <div class="fact"><div class="n">95<span class="u">%</span></div><div class="l">of the estimate error is systematic, not noise</div></div>
+    <div class="fact"><div class="n">47<span class="u">%</span></div><div class="l">less scatter when estimating from the task graph</div></div>
+    <div class="fact"><div class="n">94<span class="u">%</span></div><div class="l">of predictions land within 2&times; of real cost</div></div>
   </div>
 </div>
 
