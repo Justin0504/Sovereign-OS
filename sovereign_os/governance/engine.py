@@ -128,6 +128,9 @@ class GovernanceEngine:
         self._circuit_breaker = circuit_breaker
         # Per-task CFO pre-estimate (cents), used to reconcile actual vs budgeted spend.
         self._task_estimate_cents: dict[str, int] = {}
+        # Skill per task, so a settled (estimate, actual) pair can be attributed to a
+        # category when it is handed to the cost calibrator.
+        self._task_skill: dict[str, str] = {}
         # Cumulative actual spend within the current dispatch run (cents), for budget halt.
         self._mission_spent_cents: int = 0
 
@@ -213,6 +216,19 @@ class GovernanceEngine:
         estimate = self._task_estimate_cents.get(task_id)
         if not estimate or estimate <= 0:
             return
+
+        # Every settled task is one (estimate, actual) observation. The engine has had
+        # both numbers in hand all along and used them only to dock trust on overrun;
+        # handing them to the calibrator is what lets the next estimate be better.
+        if actual_cents > 0:
+            try:
+                from sovereign_os.governance.cost_model import record_cost
+
+                record_cost(self._task_skill.get(task_id, "") or "general",
+                            estimate, actual_cents)
+            except Exception:  # noqa: BLE001 - never let bookkeeping break a mission
+                logger.debug("GOVERNANCE: cost calibration record failed", exc_info=True)
+
         threshold = estimate * (1.0 + self.BUDGET_OVERRUN_TOLERANCE)
         if actual_cents > threshold:
             logger.warning(
@@ -255,6 +271,7 @@ class GovernanceEngine:
                 estimated_cents = self._cost_converter(task)
                 total_estimated_cents += estimated_cents
                 self._task_estimate_cents[task.task_id] = estimated_cents
+                self._task_skill[task.task_id] = getattr(task, "required_skill", "") or ""
                 try:
                     self._treasury.approve_task(
                         estimated_cents,
@@ -309,8 +326,21 @@ class GovernanceEngine:
 
         model_id = self._treasury.get_optimal_model(getattr(task, "priority", "low"))
         budget = getattr(task, "estimated_token_budget", 2000) or 2000
-        ratio = output_ratio_for_skill(getattr(task, "required_skill", ""))
-        return estimate_budget_cost_cents(model_id, budget, output_ratio=ratio)
+        skill = getattr(task, "required_skill", "")
+        ratio = output_ratio_for_skill(skill)
+        raw = estimate_budget_cost_cents(model_id, budget, output_ratio=ratio)
+
+        # Apply what settled tasks have taught us about this category. Measurement across
+        # 49 governed runs found the planner's own token budgets over-ask by about 2x, so
+        # budgeting the raw figure reserves roughly twice what the work needs and fits
+        # half as much under any cap. With no history the factor is exactly 1.0, so a cold
+        # start behaves exactly as before.
+        try:
+            from sovereign_os.governance.cost_model import cost_factor
+
+            return max(1, int(round(raw * cost_factor(skill))))
+        except Exception:  # noqa: BLE001 - calibration is best-effort, never load-bearing
+            return raw
 
     def _required_capability_for_skill(self, required_skill: str) -> Capability:
         """Map task skill to the capability checked before execution."""
