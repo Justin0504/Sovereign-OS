@@ -250,3 +250,58 @@ def test_report_carries_the_pricing_warning(tasks):
                                   model="zzz-unknown-model", calibrator=CostCalibrator())
     assert unpriced["suite"]["model_priced"] is False
     assert len(unpriced["warnings"]) == 1
+
+
+# ---------------------------------------------------- stage-2 (plan-derived) capture
+
+def test_runner_may_return_a_bare_number(tasks):
+    """Backwards compatible: a runner that only knows the cost still works."""
+    from sovereign_os.governance.cost_model import CostCalibrator
+
+    rows, _ = run_calibration(_biased_runner(2.0), tasks, calibrator=CostCalibrator())
+    assert all(r.task_count == 0 and r.plan_ratio is None for r in rows)
+
+
+def test_plan_bearing_runner_records_both_stages(tasks):
+    """
+    A runner that surfaces its plan lets one run compare both estimation stages against
+    the same realized cost — which is the whole point of carrying the plan.
+    """
+    from sovereign_os.bench.calibration_run import RunOutcome
+    from sovereign_os.governance.cost_model import CostCalibrator
+    from sovereign_os.governance.strategist import PlannedTask, TaskPlan
+
+    plan = TaskPlan(goal_summary="g", tasks=[
+        PlannedTask(task_id=f"t{i}", required_skill="coding", estimated_token_budget=9000)
+        for i in range(3)
+    ])
+
+    def run(task):
+        estimated, _ = estimate_for(task)
+        return RunOutcome(actual_cents=estimated * 2.0, plan=plan)
+
+    rows, _ = run_calibration(run, tasks, calibrator=CostCalibrator())
+    for row in rows:
+        assert row.task_count == 3
+        assert row.plan_complexity > 1.0
+        assert row.plan_estimated_cents > 0
+        assert row.plan_ratio is not None
+        assert row.ratio == pytest.approx(2.0)          # stage 1 unchanged
+        assert row.plan_ratio != pytest.approx(row.ratio)  # stage 2 is a distinct estimate
+
+
+def test_stage_two_fields_survive_a_round_trip(tmp_path, tasks):
+    from sovereign_os.bench.calibration_run import RunOutcome
+    from sovereign_os.governance.cost_model import CostCalibrator
+    from sovereign_os.governance.strategist import PlannedTask, TaskPlan
+
+    plan = TaskPlan(goal_summary="g", tasks=[
+        PlannedTask(task_id="t0", required_skill="coding", estimated_token_budget=9000)])
+
+    def run(task):
+        return RunOutcome(actual_cents=5.0, plan=plan)
+
+    out = tmp_path / "s2.jsonl"
+    run_calibration(run, tasks, calibrator=CostCalibrator(), out_path=out)
+    reloaded = load_rows(out)
+    assert all(r.task_count == 1 and r.plan_estimated_cents > 0 for r in reloaded)

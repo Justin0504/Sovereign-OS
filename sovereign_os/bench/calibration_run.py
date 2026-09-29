@@ -35,7 +35,12 @@ from pathlib import Path
 
 from sovereign_os.bench.oracle import GroundTruthMonitor, ObservationKind
 from sovereign_os.governance.cost_model import CostCalibrator
-from sovereign_os.governance.economics import complexity_from_goal, estimate_task_cost_cents
+from sovereign_os.governance.economics import (
+    complexity_from_goal,
+    estimate_plan_cost_cents,
+    estimate_task_cost_cents,
+    plan_complexity,
+)
 from sovereign_os.governance.pricing import FALLBACK_PRICING, get_model_pricing
 
 logger = logging.getLogger(__name__)
@@ -96,6 +101,20 @@ class CalibrationTask:
 
 
 @dataclass
+class RunOutcome:
+    """
+    What a runner reports back: the realized cost, and the plan if it has one.
+
+    Carrying the plan is what lets a run compare the two estimation stages head to head
+    against the same realized cost — the goal-string prediction made before any compute,
+    and the plan-derived one available after decomposition but still before execution.
+    """
+
+    actual_cents: float
+    plan: object | None = None
+
+
+@dataclass
 class CalibrationRow:
     """One settled probe: what we predicted, what it cost, and the error."""
 
@@ -109,6 +128,10 @@ class CalibrationRow:
     ok: bool = True
     error: str = ""
     duration_s: float = 0.0
+    # Second stage — populated only when the runner surfaced a plan.
+    task_count: int = 0
+    plan_complexity: float = 0.0
+    plan_estimated_cents: float = 0.0
 
     @property
     def ratio(self) -> float | None:
@@ -116,9 +139,17 @@ class CalibrationRow:
             return None
         return self.actual_cents / self.estimated_cents
 
+    @property
+    def plan_ratio(self) -> float | None:
+        """Realized over the plan-derived estimate — the stage-2 error."""
+        if self.plan_estimated_cents <= 0 or self.actual_cents <= 0:
+            return None
+        return self.actual_cents / self.plan_estimated_cents
+
     def as_dict(self) -> dict:
         d = asdict(self)
         d["ratio"] = self.ratio
+        d["plan_ratio"] = self.plan_ratio
         return d
 
 
@@ -177,8 +208,9 @@ DEFAULT_SUITE: tuple[CalibrationTask, ...] = (
 )
 
 
-# A runner takes a task and performs it, returning the cost actually realized in cents.
-Runner = Callable[[CalibrationTask], float]
+# A runner performs a task and reports what it cost — a bare cents figure, or a
+# RunOutcome when it can also surface the plan for second-stage comparison.
+Runner = Callable[[CalibrationTask], "float | RunOutcome"]
 
 
 def estimate_for(task: CalibrationTask, model: str = "gpt-4o") -> tuple[float, float]:
@@ -227,11 +259,26 @@ def run_calibration(
         estimated, complexity = estimate_for(task, model)
         started = time.monotonic()
         try:
-            actual = float(runner(task))
+            outcome = runner(task)
+            if not isinstance(outcome, RunOutcome):   # a bare number is still accepted
+                outcome = RunOutcome(actual_cents=float(outcome))
+            actual = float(outcome.actual_cents)
+
+            plan_cents, plan_cx, task_count = 0.0, 0.0, 0
+            if outcome.plan is not None:
+                tasks_in_plan = list(getattr(outcome.plan, "tasks", None) or [])
+                task_count = len(tasks_in_plan)
+                plan_cx = plan_complexity(outcome.plan)
+                plan_cents = float(estimate_plan_cost_cents(
+                    outcome.plan, model, calibrated=False
+                )[0])
+
             row = CalibrationRow(
                 task_id=task.id, category=task.category, tier=task.tier,
                 complexity=complexity, estimated_cents=estimated, actual_cents=actual,
                 model=model, ok=True, duration_s=time.monotonic() - started,
+                task_count=task_count, plan_complexity=plan_cx,
+                plan_estimated_cents=plan_cents,
             )
             cal.record(task.category, estimated, actual, model=model, complexity=complexity)
         except Exception as exc:  # noqa: BLE001 - a failed probe is data about the runner, not the estimator
@@ -282,7 +329,9 @@ def load_rows(path: str | Path) -> list[CalibrationRow]:
         if not line.strip():
             continue
         d = json.loads(line)
+        # Derived properties are written for readability but are not constructor args.
         d.pop("ratio", None)
+        d.pop("plan_ratio", None)
         rows.append(CalibrationRow(**d))
     return rows
 
@@ -312,12 +361,16 @@ def engine_runner(engine, ledger) -> Runner:
 
     from sovereign_os.governance.pricing import get_model_pricing  # noqa: PLC0415
 
-    def run(task: CalibrationTask) -> float:
+    def run(task: CalibrationTask) -> RunOutcome:
         monitor = GroundTruthMonitor()
+        plan = None
         with monitor.watching(ledger=ledger):
             result = engine.run_mission_with_audit(task.goal)
             if asyncio.iscoroutine(result):
-                asyncio.run(result)
+                result = asyncio.run(result)
+            # run_mission_with_audit returns (plan, results, reports).
+            if isinstance(result, tuple) and result:
+                plan = result[0]
 
         total_cents = 0.0
         for obs in monitor.of_kind(ObservationKind.COST):
@@ -329,7 +382,7 @@ def engine_runner(engine, ledger) -> Runner:
                 ) * 100.0
             else:
                 total_cents += float(obs.payload.get("spend_cents") or 0)
-        return total_cents
+        return RunOutcome(actual_cents=total_cents, plan=plan)
 
     return run
 
