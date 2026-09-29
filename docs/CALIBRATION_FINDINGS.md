@@ -76,6 +76,29 @@ Conditioning on difficulty beats conditioning on category while using half the p
 More parameters doing less work is what rules out the alternative explanation that this is
 fitted noise.
 
+## It replicates, and it is not planner noise
+
+Three independent runs of the full suite (14 goals completed in all three):
+
+| Tier | run 1 | run 2 | run 3 | mean |
+|---|---|---|---|---|
+| small | 0.55 | 0.53 | 0.55 | **0.55** |
+| medium | 0.87 | 0.97 | 1.07 | 0.97 |
+| large | 1.67 | 1.57 | 1.73 | **1.66** |
+
+The obvious objection to the single-run result was that realized cost depends on how the
+planner happens to decompose a goal, so the "estimator error" might be decomposition
+noise. Repeats settle it by separating the two:
+
+| Component | sd (log) |
+|---|---|
+| within-task, run to run — planner and execution noise | 0.152 |
+| between-task — systematic estimator error | **0.644** |
+
+**95% of the variance is systematic.** The systematic component exceeds run-to-run noise
+by 4.2x in standard deviation, so the slope is a property of the estimator, not an artifact
+of a variable planner.
+
 ## The fix the system already had
 
 The planner produces a task graph — task count, dependency structure, and a per-task
@@ -87,10 +110,38 @@ goal string anyway.
 from task count and chain depth. Both are wired into the harness, which now records the
 stage-1 and stage-2 predictions against the same realized cost.
 
-The honest caveat: `estimated_token_budget` is LLM-produced and inherits the error under
-study. The only claim is that it is formed after the model has actually decomposed the
-problem, so it rests on strictly more information than the goal string. Whether that
-converts into a better estimate is for the next run to answer, not this document.
+### Measured head to head
+
+Run 3 carried both predictions against the same realized cost (16 goals):
+
+| | stage 1 (goal string) | stage 2 (plan-derived) |
+|---|---|---|
+| spread of tier means — *the slope* | 3.78x | **1.78x** |
+| scatter (sd of log ratio) | 0.745 | **0.397** |
+| level bias | 0.93x | **0.50x** |
+| within 2x, after correcting the level | 62% | **94%** |
+
+Stage 2 does the thing stage 1 could not: it more than halves the tier dependence and cuts
+scatter 47%. It also introduces a level bias — the planner's own token budgets over-ask by
+about 2x, consistently.
+
+That division of labour is the useful part. **A level bias is exactly what a per-category
+multiplier can remove**, and removing it takes accuracy from 62% to 94% within 2x. So the
+conclusion is not that the calibration loop was wrong. The loop was fine; it was being fed
+a flat signal. The two mechanisms are complementary:
+
+- the plan-derived estimate corrects the **slope**, which a single multiplier structurally
+  cannot;
+- the existing `cost_factor` corrects the **level**, which the plan-derived estimate does
+  not.
+
+The planner produced between 2 and 16 tasks across the suite — an 8x dynamic range, which
+is the responsiveness the goal-string score never had.
+
+The honest caveat stands: `estimated_token_budget` is LLM-produced and inherits the error
+under study, and its 2x over-ask is itself evidence of that. The claim is only that a
+signal formed *after* decomposition tracks the work better than the goal's prose, and the
+table above is what that is worth.
 
 ## Bugs this surfaced
 
@@ -113,20 +164,22 @@ appear when real money and real model ids are involved.
 
 ## What these numbers do not support
 
-- **n = 17, one model, one run.** No repeats, so within-task variance is unknown and the
-  per-tier figures carry no confidence interval. Repeat runs are what make or break the
-  headline.
+- **Three runs, one model, 14-17 goals each.** Enough to show the slope replicates and to
+  separate it from planner noise; not enough for confidence intervals on individual
+  per-tier figures, and all of it on `claude-haiku-4-5`. Whether the slope has the same
+  shape on a frontier model is untested.
 - **Tier is a hand-assigned label**, not an independent measurement of difficulty. It is
   the experimenter's intent, which is a reasonable proxy and not the same thing.
-- **Realized cost depends on the planner, not only the estimator.** How many subtasks a
-  goal decomposes into varies run to run, so some of the measured "estimator error" is
-  planner variance. Separating the two needs repeats; until then the slope result should
-  be read as *the pair* being mis-sloped.
+- **The stage-2 comparison rests on a single run.** The variance decomposition covers
+  stage 1 across three runs; only run 3 carried plan data, so the 3.78x -> 1.78x slope
+  improvement has not itself been replicated.
 - **The correction schemes were fitted in sample.** All three are optimistic; only their
   comparison is meaningful, and only because the better-performing one has fewer
   parameters.
-- **One task failed** (`res-s`, the simplest research goal) with three validation errors
-  on the planner's `TaskPlan`. That is a separate robustness issue, not a costing one.
+- **One or two goals failed per run** (`res-s`, the simplest research goal, every time)
+  with validation errors on the planner's `TaskPlan`. A planner that reliably fails on the
+  easiest item in the suite is a separate robustness issue, not a costing one, but it
+  should not be left alone.
 
 ## Reproducing
 
