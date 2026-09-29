@@ -131,6 +131,9 @@ class GovernanceEngine:
         # Skill per task, so a settled (estimate, actual) pair can be attributed to a
         # category when it is handed to the cost calibrator.
         self._task_skill: dict[str, str] = {}
+        # Uncorrected per-task estimate, kept separately because calibration is defined
+        # against the raw figure while budgeting uses the corrected one.
+        self._task_raw_estimate_cents: dict[str, int] = {}
         # Cumulative actual spend within the current dispatch run (cents), for budget halt.
         self._mission_spent_cents: int = 0
 
@@ -225,7 +228,8 @@ class GovernanceEngine:
                 from sovereign_os.governance.cost_model import record_cost
 
                 record_cost(self._task_skill.get(task_id, "") or "general",
-                            estimate, actual_cents)
+                            self._task_raw_estimate_cents.get(task_id, estimate),
+                            actual_cents)
             except Exception:  # noqa: BLE001 - never let bookkeeping break a mission
                 logger.debug("GOVERNANCE: cost calibration record failed", exc_info=True)
 
@@ -329,6 +333,13 @@ class GovernanceEngine:
         skill = getattr(task, "required_skill", "")
         ratio = output_ratio_for_skill(skill)
         raw = estimate_budget_cost_cents(model_id, budget, output_ratio=ratio)
+        # Remember the uncorrected figure: the calibrator must be fed raw estimates so
+        # `cost_factor` keeps meaning "actual / RAW estimate", which is exactly what
+        # `estimate_task_cost_cents(calibrated=True)` assumes when it multiplies. Feeding
+        # it the corrected figure instead would make the factor a residual on its own
+        # output — a different quantity, converging to 1.0 and quietly disagreeing with
+        # the web job path and the benchmark, which both record raw.
+        self._task_raw_estimate_cents[getattr(task, "task_id", "")] = raw
 
         # Apply what settled tasks have taught us about this category. Measurement across
         # 49 governed runs found the planner's own token budgets over-ask by about 2x, so
