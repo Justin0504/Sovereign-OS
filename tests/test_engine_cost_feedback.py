@@ -154,3 +154,36 @@ def test_estimate_never_falls_below_one_cent(engine):
         engine._task_skill[f"t{i}"] = "coding"
         engine._reconcile_cost(f"t{i}", "worker-1", 1)
     assert engine._default_cost_converter(_task(budget=100)) >= 1
+
+
+def test_calibration_is_fed_raw_estimates_not_corrected_ones(engine):
+    """
+    cost_factor means "actual / RAW estimate" — that is what
+    estimate_task_cost_cents(calibrated=True) multiplies by. If the loop recorded its own
+    corrected output instead, the factor would become a residual on itself, converge to
+    1.0, and silently disagree with the web job path and the benchmark, which record raw.
+    """
+    task = _task()
+    corrected = engine._default_cost_converter(task)          # also stores the raw figure
+    raw = engine._task_raw_estimate_cents["t1"]
+    assert corrected == raw                                    # cold start: equal
+
+    for i in range(30):                                        # teach a 0.5x correction
+        engine._task_estimate_cents[f"t{i}"] = 100
+        engine._task_skill[f"t{i}"] = "coding"
+        engine._reconcile_cost(f"t{i}", "worker-1", 50)
+
+    corrected2 = engine._default_cost_converter(_task(task_id="t1"))
+    raw2 = engine._task_raw_estimate_cents["t1"]
+    assert corrected2 < raw2, "budgeting uses the corrected figure"
+    assert raw2 == raw, "the raw figure is unaffected by the learned correction"
+
+    # A task settling at exactly its raw estimate must pull the factor back toward 1.0,
+    # which is only possible if the pair recorded is (raw, actual).
+    before = cost_factor("coding")
+    for i in range(40, 80):
+        engine._task_estimate_cents[f"t{i}"] = corrected2
+        engine._task_raw_estimate_cents[f"t{i}"] = raw2
+        engine._task_skill[f"t{i}"] = "coding"
+        engine._reconcile_cost(f"t{i}", "worker-1", raw2)
+    assert cost_factor("coding") > before

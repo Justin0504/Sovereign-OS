@@ -2671,6 +2671,45 @@ class {class_name}(BaseWorker):
                 return {"job": asdict(j)}
         raise HTTPException(status_code=404, detail="Job not found")
 
+    @app.get("/api/cost/forecast", summary="Pre-flight cost forecast for a goal")
+    def api_cost_forecast(goal: str = "", category: str = ""):
+        """
+        What this goal is expected to cost, before any compute is spent.
+
+        Returns a point estimate and — only when enough tasks have settled to have
+        measured the spread — an 80th-percentile upper figure. The band is reported as
+        absent rather than guessed when there is no evidence for it: a confidence
+        interval invented from three samples is worse than none.
+        """
+        from sovereign_os.governance.cost_model import cost_factor, cost_stats
+        from sovereign_os.governance.economics import complexity_from_goal, estimate_task_cost_cents
+
+        cat = (category or "general").strip().lower()
+        cx = complexity_from_goal(goal or "")
+        point = estimate_task_cost_cents(cat, complexity=cx, calibrated=True)
+        raw = estimate_task_cost_cents(cat, complexity=cx, calibrated=False)
+        stats = cost_stats(cat)
+
+        upper = None
+        if stats.n >= 3:
+            upper = max(point, int(round(raw * stats.safety_multiplier(0.8))))
+
+        return {
+            "category": cat,
+            "complexity": cx,
+            "point_cents": point,
+            "raw_cents": raw,
+            "upper_cents": upper,
+            "calibration": {
+                "samples": stats.n,
+                "factor": cost_factor(cat),
+                "within_2x": stats.within_2x if stats.n else None,
+                "overrun_rate": stats.under_rate if stats.n else None,
+                # Until tasks settle, the forecast is the cold heuristic and nothing more.
+                "has_evidence": stats.n >= 3,
+            },
+        }
+
     @app.post("/api/run")
     def api_run(payload: dict | None = Body(None)):
         goal = (payload or {}).get("goal", "Summarize the market in one paragraph.") if isinstance(payload, dict) else "Summarize the market in one paragraph."

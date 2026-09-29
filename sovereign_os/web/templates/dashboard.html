@@ -238,6 +238,16 @@
       margin-bottom: 16px;
       line-height: 1.5;
     }
+    .cost-forecast {
+      display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
+      margin-top: 10px; font-size: 0.82rem; color: var(--mut);
+    }
+    .cf-k { font-family: var(--font-mono); font-size: 0.7rem; letter-spacing: .06em; text-transform: uppercase; }
+    .cf-v { font-family: var(--font-mono); font-size: 0.95rem; color: var(--ink); font-weight: 600; }
+    .cf-band { font-family: var(--font-mono); }
+    .cf-conf { color: var(--mut); }
+    .cf-conf.cf-cold { font-style: italic; }
+
     .prompt-row {
       display: flex;
       gap: 10px;
@@ -821,6 +831,12 @@
           <div class="prompt-row">
             <input type="text" id="goal" placeholder="e.g. Summarize the market in one paragraph" value="Summarize the market in one paragraph." />
             <button class="btn" onclick="runMission()">Run</button>
+          </div>
+          <div class="cost-forecast" id="costForecast" hidden>
+            <span class="cf-k">Estimated cost</span>
+            <span class="cf-v" id="cfValue">—</span>
+            <span class="cf-band" id="cfBand"></span>
+            <span class="cf-conf" id="cfConf"></span>
           </div>
           <details style="margin-top:12px">
             <summary style="cursor:pointer;font-size:0.85rem;font-weight:600;color:var(--text-soft)">Quick templates</summary>
@@ -1965,6 +1981,50 @@
         }
         card.addEventListener("click", go);
         card.addEventListener("keydown", function(e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
+      });
+
+      // ---- pre-flight cost forecast -------------------------------------------
+      // Shown beside the goal because that is where the decision to spend is made.
+      // The band is rendered only when the server says it has measured a spread; an
+      // interval invented from two samples reads as precision the system lacks.
+      var cfCat = "general", cfTimer = null;
+      function cents(c) { return c >= 100 ? "$" + (c / 100).toFixed(2) : c + "\u00A2"; }
+      function forecast() {
+        var g = r("goal"), box = r("costForecast");
+        if (!g || !box) return;
+        var goal = (g.value || "").trim();
+        if (!goal) { box.hidden = true; return; }
+        fetch("/api/cost/forecast?goal=" + encodeURIComponent(goal) + "&category=" + encodeURIComponent(cfCat))
+          .then(function(x) { return x.json(); })
+          .then(function(d) {
+            box.hidden = false;
+            r("cfValue").textContent = cents(d.point_cents);
+            var cal = d.calibration || {};
+            r("cfBand").textContent = d.upper_cents ? "· up to " + cents(d.upper_cents) + " (80th pct)" : "";
+            var conf = r("cfConf");
+            if (cal.has_evidence) {
+              conf.className = "cf-conf";
+              conf.textContent = "· calibrated on " + cal.samples + " settled task"
+                + (cal.samples === 1 ? "" : "s")
+                + (cal.within_2x != null ? " · " + Math.round(cal.within_2x * 100) + "% within 2\u00D7" : "");
+            } else {
+              conf.className = "cf-conf cf-cold";
+              conf.textContent = "· uncalibrated — no settled tasks in this category yet";
+            }
+          })
+          .catch(function() { box.hidden = true; });
+      }
+      var goalEl = r("goal");
+      if (goalEl) {
+        goalEl.addEventListener("input", function() {
+          clearTimeout(cfTimer); cfTimer = setTimeout(forecast, 400);
+        });
+        forecast();
+      }
+      document.querySelectorAll(".cap-card .cap-name").forEach(function(n) {
+        n.closest(".cap-card").addEventListener("click", function() {
+          cfCat = n.textContent.trim().toLowerCase(); setTimeout(forecast, 50);
+        });
       });
     })();
   </script>
