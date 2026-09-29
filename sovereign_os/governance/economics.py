@@ -93,11 +93,120 @@ def estimate_task_cost_cents(
 
 
 def complexity_from_goal(goal: str) -> float:
-    """Cheap heuristic: longer, multi-part goals cost more. Range ~0.7–2.0."""
+    """
+    Cheap heuristic: longer, multi-part goals cost more. Range ~0.7–2.0.
+
+    Measured limitation (17-task suite, Haiku 4.5, 2026-09-17): across goals whose real
+    cost spanned 12.8x, this score moved only 1.21x, and the resulting estimate only
+    1.14x. It is a function of goal *string length*, and a short sentence can describe an
+    enormous amount of work. The consequence is a systematic slope error — small tasks
+    over-estimated ~1.8x, large ones under-estimated ~1.7x — which no per-category
+    multiplier can remove, because a single factor shifts the line without changing its
+    slope. Use `plan_complexity`/`estimate_plan_cost_cents` once a plan exists.
+    """
     n = len(goal or "")
     parts = 1 + (goal or "").count("\n") + (goal or "").lower().count(" and ")
     length_factor = min(1.6, 0.7 + n / 1200.0)
     return round(min(2.0, length_factor * min(1.5, 0.85 + 0.15 * parts)), 3)
+
+
+def plan_complexity(plan) -> float:
+    """
+    Difficulty implied by an actual task plan, rather than by the goal's prose.
+
+    A plan is available after decomposition and before execution — the moment the budget
+    ceiling is set — and carries the two things goal text cannot: how many units of work
+    the problem broke into, and how deep the dependency chain runs. Scales roughly with
+    task count, tempered so a ten-task plan is not asserted to be ten times a one-task
+    plan, and nudged by chain depth because serial work re-reads context.
+
+    Returns ~0.7–4.0. An empty plan falls back to 1.0 rather than claiming zero work.
+    """
+    tasks = list(getattr(plan, "tasks", None) or [])
+    if not tasks:
+        return 1.0
+
+    count_factor = 0.7 + 0.45 * (len(tasks) ** 0.75)
+
+    by_id = {getattr(t, "task_id", ""): t for t in tasks}
+    depth_cache: dict[str, int] = {}
+
+    def depth(task_id: str, seen: frozenset = frozenset()) -> int:
+        if task_id in depth_cache:
+            return depth_cache[task_id]
+        if task_id in seen:          # a cyclic plan is malformed; do not recurse forever
+            return 0
+        task = by_id.get(task_id)
+        deps = [d for d in (getattr(task, "dependencies", None) or []) if d in by_id]
+        value = 1 + max((depth(d, seen | {task_id}) for d in deps), default=0)
+        depth_cache[task_id] = value
+        return value
+
+    chain = max((depth(tid) for tid in by_id), default=1)
+    depth_factor = 1.0 + 0.08 * max(0, chain - 1)
+    return round(min(4.0, count_factor * depth_factor), 3)
+
+
+def estimate_plan_cost_cents(
+    plan,
+    model: str = "gpt-4o",
+    *,
+    calibrated: bool = True,
+    default_category: str = "general",
+) -> tuple[int, list[dict]]:
+    """
+    Second-stage estimate: price an actual plan, task by task.
+
+    The first-stage estimate (`screen_task`) has to run before any compute is spent, so
+    all it can see is the goal string — and measurement shows that is a weak predictor.
+    Once the planner has decomposed the goal, far more is known: how many tasks there
+    are, what competency each needs, and the planner's own token budget for each. This
+    is still available *before* execution, which is where a budget ceiling belongs.
+
+    Returns `(total_cents, per_task_breakdown)`.
+
+    A caveat worth keeping in view: `estimated_token_budget` is itself produced by an
+    LLM, so it inherits the estimation error under study. The claim here is only that it
+    is produced *after* the model has actually decomposed the problem, and therefore
+    rests on strictly more information than the goal string does. Whether that converts
+    into a better estimate is an empirical question — `bench.calibration_run` records
+    both stages against the same realized cost so the two can be compared directly.
+    """
+    tasks = list(getattr(plan, "tasks", None) or [])
+    breakdown: list[dict] = []
+    total = 0
+
+    for task in tasks:
+        skill = (getattr(task, "required_skill", "") or "").lower()
+        category = skill if skill in _CATEGORY_TOKENS else default_category
+        budget = int(getattr(task, "estimated_token_budget", 0) or 0)
+
+        if budget > 0:
+            ratio = _CATEGORY_OUTPUT_RATIO.get(category, 0.5)
+            cents = estimate_budget_cost_cents(model, budget, output_ratio=ratio)
+            if calibrated:
+                try:
+                    from sovereign_os.governance.cost_model import cost_factor
+
+                    cents = max(1, int(round(cents * cost_factor(category))))
+                except Exception:  # noqa: BLE001 - calibration is best-effort
+                    pass
+            source = "planner_budget"
+        else:
+            # The planner declined to budget this task; fall back to the category prior.
+            cents = estimate_task_cost_cents(category, model, calibrated=calibrated)
+            source = "category_prior"
+
+        total += cents
+        breakdown.append({
+            "task_id": getattr(task, "task_id", ""),
+            "category": category,
+            "tokens": budget,
+            "cents": cents,
+            "source": source,
+        })
+
+    return total, breakdown
 
 
 def evaluate_opportunity(
