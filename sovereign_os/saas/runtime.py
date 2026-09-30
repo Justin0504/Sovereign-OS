@@ -49,8 +49,18 @@ def _charter_for(tenant: Tenant):
 
 
 def build_tenant_engine(tenant: Tenant, store: TenantStore) -> tuple[Any, Any, Any]:
-    """Construct a fully-isolated (engine, ledger, auth) for one tenant."""
+    """
+    Construct a fully-isolated (engine, ledger, auth) for one tenant.
+
+    "Isolated" has to cover process-global state as well as the objects constructed
+    here, and originally it did not: cost calibration lived in a module-level singleton,
+    so one tenant's settled tasks moved another tenant's budget ceiling — measured at 3x
+    on an identical task. The budget gate is the core safety mechanism, so having it set
+    by someone else's workload is a governance failure, not just a metrics smudge. Each
+    tenant now gets its own calibrator, persisted in its own data directory.
+    """
     from sovereign_os.agents.auth import SovereignAuth
+    from sovereign_os.governance.cost_model import CostCalibrator
     from sovereign_os.auditor import ReviewEngine
     from sovereign_os.governance.circuit_breaker import SpendCircuitBreaker
     from sovereign_os.governance.engine import GovernanceEngine
@@ -63,7 +73,9 @@ def build_tenant_engine(tenant: Tenant, store: TenantStore) -> tuple[Any, Any, A
     auth = SovereignAuth(persist_path=str(d / "trust.json"))
     review = ReviewEngine(charter, audit_trail_path=str(d / "audit.jsonl"))
     breaker = SpendCircuitBreaker(session_ceiling_cents=get_plan(tenant.plan).max_daily_spend_cents)
-    engine = GovernanceEngine(charter, ledger, auth=auth, review_engine=review, circuit_breaker=breaker)
+    calibrator = CostCalibrator.load(d / "calibration.json")
+    engine = GovernanceEngine(charter, ledger, auth=auth, review_engine=review,
+                              circuit_breaker=breaker, calibrator=calibrator)
     return engine, ledger, auth
 
 
@@ -92,5 +104,13 @@ async def run_tenant_mission(tenant: Tenant, store: TenantStore, goal: str, *,
             goal, abort_on_audit_failure=False,
             job_revenue_cents=job_revenue_cents, max_repair_attempts=max_repair_attempts,
         )
+    # Persist what this mission taught the tenant's estimator; without this the learning
+    # is discarded on restart and the budget gate reverts to the cold heuristic.
+    cal = getattr(engine, "_calibrator", None)
+    if cal is not None:
+        try:
+            cal.save(store.data_dir(tenant) / "calibration.json")
+        except Exception:  # noqa: BLE001 - never fail a settled mission over bookkeeping
+            pass
     store.record_mission(tenant.id, spend_cents=max(0, _spend_cents(ledger) - before))
     return result

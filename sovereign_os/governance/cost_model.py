@@ -39,7 +39,9 @@ from __future__ import annotations
 
 import math
 import time
-from dataclasses import dataclass, field
+import json
+from dataclasses import asdict, dataclass, field
+from pathlib import Path
 
 
 def _percentile(sorted_values: list[float], q: float) -> float:
@@ -294,6 +296,45 @@ class CostCalibrator:
         self._act.clear()
         self._n.clear()
         self._samples.clear()
+
+    # ----------------------------------------------------------- persistence
+    def to_json(self) -> dict:
+        return {
+            "est": self._est, "act": self._act, "n": self._n,
+            "samples": {c: [asdict(x) for x in v] for c, v in self._samples.items()},
+        }
+
+    def load_json(self, data: dict) -> None:
+        self._est = {k: float(v) for k, v in (data.get("est") or {}).items()}
+        self._act = {k: float(v) for k, v in (data.get("act") or {}).items()}
+        self._n = {k: int(v) for k, v in (data.get("n") or {}).items()}
+        self._samples = {
+            c: [CalibrationSample(**d) for d in v]
+            for c, v in (data.get("samples") or {}).items()
+        }
+
+    def save(self, path: str | Path) -> None:
+        """
+        Persist learned history. Without this every restart discards what the system
+        learned about its own costs and the budget gate reverts to the cold heuristic —
+        which is precisely the mis-sloped estimator the calibration exists to correct.
+        """
+        p = Path(path)
+        p.parent.mkdir(parents=True, exist_ok=True)
+        tmp = p.with_suffix(p.suffix + ".tmp")
+        tmp.write_text(json.dumps(self.to_json()), encoding="utf-8")
+        tmp.replace(p)          # atomic: a crash mid-write must not truncate the history
+
+    @classmethod
+    def load(cls, path: str | Path, **kwargs) -> "CostCalibrator":
+        cal = cls(**kwargs)
+        p = Path(path)
+        if p.exists():
+            try:
+                cal.load_json(json.loads(p.read_text("utf-8")))
+            except Exception:  # noqa: BLE001 - a corrupt history is not worth a crash
+                pass
+        return cal
 
 
 # Process-global calibrator: the web layer records (estimate, actual) on job
