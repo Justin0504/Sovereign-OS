@@ -74,15 +74,69 @@ def reset_tenant_keys(token: "contextvars.Token") -> None:
     _tenant_keys.reset(token)
 
 
+class TenantKeyMissing(RuntimeError):
+    """Raised when a multi-tenant process would have to fall back to a platform key."""
+
+
+# Multi-tenant hosts set this. It converts "no tenant key in context" from a silent
+# fallback into a hard failure.
+_MULTI_TENANT_ENV = "SOVEREIGN_MULTI_TENANT"
+
+
+def multi_tenant_mode() -> bool:
+    return (os.getenv(_MULTI_TENANT_ENV, "") or "").strip().lower() in ("1", "true", "yes")
+
+
+def bind_tenant_context(fn):
+    """
+    Capture the caller's context now and return a callable that replays `fn` inside it.
+
+    `threading.Thread` does not propagate contextvars — a thread starts with an empty
+    context — so a mission dispatched to a thread loses the tenant's keys and silently
+    falls back to the process env.
+
+    The capture has to happen HERE, in the originating context, which is the whole point
+    of the two-step shape. Calling `copy_context()` inside the thread's target copies the
+    thread's own empty context and fixes nothing, failing in exactly the way this helper
+    exists to prevent. Use it as:
+
+        threading.Thread(target=bind_tenant_context(work)).start()
+
+    `multi_tenant_mode` remains the backstop for every call site that forgets.
+    """
+    ctx = contextvars.copy_context()
+
+    def runner(*args, **kwargs):
+        return ctx.run(fn, *args, **kwargs)
+
+    return runner
+
+
 def _tenant_key_for(provider: str) -> "str | None":
     tk = _tenant_keys.get()
     if not tk:
+        # Falling back to the platform's env key here would bill the operator for a
+        # tenant's work and quietly break the "your keys, never ours" guarantee — and it
+        # would do so invisibly, because everything still succeeds. Fail closed instead.
+        if multi_tenant_mode():
+            raise TenantKeyMissing(
+                f"No tenant key bound for provider {provider!r} while "
+                f"{_MULTI_TENANT_ENV} is set. The platform key must never serve a "
+                f"tenant's mission; bind keys with tenant_llm_context(), and carry the "
+                f"context across any thread boundary (run_with_tenant_context)."
+            )
         return None
+    key = None
     if provider == "openai":
-        return (tk.get("openai") or "").strip() or None
-    if provider in ("anthropic", "claude"):
-        return (tk.get("anthropic") or "").strip() or None
-    return None
+        key = (tk.get("openai") or "").strip() or None
+    elif provider in ("anthropic", "claude"):
+        key = (tk.get("anthropic") or "").strip() or None
+    if key is None and multi_tenant_mode():
+        raise TenantKeyMissing(
+            f"Tenant context is bound but carries no {provider!r} key. Refusing to fall "
+            f"back to the platform key."
+        )
+    return key
 
 
 def _default_provider() -> str:

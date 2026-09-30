@@ -104,6 +104,7 @@ class GovernanceEngine:
         compliance_auto_proceed: bool = False,
         budget_policy: "Any | None" = None,
         circuit_breaker: "SpendCircuitBreaker | None" = None,
+        calibrator: Any = None,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
@@ -134,6 +135,12 @@ class GovernanceEngine:
         # Uncorrected per-task estimate, kept separately because calibration is defined
         # against the raw figure while budgeting uses the corrected one.
         self._task_raw_estimate_cents: dict[str, int] = {}
+        # Cost calibration state. Explicit rather than ambient: the process-global is
+        # shared by every engine in the process, so in a multi-tenant host one tenant's
+        # settled tasks would set another tenant's budget ceiling. Left as None here and
+        # resolved per call, so a single-tenant self-host keeps the global behaviour and
+        # a tenant engine is handed its own.
+        self._calibrator = calibrator
         # Cumulative actual spend within the current dispatch run (cents), for budget halt.
         self._mission_spent_cents: int = 0
 
@@ -225,11 +232,14 @@ class GovernanceEngine:
         # handing them to the calibrator is what lets the next estimate be better.
         if actual_cents > 0:
             try:
-                from sovereign_os.governance.cost_model import record_cost
+                category = self._task_skill.get(task_id, "") or "general"
+                raw_estimate = self._task_raw_estimate_cents.get(task_id, estimate)
+                if self._calibrator is not None:
+                    self._calibrator.record(category, raw_estimate, actual_cents)
+                else:
+                    from sovereign_os.governance.cost_model import record_cost
 
-                record_cost(self._task_skill.get(task_id, "") or "general",
-                            self._task_raw_estimate_cents.get(task_id, estimate),
-                            actual_cents)
+                    record_cost(category, raw_estimate, actual_cents)
             except Exception:  # noqa: BLE001 - never let bookkeeping break a mission
                 logger.debug("GOVERNANCE: cost calibration record failed", exc_info=True)
 
@@ -347,9 +357,13 @@ class GovernanceEngine:
         # half as much under any cap. With no history the factor is exactly 1.0, so a cold
         # start behaves exactly as before.
         try:
-            from sovereign_os.governance.cost_model import cost_factor
+            if self._calibrator is not None:
+                factor = self._calibrator.factor(skill)
+            else:
+                from sovereign_os.governance.cost_model import cost_factor
 
-            return max(1, int(round(raw * cost_factor(skill))))
+                factor = cost_factor(skill)
+            return max(1, int(round(raw * factor)))
         except Exception:  # noqa: BLE001 - calibration is best-effort, never load-bearing
             return raw
 
