@@ -13,12 +13,24 @@ Env:  SOVEREIGN_SAAS_ROOT  (tenant data root, default ".saas-data")
 from __future__ import annotations
 
 import dataclasses
+import logging
 import os
 from typing import Any
 
 from sovereign_os.saas.plans import PLANS, get_plan
 from sovereign_os.saas.runtime import run_tenant_mission, tenant_earning_active
 from sovereign_os.saas.tenancy import TenantConfig, TenantStore
+
+# Imported at module scope on purpose: `from __future__ import annotations` turns
+# annotations into strings, and FastAPI resolves them with get_type_hints against the
+# MODULE globals. A `Request` imported inside create_saas_app is invisible there, so an
+# annotated parameter silently becomes a required query param and every POST 422s.
+try:  # pragma: no cover - fastapi is a hard dependency; guarded for import-only use
+    from fastapi import Request
+except ImportError:  # pragma: no cover
+    Request = None  # type: ignore[assignment]
+
+logger = logging.getLogger(__name__)
 
 _STORE: TenantStore | None = None
 
@@ -37,20 +49,82 @@ _CONFIG_FIELDS = {
 }
 
 
-def create_saas_app(store: TenantStore | None = None) -> Any:
+def hosted_preflight(store: TenantStore) -> list[str]:
+    """
+    Refuse to serve other people's credentials from an unsafe configuration.
+
+    Called at startup for a hosted deployment. Each check below is a guarantee the
+    product makes in writing, and each fails silently if it is merely implemented and
+    never invoked — the state where the defence exists, the tests pass, and production
+    is still wide open.
+
+    Returns the warnings that are advisory; raises on the ones that are not.
+    """
+    from sovereign_os.llm.providers import multi_tenant_mode
+
+    store.require_encryption()      # raises unless SOVEREIGN_SAAS_SECRET is set
+
+    advisories: list[str] = []
+    if not multi_tenant_mode():
+        advisories.append(
+            "SOVEREIGN_MULTI_TENANT is not set. A tenant mission whose key context is "
+            "lost — any thread boundary will do it — would silently fall back to the "
+            "platform's own API key, billing the operator and breaking the "
+            "bring-your-own-keys guarantee with nothing reporting a problem."
+        )
+    pending = store.pending_migrations()
+    if pending:
+        advisories.append(
+            f"{len(pending)} tenant(s) still hold plaintext secrets on disk. "
+            f"Run store.migrate_secrets() before serving traffic."
+        )
+    return advisories
+
+
+def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -> Any:
     try:
         from fastapi import Body, Depends, FastAPI, Header, HTTPException
         from fastapi.responses import HTMLResponse
     except ImportError:  # pragma: no cover
         raise ImportError("fastapi required; pip install fastapi uvicorn")
 
+    from sovereign_os.saas.limits import AuthThrottle, RateLimiter, client_key
+
     st = store or get_store()
+    # Signup mints credentials and missions burn model tokens, so both need a ceiling
+    # that applies BEFORE authentication — plan limits are enforced after it and do
+    # nothing about a loop creating tenants or a caller probing for a key.
+    signup_limiter = RateLimiter(capacity=5, refill_per_second=5 / 3600)      # ~5/hour
+    mission_limiter = RateLimiter(capacity=20, refill_per_second=20 / 3600)   # ~20/hour
+    auth_throttle = AuthThrottle()
+
+    def _enforce(limiter, key: str, what: str) -> None:
+        allowed, retry_after = limiter.check(key)
+        if not allowed:
+            raise HTTPException(
+                status_code=429, detail=f"Too many {what}. Retry in {int(retry_after) + 1}s.",
+                headers={"Retry-After": str(int(retry_after) + 1)},
+            )
+
+    if hosted:
+        for warning in hosted_preflight(st):
+            logger.warning("SAAS PREFLIGHT: %s", warning)
     app = FastAPI(title="Sovereign-OS SaaS")
 
-    def require_tenant(x_tenant_key: str | None = Header(default=None)):
+    def require_tenant(request: Request, x_tenant_key: str | None = Header(default=None)):
+        caller = client_key(request)
+        locked, retry_after = auth_throttle.is_locked(caller)
+        if locked:
+            raise HTTPException(
+                status_code=429,
+                detail=f"Too many failed attempts. Retry in {int(retry_after) + 1}s.",
+                headers={"Retry-After": str(int(retry_after) + 1)},
+            )
         t = st.by_api_key(x_tenant_key or "")
         if t is None:
+            auth_throttle.record_failure(caller)
             raise HTTPException(status_code=401, detail="Invalid or missing X-Tenant-Key.")
+        auth_throttle.record_success(caller)
         return t
 
     def _plan_info(plan_name: str) -> dict:
@@ -61,14 +135,24 @@ def create_saas_app(store: TenantStore | None = None) -> Any:
 
     @app.get("/saas/health")
     def health():
-        return {"status": "ok", "tenants": len(st.list())}
+        from sovereign_os.llm.providers import multi_tenant_mode
+        from sovereign_os.saas.limits import limits_are_process_local
+
+        return {
+            "status": "ok", "tenants": len(st.list()),
+            "encryption": st._box is not None,
+            "multi_tenant_mode": multi_tenant_mode(),
+            "rate_limits_process_local": limits_are_process_local(),
+            "tracked_clients": signup_limiter.tracked_keys,
+        }
 
     @app.get("/saas/plans")
     def plans():
         return {"plans": [_plan_info(n) for n in PLANS]}
 
     @app.post("/saas/tenants")
-    def signup(payload: dict | None = Body(None)):
+    def signup(request: Request, payload: dict | None = Body(None)):
+        _enforce(signup_limiter, client_key(request), "workspaces created")
         body = payload or {}
         name = str(body.get("name") or "").strip()
         if not name:
@@ -99,7 +183,9 @@ def create_saas_app(store: TenantStore | None = None) -> Any:
         return {"tenant": t.public(), "plan": _plan_info(t.plan)}
 
     @app.post("/saas/tenants/me/missions")
-    async def run_mission(payload: dict | None = Body(None), t=Depends(require_tenant)):
+    async def run_mission(request: Request, payload: dict | None = Body(None),
+                          t=Depends(require_tenant)):
+        _enforce(mission_limiter, t.id, "missions")     # keyed per tenant, not per IP
         goal = str((payload or {}).get("goal") or "").strip()
         if not goal:
             raise HTTPException(status_code=400, detail="goal is required.")
@@ -261,7 +347,9 @@ if(KEY){el("inKey").value=KEY;signin()}
 def main() -> int:  # pragma: no cover
     import uvicorn
 
-    uvicorn.run(create_saas_app(), host="0.0.0.0", port=int(os.getenv("PORT", "8020")))
+    # Serving over a network means serving other people; preflight is not optional here.
+    uvicorn.run(create_saas_app(hosted=True),
+                host="0.0.0.0", port=int(os.getenv("PORT", "8020")))
     return 0
 
 
