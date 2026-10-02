@@ -1,0 +1,47 @@
+# Hosted multi-tenant control plane.
+#
+# Kept separate from the root Dockerfile, which builds the single-tenant self-host image
+# and defaults to the TUI. They are different products with different obligations: this
+# one holds other people's credentials, so it runs as a non-root user, refuses to start
+# unconfigured, and keeps tenant state on a volume.
+
+FROM python:3.12-slim AS builder
+WORKDIR /build
+RUN pip install --no-cache-dir build setuptools wheel
+COPY pyproject.toml ./
+COPY sovereign_os sovereign_os
+COPY charter.default.yaml charter.example.yaml ./
+RUN pip wheel --no-deps --wheel-dir /wheels .
+
+FROM python:3.12-slim AS runtime
+WORKDIR /app
+ENV PYTHONUNBUFFERED=1
+RUN apt-get update -qq && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /wheels /wheels
+RUN pip install --no-cache-dir /wheels/*.whl \
+    && pip install --no-cache-dir "fastapi>=0.115" "uvicorn[standard]>=0.32" "cryptography>=42" \
+    && rm -rf /wheels
+COPY --from=builder /build/sovereign_os sovereign_os
+COPY --from=builder /build/charter.default.yaml charter.default.yaml
+
+# Tenant ledgers, audit trails, trust stores and learned calibration. Not a cache:
+# losing this loses every tenant's history and reverts their cost estimates to the
+# uncalibrated heuristic.
+VOLUME ["/data"]
+ENV SOVEREIGN_SAAS_ROOT=/data/tenants
+
+# This process holds other people's API keys in memory; it does not need root.
+RUN useradd --system --uid 10001 sovereign \
+    && mkdir -p /data/tenants && chown -R sovereign /data /app
+USER sovereign
+
+EXPOSE 8020
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8020/saas/health', timeout=4).status == 200 else 1)"
+
+# The module entrypoint runs hosted_preflight(), which refuses to start without
+# SOVEREIGN_SAAS_SECRET rather than writing tenant keys to disk in the clear. Starting
+# the app any other way skips that check.
+CMD ["python", "-m", "sovereign_os.saas.api"]
