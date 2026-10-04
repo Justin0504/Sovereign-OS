@@ -90,6 +90,71 @@ used only for that tenant's missions.
 
 ---
 
+
+## 3b · Deploy the hosted control plane to Railway
+
+The repo ships [`railway.json`](../railway.json), which builds
+[`deploy/Dockerfile.saas`](../deploy/Dockerfile.saas) and health-checks `/saas/health`.
+
+**`numReplicas` is pinned to 1, and raising it will quietly break two things.** Rate
+limiting and the tenant store are both in-process: N replicas enforce N times the
+configured limit, and two replicas writing the same tenant JSON lose updates with no
+error anywhere. Both need shared state (Redis, Postgres) before a second replica is
+safe. The number is a correctness constraint, not a cost setting.
+
+### Steps
+
+1. **New project → Deploy from GitHub repo**, pick this repo. Railway reads
+   `railway.json`, so no build configuration is needed.
+
+2. **Add a volume** mounted at `/data`. Not optional: it holds every tenant's ledger,
+   audit trail, trust store and learned cost calibration. Without it a redeploy silently
+   resets all of them, and tenants' cost estimates revert to the uncalibrated heuristic.
+
+3. **Set variables** (from [`deploy/saas.env.example`](../deploy/saas.env.example)):
+
+   | Variable | Value |
+   |---|---|
+   | `SOVEREIGN_SAAS_SECRET` | generate once; the app refuses to start without it |
+   | `SOVEREIGN_MULTI_TENANT` | `1` |
+   | `SOVEREIGN_SAAS_ROOT` | `/data/tenants` |
+   | `SOVEREIGN_TRUST_PROXY` | `1` — Railway terminates TLS and sets `X-Forwarded-For` |
+
+   Generate the secret with:
+
+   ```bash
+   python -c "import secrets;print(secrets.token_urlsafe(48))"
+   ```
+
+   Keep it in Railway's variables and nowhere else. Rotating it makes every stored
+   tenant credential undecryptable — the ciphertext is keyed to it.
+
+   `PORT` is injected by Railway; the app and its health check both read it rather than
+   assuming 8020.
+
+4. **Confirm the posture** once deployed, rather than assuming it:
+
+   ```bash
+   curl -s https://<your-app>.up.railway.app/saas/health
+   ```
+
+   ```json
+   {"status":"ok","encryption":true,"multi_tenant_mode":true,...}
+   ```
+
+   `encryption: false` or `multi_tenant_mode: false` means it is serving traffic in a
+   posture that leaks — stop and fix the variables. A start without
+   `SOVEREIGN_SAAS_SECRET` fails loudly instead, by design.
+
+5. **Custom domain**: Railway → Settings → Networking → Custom Domain, then a `CNAME` at
+   your registrar pointing at the host Railway shows. Note this is the *app*; the
+   marketing site is separate and lives on GitHub Pages (section 2).
+
+### Redeploying
+
+Push once and let it land. Stacking pushes while a deploy is in flight turns a ~40s
+restart into a long churn, because each push supersedes a build that was nearly done.
+
 ## Notes
 
 - **Keys** are read from the environment (`ANTHROPIC_API_KEY` / `OPENAI_API_KEY`) or, in

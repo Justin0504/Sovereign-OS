@@ -38,8 +38,11 @@ RUN useradd --system --uid 10001 sovereign \
 USER sovereign
 
 EXPOSE 8020
+# Resolve the port at runtime. Railway and most PaaS hosts assign PORT dynamically, so a
+# hardcoded probe checks a port nothing is listening on and the container is reported
+# unhealthy while serving traffic perfectly well. Shell form, so ${PORT} is expanded.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
-  CMD python -c "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8020/saas/health', timeout=4).status == 200 else 1)"
+  CMD python -c "import os,urllib.request,sys; p=os.getenv('PORT','8020'); sys.exit(0 if urllib.request.urlopen(f'http://127.0.0.1:{p}/saas/health', timeout=4).status == 200 else 1)"
 
 # The module entrypoint runs hosted_preflight(), which refuses to start without
 # SOVEREIGN_SAAS_SECRET rather than writing tenant keys to disk in the clear. Starting
