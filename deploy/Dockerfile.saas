@@ -26,16 +26,26 @@ RUN pip install --no-cache-dir /wheels/*.whl \
 COPY --from=builder /build/sovereign_os sovereign_os
 COPY --from=builder /build/charter.default.yaml charter.default.yaml
 
-# Tenant ledgers, audit trails, trust stores and learned calibration. Not a cache:
-# losing this loses every tenant's history and reverts their cost estimates to the
+# Tenant ledgers, audit trails, trust stores and learned calibration live at /data. Not
+# a cache: losing it loses every tenant's history and reverts their cost estimates to the
 # uncalibrated heuristic.
-VOLUME ["/data"]
+#
+# Deliberately NOT a Docker `VOLUME` directive — Railway rejects the image outright
+# ("docker VOLUME is not supported, use Railway Volumes") because it manages persistence
+# itself; the mount is declared in .railway/railway.ts instead. Running this image under
+# plain Docker therefore needs an explicit `-v`, or /data is ephemeral and every restart
+# starts the tenants over.
 ENV SOVEREIGN_SAAS_ROOT=/data/tenants
 
-# This process holds other people's API keys in memory; it does not need root.
+# This process holds other people's API keys in memory, so it must not run as root.
+# It cannot simply declare USER either: the platform attaches the volume root-owned at
+# start, overriding build-time ownership, and the app then dies with EACCES on its own
+# data directory. The entrypoint starts as root only long enough to chown the mount and
+# then drops to this uid via setpriv — see deploy/entrypoint.sh.
 RUN useradd --system --uid 10001 sovereign \
     && mkdir -p /data/tenants && chown -R sovereign /data /app
-USER sovereign
+COPY deploy/entrypoint.sh /usr/local/bin/entrypoint.sh
+RUN chmod +x /usr/local/bin/entrypoint.sh
 
 EXPOSE 8020
 # Resolve the port at runtime. Railway and most PaaS hosts assign PORT dynamically, so a
@@ -47,4 +57,5 @@ HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
 # The module entrypoint runs hosted_preflight(), which refuses to start without
 # SOVEREIGN_SAAS_SECRET rather than writing tenant keys to disk in the clear. Starting
 # the app any other way skips that check.
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
 CMD ["python", "-m", "sovereign_os.saas.api"]

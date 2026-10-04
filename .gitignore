@@ -35,3 +35,7 @@ data/
 sovereign_os.egg-info/
 dist/
 build/
+
+# Railway IaC SDK (dev-only, required by `railway config plan/apply`)
+node_modules/
+package-lock.json
