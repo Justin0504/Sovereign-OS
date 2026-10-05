@@ -60,6 +60,7 @@ def build_tenant_engine(tenant: Tenant, store: TenantStore) -> tuple[Any, Any, A
     tenant now gets its own calibrator, persisted in its own data directory.
     """
     from sovereign_os.agents.auth import SovereignAuth
+    from sovereign_os.agents.delegation import DelegationBroker
     from sovereign_os.governance.cost_model import CostCalibrator
     from sovereign_os.auditor import ReviewEngine
     from sovereign_os.governance.circuit_breaker import SpendCircuitBreaker
@@ -74,8 +75,12 @@ def build_tenant_engine(tenant: Tenant, store: TenantStore) -> tuple[Any, Any, A
     review = ReviewEngine(charter, audit_trail_path=str(d / "audit.jsonl"))
     breaker = SpendCircuitBreaker(session_ceiling_cents=get_plan(tenant.plan).max_daily_spend_cents)
     calibrator = CostCalibrator.load(d / "calibration.json")
+    # Per tenant, like everything else here: a shared broker would let one tenant's
+    # delegation tree answer another tenant's authority questions.
+    delegation = DelegationBroker(eligibility=auth.check_permission_for)
     engine = GovernanceEngine(charter, ledger, auth=auth, review_engine=review,
-                              circuit_breaker=breaker, calibrator=calibrator)
+                              circuit_breaker=breaker, calibrator=calibrator,
+                              delegation_broker=delegation)
     return engine, ledger, auth
 
 
@@ -99,6 +104,11 @@ async def run_tenant_mission(tenant: Tenant, store: TenantStore, goal: str, *,
         raise PermissionError(reason)
     engine, ledger, _auth = build_tenant_engine(tenant, store)
     before = _spend_cents(ledger)
+    # Point the process-level gate at THIS tenant's broker for the duration of the
+    # mission, so a handoff is authorized against the tenant's own delegation tree.
+    from sovereign_os.agents.delegation_gate import set_broker
+
+    set_broker(getattr(engine, "_delegation", None))
     with tenant_llm_context(tenant):
         result = await engine.run_mission_with_audit(
             goal, abort_on_audit_failure=False,
@@ -106,6 +116,7 @@ async def run_tenant_mission(tenant: Tenant, store: TenantStore, goal: str, *,
         )
     # Persist what this mission taught the tenant's estimator; without this the learning
     # is discarded on restart and the budget gate reverts to the cold heuristic.
+    set_broker(None)
     cal = getattr(engine, "_calibrator", None)
     if cal is not None:
         try:

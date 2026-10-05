@@ -64,11 +64,27 @@ class CodeAssistantWorker(BaseWorker):
         raises into dispatch — a backend error falls back to native.
         """
         try:
+            from sovereign_os.agents.delegation_gate import authorize_external_agent
             from sovereign_os.llm.agent_backend import resolve_backend
 
             backend = resolve_backend("code_assistant")
             workspace_root = _ctx(task, "workspace_root", "")
             if backend is None or not workspace_root:
+                return None
+
+            # An external coding agent writes files and runs commands in the workspace.
+            # Until this check existed the handoff happened with no authority check at
+            # all: the budget gate had approved a `code_assistant` task, and what then
+            # touched the filesystem was a separate agent carrying its own powers.
+            permitted, why = authorize_external_agent(
+                grant_id=_ctx(task, "delegation_grant_id", ""),
+                backend_id=backend.backend_id,
+                task_id=task.task_id,
+            )
+            if not permitted:
+                logger.warning(
+                    "CodeAssistantWorker: refusing to delegate task %s to %s (%s); "
+                    "falling back to the native path.", task.task_id, backend.backend_id, why)
                 return None
             system = (self.system_prompt or "You are an expert software engineer.").strip()
             res = await backend.execute_task(

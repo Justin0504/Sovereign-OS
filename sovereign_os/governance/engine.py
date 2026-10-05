@@ -105,6 +105,7 @@ class GovernanceEngine:
         budget_policy: "Any | None" = None,
         circuit_breaker: "SpendCircuitBreaker | None" = None,
         calibrator: Any = None,
+        delegation_broker: Any = None,
     ) -> None:
         self._charter = charter
         self._ledger = ledger
@@ -141,6 +142,12 @@ class GovernanceEngine:
         # resolved per call, so a single-tenant self-host keeps the global behaviour and
         # a tenant engine is handed its own.
         self._calibrator = calibrator
+        # Authority for handoffs to other agents. Workers that delegate (an external
+        # coding agent, an MCP tool, a sub-agent) reach the world through something the
+        # task-level checks never saw, so the grant issued here is what the handoff is
+        # authorized against. None => no delegation governance, which is the historical
+        # behaviour and what SOVEREIGN_STRICT_DELEGATION exists to forbid.
+        self._delegation = delegation_broker
         # Cumulative actual spend within the current dispatch run (cents), for budget halt.
         self._mission_spent_cents: int = 0
 
@@ -367,6 +374,29 @@ class GovernanceEngine:
         except Exception:  # noqa: BLE001 - calibration is best-effort, never load-bearing
             return raw
 
+    def _issue_task_grant(self, task: PlannedTask, agent_id: str) -> str:
+        """
+        Open a delegation tree for one task. Returns the grant id, or "" when delegation
+        governance is not configured.
+        """
+        if self._delegation is None:
+            return ""
+        try:
+            needed = {Capability.READ_FILES, self._required_capability_for_skill(
+                getattr(task, "required_skill", ""))}
+            grant = self._delegation.root(
+                agent_id,
+                task_id=task.task_id,
+                capabilities=needed,
+                budget_cents=self._task_estimate_cents.get(task.task_id, 0),
+                reason=f"task {task.task_id} ({getattr(task, 'required_skill', '')})",
+            )
+            return grant.grant_id
+        except Exception:  # noqa: BLE001 - a broker fault must not abort the mission
+            logger.warning("GOVERNANCE: could not issue delegation grant for %s.",
+                           task.task_id, exc_info=True)
+            return ""
+
     def _required_capability_for_skill(self, required_skill: str) -> Capability:
         """Map task skill to the capability checked before execution."""
         s = required_skill.strip().lower()
@@ -495,6 +525,15 @@ class GovernanceEngine:
         from sovereign_os.agents.worker_tools import auto_tool_context
 
         ctx.update(auto_tool_context(task.required_skill))
+
+        # Issue the task its slice of authority. Capabilities are what this skill needs,
+        # narrowed by what the agent has actually earned; the budget is the ceiling the
+        # CFO already approved, so a delegated sub-agent spends the task's money rather
+        # than being handed a fresh allowance.
+        grant_id = self._issue_task_grant(task, agent_id)
+        if grant_id:
+            ctx["delegation_grant_id"] = grant_id
+
         task_input = TaskInput(
             task_id=task.task_id,
             description=task.description,

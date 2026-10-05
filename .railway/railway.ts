@@ -16,6 +16,10 @@ export default defineRailway(() => {
 
   const saas = service("sovereign-saas", {
     build: {
+      // Declared explicitly: this file is authoritative, so omitting `builder` clears
+      // it and the build falls back to autodetection instead of the Dockerfile.
+      builder: "DOCKERFILE",
+
       // The hosted control-plane image, deliberately separate from the root Dockerfile
       // (single-tenant self-host, defaults to the TUI). This one holds other people's
       // credentials: it runs non-root and fails closed without a deployment secret.
@@ -47,6 +51,11 @@ export default defineRailway(() => {
       SOVEREIGN_MULTI_TENANT: "1",
 
       SOVEREIGN_SAAS_ROOT: "/data/tenants",
+
+      // Refuse to hand work to an external agent unless the task holds a grant carrying
+      // the authority it needs. Permissive by default so the self-host keeps working,
+      // which is not a posture to serve other people from.
+      SOVEREIGN_STRICT_DELEGATION: "1",
 
       // Railway terminates TLS and sets X-Forwarded-For, so the rate limiter can trust
       // it here. Off by default elsewhere, where a caller could forge it per request.
