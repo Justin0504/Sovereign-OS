@@ -1,6 +1,7 @@
 <p align="center">
   <a href="https://github.com/Justin0504/Sovereign-OS/actions"><img src="https://github.com/Justin0504/Sovereign-OS/actions/workflows/ci.yml/badge.svg" alt="CI"/></a>
   <a href="LICENSE"><img src="https://img.shields.io/badge/license-MIT-blue.svg" alt="License: MIT"/></a>
+  <a href="https://arxiv.org/abs/2603.14011"><img src="https://img.shields.io/badge/arXiv-2603.14011-b31b1b.svg" alt="arXiv"/></a>
   <a href="https://www.python.org/downloads/"><img src="https://img.shields.io/badge/python-3.12+-green.svg" alt="Python 3.12+"/></a>
 </p>
 
@@ -456,6 +457,25 @@ pytest tests/ -v
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for the full process.
+
+---
+
+
+## Paper & citation
+
+Sovereign-OS is described in **[Sovereign-OS: A Charter-Governed Operating System for Autonomous AI Agents with Verifiable Fiscal Discipline](https://arxiv.org/abs/2603.14011)** (arXiv:2603.14011) by [Aojie (Justin) Yuan](https://aojieyuan.com), Haiyue Zhang, Ziyi Wang, and [Yue Zhao](https://viterbi-web.usc.edu/~yzhao010/) at [USC FORTIS Lab](https://viterbi-web.usc.edu/~yzhao010/lab).
+
+- Plain-language explainer: [What Is Charter-Governed AI Orchestration?](https://aojieyuan.com/blog/what-is-charter-governed-ai-orchestration)
+- Companion project: [AEGIS](https://github.com/Justin0504/Aegis) — a pre-execution firewall and audit layer for AI agents
+
+```bibtex
+@article{yuan2026sovereign,
+  title   = {Sovereign-OS: A Charter-Governed Operating System for Autonomous AI Agents with Verifiable Fiscal Discipline},
+  author  = {Yuan, Aojie and Zhang, Haiyue and Wang, Ziyi and Zhao, Yue},
+  journal = {arXiv preprint arXiv:2603.14011},
+  year    = {2026}
+}
+```
 
 ---
 
