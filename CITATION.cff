@@ -1,0 +1,40 @@
+cff-version: 1.2.0
+message: "If you use this software, please cite the paper below."
+title: "Sovereign-OS"
+abstract: "Charter-governed AI orchestration: a YAML charter defines mission, budget, and rules; a CEO plans, a CFO approves spend, a ledger tracks every cent and token, and an auditor scores outcomes."
+authors:
+  - family-names: "Yuan"
+    given-names: "Aojie"
+    website: "https://aojieyuan.com"
+  - family-names: "Zhang"
+    given-names: "Haiyue"
+  - family-names: "Wang"
+    given-names: "Ziyi"
+  - family-names: "Zhao"
+    given-names: "Yue"
+repository-code: "https://github.com/Justin0504/Sovereign-OS"
+url: "https://arxiv.org/abs/2603.14011"
+license: MIT
+keywords:
+  - "ai-agents"
+  - "multi-agent orchestration"
+  - "ai-governance"
+  - "audit-trail"
+preferred-citation:
+  type: article
+  title: "Sovereign-OS: A Charter-Governed Operating System for Autonomous AI Agents with Verifiable Fiscal Discipline"
+  authors:
+    - family-names: "Yuan"
+      given-names: "Aojie"
+    - family-names: "Zhang"
+      given-names: "Haiyue"
+    - family-names: "Wang"
+      given-names: "Ziyi"
+    - family-names: "Zhao"
+      given-names: "Yue"
+  journal: "arXiv preprint arXiv:2603.14011"
+  year: 2026
+  url: "https://arxiv.org/abs/2603.14011"
+  identifiers:
+    - type: other
+      value: "arXiv:2603.14011"
