@@ -541,7 +541,13 @@ class GovernanceEngine:
             context=ctx,
         )
         try:
-            result = await worker.execute(task_input)
+            # Bind the task's authority for the duration of execution. A tool handler is
+            # registered once and invoked later with only its arguments, so it cannot
+            # reach the task that called it — the grant has to travel with the context.
+            from sovereign_os.agents.delegation_gate import task_authority
+
+            with task_authority(grant_id):
+                result = await worker.execute(task_input)
             result_by_id[task.task_id] = result
             # Record token cost whenever usage is reported — including failed tasks, which
             # still burn tokens. (Gating on success previously leaked the cost of failures.)

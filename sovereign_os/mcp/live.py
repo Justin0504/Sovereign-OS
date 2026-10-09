@@ -91,8 +91,43 @@ def _content_to_text(result: dict[str, Any]) -> str:
     return prefix + str(result.get("result", result))
 
 
-def _make_handler(client: MCPClient, tool_name: str) -> Callable[[dict], Any]:
+# Servers whose tools do more than call out. Declared per server rather than inferred
+# from a tool's name — a name-based classifier standing between an agent and the
+# filesystem is a guess wearing a policy's clothes.
+#   SOVEREIGN_MCP_CAPABILITIES='{"filesystem": ["write_files"], "shell": ["execute_shell"]}'
+_CAPABILITY_ENV = "SOVEREIGN_MCP_CAPABILITIES"
+
+
+def _required_capabilities(server_id: str) -> frozenset:
+    from sovereign_os.agents.auth import Capability
+
+    required = {Capability.CALL_EXTERNAL_API}      # the floor for any MCP tool
+    raw = (os.getenv(_CAPABILITY_ENV) or "").strip()
+    if raw and server_id:
+        try:
+            declared = (json.loads(raw) or {}).get(server_id) or []
+            for name in declared:
+                required.add(Capability(str(name).strip().lower()))
+        except Exception:  # noqa: BLE001 - a malformed declaration must not widen authority
+            logger.warning("MCP: ignoring invalid %s; using the default floor.",
+                           _CAPABILITY_ENV)
+    return frozenset(required)
+
+
+def _make_handler(client: MCPClient, tool_name: str, server_id: str = "") -> Callable[[dict], Any]:
     async def _handler(args: dict) -> str:
+        # An MCP tool reaches outside the process — filesystem, network, somebody's API.
+        # Before this check the path had none: a registered tool could be invoked by any
+        # task regardless of what that task was authorized to do.
+        from sovereign_os.agents.delegation_gate import authorize_tool_call
+
+        permitted, why = authorize_tool_call(tool_name=tool_name, server_id=server_id,
+                                             capabilities=_required_capabilities(server_id))
+        if not permitted:
+            logger.warning("MCP: refused tool %s (%s)", tool_name, why)
+            # Returned as an observation rather than raised: the model can choose another
+            # route, where an exception would abort work that may still be completable.
+            return f"(refused: {why})"
         try:
             res = await client.call_tool(tool_name, args or {})
         except Exception as e:  # noqa: BLE001 - surfaced to the model as an observation
@@ -159,6 +194,6 @@ async def mcp_tool_handlers() -> tuple[dict[str, Callable[[dict], Any]], dict[st
             name = schema.name
             if not name or name in handlers:
                 continue
-            handlers[name] = _make_handler(client, name)
+            handlers[name] = _make_handler(client, name, server_id)
             descriptions[name] = (schema.description or f"MCP tool from '{server_id}'")[:200]
     return handlers, descriptions

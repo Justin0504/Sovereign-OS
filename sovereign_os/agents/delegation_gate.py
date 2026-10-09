@@ -16,8 +16,10 @@ a hosted deployment should set it.
 
 from __future__ import annotations
 
+import contextvars
 import logging
 import os
+from contextlib import contextmanager
 
 from sovereign_os.agents.auth import Capability
 
@@ -35,6 +37,41 @@ EXTERNAL_AGENT_CAPABILITIES = frozenset({
 })
 
 _BROKER = None
+
+# The grant the current task is acting under. A tool handler is registered once, globally,
+# and invoked later with only its arguments — it has no way to reach the task that called
+# it, so the authority has to travel with the execution context rather than the call.
+_active_grant: contextvars.ContextVar[str] = contextvars.ContextVar("_active_grant", default="")
+
+
+@contextmanager
+def task_authority(grant_id: str):
+    """Bind a task's grant for the duration of its execution."""
+    token = _active_grant.set(grant_id or "")
+    try:
+        yield
+    finally:
+        _active_grant.reset(token)
+
+
+def active_grant() -> str:
+    return _active_grant.get()
+
+
+def bind_authority(fn):
+    """
+    Capture the current authority context and replay it inside a worker thread.
+
+    Captured HERE, in the caller's context, for the same reason the tenant-key helper is:
+    `contextvars.copy_context()` called inside the thread copies the thread's own empty
+    context and carries nothing.
+    """
+    ctx = contextvars.copy_context()
+
+    def runner(*args, **kwargs):
+        return ctx.run(fn, *args, **kwargs)
+
+    return runner
 
 
 def set_broker(broker) -> None:
@@ -95,6 +132,47 @@ def authorize_external_agent(
             f"agent in a workspace needs them, so the handoff would exercise authority "
             f"this task does not hold"
         )
+    return True, "authorized"
+
+
+def authorize_tool_call(
+    *, tool_name: str, server_id: str = "", capabilities=None, grant_id: str | None = None
+) -> tuple[bool, str]:
+    """
+    Decide whether the current task may invoke an MCP tool.
+
+    An MCP tool call leaves the process by definition, so CALL_EXTERNAL_API is the floor
+    for every one of them. A server whose tools do more than that — a filesystem server
+    writes, a shell server executes — declares the extra capabilities rather than having
+    them guessed from a tool's name, which would be a classifier standing between an
+    agent and the filesystem.
+    """
+    required = frozenset(capabilities or {Capability.CALL_EXTERNAL_API})
+    gid = active_grant() if grant_id is None else grant_id
+    label = f"{server_id}:{tool_name}" if server_id else tool_name
+
+    broker = _BROKER
+    if broker is None:
+        if strict_delegation():
+            return False, f"{STRICT_ENV} is set but no delegation broker is installed"
+        return True, "no delegation governance configured"
+
+    if not gid:
+        if strict_delegation():
+            return False, f"no delegation grant is active for tool {label}"
+        logger.warning(
+            "DELEGATION: tool %s invoked with no active grant. Set %s to refuse.",
+            label, STRICT_ENV)
+        return True, "ungoverned (no active grant)"
+
+    missing = []
+    for capability in required:
+        try:
+            broker.authorize(gid, capability)
+        except Exception as exc:  # noqa: BLE001
+            missing.append(f"{capability.value} ({exc.__class__.__name__})")
+    if missing:
+        return False, f"grant {gid} does not authorize {', '.join(missing)} for tool {label}"
     return True, "authorized"
 
 
