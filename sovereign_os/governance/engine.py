@@ -547,7 +547,16 @@ class GovernanceEngine:
             from sovereign_os.agents.delegation_gate import task_authority
 
             with task_authority(grant_id):
-                result = await worker.execute(task_input)
+                try:
+                    result = await worker.execute(task_input)
+                finally:
+                    # Tear the task's authority down the moment it stops running, whether
+                    # it succeeded or threw. Authority that outlives the work it was
+                    # issued for is standing privilege wearing a task's name, and a
+                    # sub-agent left holding a live grant is the lease that never expired.
+                    from sovereign_os.agents.delegation_gate import release_task
+
+                    release_task(task.task_id)
             result_by_id[task.task_id] = result
             # Record token cost whenever usage is reported — including failed tasks, which
             # still burn tokens. (Gating on success previously leaked the cost of failures.)

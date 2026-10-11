@@ -2710,6 +2710,42 @@ class {class_name}(BaseWorker):
             },
         }
 
+    @app.get("/api/delegation", summary="Live delegation grants and governance posture")
+    def api_delegation():
+        """
+        The authority tree as it stands: who holds what, carved from whom, and how much
+        of the budget each branch has committed.
+
+        Exposed because the delegation layer was enforcing decisions an operator could
+        not see. A refusal that only appears in a log is indistinguishable, from the
+        outside, from a feature that silently does nothing.
+        """
+        from sovereign_os.agents.delegation_gate import get_broker, strict_delegation
+        from sovereign_os.llm.providers import multi_tenant_mode
+
+        broker = get_broker()
+        posture = {
+            "broker_installed": broker is not None,
+            "strict_delegation": strict_delegation(),
+            "multi_tenant": multi_tenant_mode(),
+        }
+        if broker is None:
+            return {"posture": posture, "grants": [], "roots": []}
+
+        live = broker.active_grants()
+        roots = [g for g in live if g.parent_id is None]
+        return {
+            "posture": posture,
+            "counts": {
+                "active": len(live),
+                "roots": len(roots),
+                "delegated": len(live) - len(roots),
+                "max_depth": max((g.depth for g in live), default=0),
+            },
+            "roots": [broker.tree(g.grant_id) for g in roots[:20]],
+            "grants": [g.as_dict() for g in live[:100]],
+        }
+
     @app.post("/api/run")
     def api_run(payload: dict | None = Body(None)):
         goal = (payload or {}).get("goal", "Summarize the market in one paragraph.") if isinstance(payload, dict) else "Summarize the market in one paragraph."
@@ -2831,11 +2867,22 @@ def run_web_ui(
     compliance_auto_proceed = (os.getenv("SOVEREIGN_COMPLIANCE_AUTO_PROCEED") or "").strip().lower() in ("1", "true", "yes")
     if compliance_auto_proceed:
         logger.info("Sovereign-OS: human-out-of-loop — compliance auto-proceed enabled (no human approval for high spend).")
+    # The console had no delegation broker, so grants were never issued here and the
+    # authority tree an operator most needs to see was simply empty. The gate stays
+    # permissive by default (SOVEREIGN_STRICT_DELEGATION tightens it); installing the
+    # broker is what makes handoffs visible either way.
+    from sovereign_os.agents.delegation import DelegationBroker
+    from sovereign_os.agents.delegation_gate import set_broker
+
+    delegation = DelegationBroker(eligibility=auth.check_permission_for)
+    set_broker(delegation)
+
     engine = GovernanceEngine(
         charter,
         ledger,
         auth=auth,
         review_engine=review,
+        delegation_broker=delegation,
         on_event=_on_event,
         compliance_hook=compliance_hook,
         spend_threshold_cents=spend_threshold_cents,

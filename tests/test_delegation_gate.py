@@ -216,3 +216,47 @@ def test_no_broker_means_no_grant_and_no_crash():
     engine = GovernanceEngine(load_charter("charter.default.yaml"), UnifiedLedger())
     task = PlannedTask(task_id="t1", description="d", required_skill="code")
     assert engine._issue_task_grant(task, "worker-1") == ""
+
+
+# ------------------------------------------------- teardown is actually wired
+
+@pytest.mark.asyncio
+async def test_a_tasks_authority_is_revoked_when_it_finishes():
+    """
+    release_task existed and was called from nowhere, so every grant outlived its task.
+    This pins the wiring, not just the function.
+    """
+    from sovereign_os.agents.delegation import DelegationBroker
+    from sovereign_os.governance.engine import GovernanceEngine
+    from sovereign_os.ledger.unified_ledger import UnifiedLedger
+    from sovereign_os.models.charter import load_charter
+
+    auth = SovereignAuth()
+    auth._set_score("worker-1", 95)
+    broker = DelegationBroker(eligibility=auth.check_permission_for)
+    set_broker(broker)
+    ledger = UnifiedLedger()
+    ledger.record_usd(50_000, purpose="test_seed")   # or the CFO refuses before any task runs
+    engine = GovernanceEngine(load_charter("charter.default.yaml"), ledger,
+                              auth=auth, delegation_broker=broker)
+
+    await engine.run_mission_with_audit("Summarize one sentence.",
+                                        abort_on_audit_failure=False)
+
+    assert broker.active_grants() == [], "authority must not outlive the task that held it"
+
+
+@pytest.mark.asyncio
+async def test_authority_is_released_even_when_a_task_raises():
+    """A failed task must not leave live authority behind — that is the worse case."""
+    from sovereign_os.agents.delegation import DelegationBroker
+    from sovereign_os.agents.delegation_gate import release_task
+
+    broker = DelegationBroker()
+    set_broker(broker)
+    grant = broker.root("w", task_id="t1", capabilities={WRITE}, budget_cents=100)
+    try:
+        raise RuntimeError("worker exploded")
+    except RuntimeError:
+        release_task("t1")
+    assert broker.get(grant.grant_id).revoked is True

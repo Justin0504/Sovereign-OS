@@ -238,6 +238,31 @@
       margin-bottom: 16px;
       line-height: 1.5;
     }
+    /* ---- delegation: the authority tree ---- */
+    .dg-posture { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .dg-chip {
+      display: inline-flex; align-items: center; gap: 6px; font-size: 0.72rem;
+      font-family: var(--font-mono); border: 1px solid var(--border);
+      border-radius: 999px; padding: 3px 10px; color: var(--mut);
+    }
+    .dg-chip .d { width: 6px; height: 6px; border-radius: 50%; background: var(--mut); }
+    .dg-chip.on { color: var(--ink); } .dg-chip.on .d { background: var(--ok); }
+    .dg-chip.off .d { background: var(--mut); }
+    .dg-tree { font-family: var(--font-mono); font-size: 0.78rem; line-height: 1.75; }
+    /* Indentation IS the hierarchy here, so it carries a rule rather than whitespace:
+       a chain two levels deep should be readable as a chain, not as a flat list. */
+    .dg-node { padding-left: 14px; border-left: 1px solid var(--border); margin-left: 5px; }
+    .dg-node.root { padding-left: 0; border-left: 0; margin-left: 0; }
+    .dg-row { display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; padding: 3px 0; }
+    .dg-agent { color: var(--ink); font-weight: 600; }
+    .dg-caps { color: var(--mut); }
+    .dg-cap { border: 1px solid var(--border); border-radius: 5px; padding: 0 5px; margin-right: 3px; }
+    .dg-budget { color: var(--mut); margin-left: auto; white-space: nowrap; }
+    .dg-bar { width: 54px; height: 5px; border-radius: 3px; background: var(--bd); overflow: hidden; display: inline-block; vertical-align: middle; }
+    .dg-bar i { display: block; height: 100%; background: var(--accent); }
+    .dg-bar i.committed { background: var(--mut); }
+    .dg-empty { color: var(--mut); font-size: 0.82rem; }
+
     .cost-forecast {
       display: flex; align-items: baseline; gap: 10px; flex-wrap: wrap;
       margin-top: 10px; font-size: 0.82rem; color: var(--mut);
@@ -984,6 +1009,15 @@
           <div class="gb-bar-wrap" id="gbBarWrap" style="display:none"><div class="gb-bar" id="gbBar"></div></div>
           <p class="card-desc" id="gbReason" style="color:var(--accent);margin-top:10px"></p>
         </section>
+        <section class="panel-section">
+          <div class="card-title">Authority · Delegation</div>
+          <div class="card-heading">Who may act for whom</div>
+          <p class="card-desc">Grants carved from one another. A child can only ever hold
+            a subset of its parent's authority, and spends its parent's budget.</p>
+          <div class="dg-posture" id="dgPosture"></div>
+          <div class="dg-tree" id="dgTree"><span class="dg-empty">Loading…</span></div>
+        </section>
+
         <section class="panel-section">
           <div class="card-title">Permissions · Just-in-time</div>
           <div class="card-heading">Active capability leases</div>
@@ -1982,6 +2016,73 @@
         card.addEventListener("click", go);
         card.addEventListener("keydown", function(e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
       });
+
+      // ---- delegation: render the live authority tree -------------------------
+      // The gate was already refusing handoffs that nobody could see. A refusal visible
+      // only in a log is, from the outside, indistinguishable from a feature that
+      // silently does nothing.
+      function dgChip(label, on, offLabel) {
+        return '<span class="dg-chip ' + (on ? "on" : "off") + '"><i class="d"></i>'
+             + (on ? label : (offLabel || label)) + "</span>";
+      }
+      function dgNode(node, isRoot) {
+        var caps = (node.capabilities || []);
+        var budget = node.budget_cents || 0;
+        var spent = node.direct_spent_cents || 0;
+        var committed = node.delegated_cents || 0;
+        var pctSpent = budget ? Math.min(100, (spent / budget) * 100) : 0;
+        var pctCommitted = budget ? Math.min(100 - pctSpent, (committed / budget) * 100) : 0;
+        var html =
+          '<div class="dg-node' + (isRoot ? " root" : "") + '">' +
+            '<div class="dg-row">' +
+              '<span class="dg-agent">' + (node.agent_id || "?") + "</span>" +
+              '<span class="dg-caps">' +
+                (caps.length
+                  ? caps.map(function (c) { return '<span class="dg-cap">' + c + "</span>"; }).join("")
+                  : '<span class="dg-cap">no capabilities</span>') +
+              "</span>" +
+              '<span class="dg-budget">' +
+                '<span class="dg-bar">' +
+                  '<i style="width:' + pctSpent.toFixed(0) + '%"></i>' +
+                  '<i class="committed" style="width:' + pctCommitted.toFixed(0) + '%"></i>' +
+                "</span> " +
+                (spent / 100).toFixed(2) + " spent · " +
+                ((node.available_cents || 0) / 100).toFixed(2) + " free" +
+              "</span>" +
+            "</div>";
+        (node.children || []).forEach(function (child) { html += dgNode(child, false); });
+        return html + "</div>";
+      }
+      function loadDelegation() {
+        fetch("/api/delegation").then(function (r) { return r.json(); }).then(function (d) {
+          var p = d.posture || {};
+          var postureEl = r("dgPosture"), treeEl = r("dgTree");
+          if (!postureEl || !treeEl) return;
+          postureEl.innerHTML =
+            dgChip("broker active", p.broker_installed, "no broker") +
+            dgChip("strict", p.strict_delegation, "permissive") +
+            (p.multi_tenant ? dgChip("multi-tenant", true) : "");
+          var roots = d.roots || [];
+          if (!roots.length) {
+            // Said plainly: an empty tree means no task currently holds authority, which
+            // is the correct resting state and not a failure to load.
+            treeEl.innerHTML = '<span class="dg-empty">No authority is currently '
+              + "delegated. Grants appear while a mission runs.</span>";
+            return;
+          }
+          var c = d.counts || {};
+          treeEl.innerHTML =
+            '<div class="dg-empty" style="margin-bottom:8px">' + (c.active || 0)
+            + " live · " + (c.roots || 0) + " task" + ((c.roots === 1) ? "" : "s")
+            + " · depth " + (c.max_depth || 0) + "</div>"
+            + roots.map(function (n) { return dgNode(n, true); }).join("");
+        }).catch(function () {
+          var treeEl = r("dgTree");
+          if (treeEl) treeEl.innerHTML = '<span class="dg-empty">Delegation state unavailable.</span>';
+        });
+      }
+      loadDelegation();
+      setInterval(loadDelegation, 5000);
 
       // ---- pre-flight cost forecast -------------------------------------------
       // Shown beside the goal because that is where the decision to spend is made.
