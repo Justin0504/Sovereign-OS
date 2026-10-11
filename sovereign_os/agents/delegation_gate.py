@@ -38,6 +38,31 @@ EXTERNAL_AGENT_CAPABILITIES = frozenset({
 
 _BROKER = None
 
+# A refusal that is only logged is invisible to the person running the system, who then
+# cannot tell an enforcing gate from a decorative one. Counted here so the console can
+# show that the mechanism is doing something — and what it refused.
+_DECISIONS: dict[str, int] = {"allowed": 0, "refused": 0, "ungoverned": 0}
+_RECENT_REFUSALS: list[dict] = []
+_MAX_RECENT = 20
+
+
+def _record(outcome: str, *, subject: str = "", reason: str = "") -> None:
+    _DECISIONS[outcome] = _DECISIONS.get(outcome, 0) + 1
+    if outcome == "refused":
+        _RECENT_REFUSALS.append({"subject": subject, "reason": reason[:240]})
+        del _RECENT_REFUSALS[:-_MAX_RECENT]
+
+
+def decision_stats() -> dict:
+    """Counts since process start, plus the most recent refusals."""
+    return {"counts": dict(_DECISIONS), "recent_refusals": list(reversed(_RECENT_REFUSALS))}
+
+
+def reset_decision_stats() -> None:
+    for k in _DECISIONS:
+        _DECISIONS[k] = 0
+    _RECENT_REFUSALS.clear()
+
 # The grant the current task is acting under. A tool handler is registered once, globally,
 # and invoked later with only its arguments — it has no way to reach the task that called
 # it, so the authority has to travel with the execution context rather than the call.
@@ -103,20 +128,24 @@ def authorize_external_agent(
     broker = _BROKER
     if broker is None:
         if strict_delegation():
-            return False, (
-                f"{STRICT_ENV} is set but no delegation broker is installed, so the "
-                f"handoff to {backend_id} cannot be authorized"
-            )
+            reason = (f"{STRICT_ENV} is set but no delegation broker is installed, so "
+                      f"the handoff to {backend_id} cannot be authorized")
+            _record("refused", subject=f"agent:{backend_id}", reason=reason)
+            return False, reason
+        _record("ungoverned")
         return True, "no delegation governance configured"
 
     if not grant_id:
         # The task carries no authority, which in a governed process means the handoff
         # was never approved — not that it is harmless.
         if strict_delegation():
-            return False, f"task {task_id} carries no delegation grant"
+            reason = f"task {task_id} carries no delegation grant"
+            _record("refused", subject=f"task:{task_id}", reason=reason)
+            return False, reason
         logger.warning(
             "DELEGATION: task %s is handing work to %s with no grant. Set %s to refuse.",
             task_id, backend_id, STRICT_ENV)
+        _record("ungoverned")
         return True, "ungoverned (no grant on task)"
 
     missing = []
@@ -127,11 +156,12 @@ def authorize_external_agent(
             missing.append(f"{capability.value} ({exc.__class__.__name__})")
 
     if missing:
-        return False, (
-            f"grant {grant_id} does not authorize {', '.join(missing)} — an external "
-            f"agent in a workspace needs them, so the handoff would exercise authority "
-            f"this task does not hold"
-        )
+        reason = (f"grant {grant_id} does not authorize {', '.join(missing)} — an external "
+                  f"agent in a workspace needs them, so the handoff would exercise "
+                  f"authority this task does not hold")
+        _record("refused", subject=f"agent:{backend_id}", reason=reason)
+        return False, reason
+    _record("allowed")
     return True, "authorized"
 
 
@@ -154,15 +184,20 @@ def authorize_tool_call(
     broker = _BROKER
     if broker is None:
         if strict_delegation():
-            return False, f"{STRICT_ENV} is set but no delegation broker is installed"
+            reason = f"{STRICT_ENV} is set but no delegation broker is installed"
+            _record("refused", subject=f"tool:{label}", reason=reason)
+            return False, reason
         return True, "no delegation governance configured"
 
     if not gid:
         if strict_delegation():
-            return False, f"no delegation grant is active for tool {label}"
+            reason = f"no delegation grant is active for tool {label}"
+            _record("refused", subject=f"tool:{label}", reason=reason)
+            return False, reason
         logger.warning(
             "DELEGATION: tool %s invoked with no active grant. Set %s to refuse.",
             label, STRICT_ENV)
+        _record("ungoverned")
         return True, "ungoverned (no active grant)"
 
     missing = []
@@ -172,7 +207,10 @@ def authorize_tool_call(
         except Exception as exc:  # noqa: BLE001
             missing.append(f"{capability.value} ({exc.__class__.__name__})")
     if missing:
-        return False, f"grant {gid} does not authorize {', '.join(missing)} for tool {label}"
+        reason = f"grant {gid} does not authorize {', '.join(missing)} for tool {label}"
+        _record("refused", subject=f"tool:{label}", reason=reason)
+        return False, reason
+    _record("allowed")
     return True, "authorized"
 
 

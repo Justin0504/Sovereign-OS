@@ -362,9 +362,12 @@
       </div>
       <div class="pillar">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="8" cy="15" r="4"/><path d="M10.8 12.2 19 4M18 5l2 2M15 8l2 2"/></svg></div>
-        <h3>Earned-autonomy permissions</h3>
-        <p>Agents start restricted and earn capabilities through a track record. High-risk powers are granted just-in-time, scoped to one task, and auto-revoked.</p>
-        <div class="tag mono">trust score · JIT leases</div>
+        <h3>Authority that survives a handoff</h3>
+        <p>Agents earn capabilities through a track record, and when one hands work to
+          another — a sub-agent, an MCP tool, Claude Code — the grant can only narrow.
+          A child spends its parent's budget, never a fresh one, and revoking a parent
+          revokes everything carved from it.</p>
+        <div class="tag mono">attenuation · conservation · cascading revocation</div>
       </div>
       <div class="pillar">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s7-3.5 7-9V5l-7-3-7 3v8c0 5.5 7 9 7 9z"/><path d="M9 12l2 2 4-4"/></svg></div>
@@ -374,9 +377,12 @@
       </div>
       <div class="pillar">
         <div class="ic"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 11.5V12a10 10 0 1 1-5.9-9.1"/><path d="M22 4 12 14.01l-3-3"/></svg></div>
-        <h3>Verified delivery</h3>
-        <p>Analytic rubrics per work type, test-gated coding, and automatic self-repair — a failed task is re-run with the fix before anything reaches a client.</p>
-        <div class="tag mono">rubric · tests → green · repair</div>
+        <h3>Works inside the tools you already use</h3>
+        <p>One entry in your MCP config and Claude Code or Claude Desktop runs under a
+          budget check, scoped authority, and a verifiable receipt. No tool on that
+          surface can raise a budget or grant a capability — the levers stay in the
+          charter, where an agent cannot reach them.</p>
+        <div class="tag mono">MCP server · 4 tools · no escape hatch</div>
       </div>
     </div>
   </div>
@@ -442,6 +448,10 @@
           <div class="cl"><span class="prompt">$</span><span class="cmd">export ANTHROPIC_API_KEY=sk-ant-…</span></div>
           <div class="cl"><span class="prompt">$</span><span class="cmd">docker compose up -d redis web</span></div>
           <div class="cl"><span class="v ok">→ console live at http://localhost:8000 ✓</span></div>
+          <div class="cl">&nbsp;</div>
+          <div class="cl"><span class="c-com"># or inside Claude Code — no runtime to adopt</span></div>
+          <div class="cl"><span class="prompt">$</span><span class="cmd">pip install <span class="c-fl">'sovereign-os[mcp]'</span></span></div>
+          <div class="cl"><span class="c-com">&nbsp;&nbsp;# add to .mcp.json: python -m sovereign_os.mcp.server</span></div>
           <div class="cl">&nbsp;</div>
           <div class="cl"><span class="c-com"># or without Docker</span></div>
           <div class="cl"><span class="prompt">$</span><span class="cmd">pip install -e .</span></div>

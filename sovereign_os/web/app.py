@@ -2710,6 +2710,64 @@ class {class_name}(BaseWorker):
             },
         }
 
+    @app.get("/api/mcp", summary="MCP connectivity in both directions")
+    def api_mcp():
+        """
+        What this instance is connected to, and what it exposes.
+
+        Both directions matter and are easy to confuse: Sovereign-OS consumes tools from
+        MCP servers, and also serves governed execution to MCP clients. An operator
+        needs to see which is live.
+        """
+        from sovereign_os.agents.delegation_gate import decision_stats
+
+        consuming: dict = {"servers": [], "tools": 0}
+        try:
+            from sovereign_os.mcp.live import _clients, _required_capabilities, _tools
+
+            for server_id in list(_clients):
+                tools = list(_tools.get(server_id) or [])
+                consuming["servers"].append({
+                    "id": server_id,
+                    "tools": len(tools),
+                    "requires": sorted(c.value for c in _required_capabilities(server_id)),
+                })
+                consuming["tools"] += len(tools)
+        except Exception:  # noqa: BLE001 - absence of MCP is a normal state, not an error
+            consuming["note"] = "No MCP servers connected (set SOVEREIGN_MCP_SERVERS)."
+
+        serving = {"available": False}
+        try:
+            from sovereign_os.mcp.server import TOOLS
+
+            serving = {"available": True, "tools": sorted(TOOLS),
+                       "run": "python -m sovereign_os.mcp.server"}
+        except Exception:  # noqa: BLE001
+            serving["note"] = "Install the extra to serve over MCP: pip install 'sovereign-os[mcp]'"
+
+        return {"consuming": consuming, "serving": serving,
+                "gate": decision_stats()}
+
+    @app.get("/api/calibration", summary="How well cost estimates track reality")
+    def api_calibration():
+        """
+        The estimator's error shape per category, next to the correction in force.
+
+        Reported because an estimate with no accuracy attached is a number someone will
+        trust more than it deserves.
+        """
+        from sovereign_os.governance.cost_model import calibration_report
+
+        report = calibration_report()
+        overall = report.get("overall", {})
+        return {
+            "overall": overall,
+            "by_category": report.get("by_category", {}),
+            # Said rather than implied: below a handful of settled tasks the shape is
+            # not yet measured, and the console should not draw a curve through it.
+            "has_evidence": int(overall.get("n", 0)) >= 3,
+        }
+
     @app.get("/api/delegation", summary="Live delegation grants and governance posture")
     def api_delegation():
         """
