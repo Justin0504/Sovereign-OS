@@ -238,6 +238,24 @@
       margin-bottom: 16px;
       line-height: 1.5;
     }
+    /* ---- mcp + calibration ---- */
+    .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 14px; font-size: 0.82rem; }
+    .kv dt { color: var(--mut); font-family: var(--font-mono); font-size: 0.72rem;
+             letter-spacing: .04em; text-transform: uppercase; align-self: baseline; }
+    .kv dd { margin: 0; color: var(--ink); }
+    .mini { width: 100%; border-collapse: collapse; font-size: 0.78rem;
+            font-family: var(--font-mono); margin-top: 8px; }
+    .mini th, .mini td { text-align: right; padding: 4px 8px; border-bottom: 1px solid var(--bd); }
+    .mini th:first-child, .mini td:first-child { text-align: left; }
+    .mini th { color: var(--mut); font-weight: 600; font-size: 0.7rem;
+               text-transform: uppercase; letter-spacing: .05em; }
+    /* Accuracy is the number a reader will act on, so it carries the emphasis. */
+    .mini td.good { color: var(--ok); font-weight: 600; }
+    .mini td.warn { color: var(--ink); font-weight: 600; }
+    .refusals { margin-top: 10px; font-family: var(--font-mono); font-size: 0.72rem;
+                color: var(--mut); line-height: 1.6; }
+    .refusals div { padding: 2px 0; border-top: 1px solid var(--bd); }
+
     /* ---- delegation: the authority tree ---- */
     .dg-posture { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
     .dg-chip {
@@ -1016,6 +1034,24 @@
             a subset of its parent's authority, and spends its parent's budget.</p>
           <div class="dg-posture" id="dgPosture"></div>
           <div class="dg-tree" id="dgTree"><span class="dg-empty">Loading…</span></div>
+        </section>
+
+        <section class="panel-section">
+          <div class="card-title">Connectors · MCP</div>
+          <div class="card-heading">Tools in, governance out</div>
+          <p class="card-desc">Sovereign-OS consumes tools from MCP servers and serves
+            governed execution to MCP clients. Every inbound tool call clears the same
+            authority gate as any other handoff.</p>
+          <dl class="kv" id="mcpKv"></dl>
+          <div class="refusals" id="mcpRefusals"></div>
+        </section>
+
+        <section class="panel-section">
+          <div class="card-title">Estimates · Calibration</div>
+          <div class="card-heading">How close the forecasts land</div>
+          <p class="card-desc">Measured against realized cost, per category. An estimate
+            with no accuracy attached gets trusted more than it deserves.</p>
+          <div id="calBody"><span class="dg-empty">Loading…</span></div>
         </section>
 
         <section class="panel-section">
@@ -2016,6 +2052,77 @@
         card.addEventListener("click", go);
         card.addEventListener("keydown", function(e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); go(); } });
       });
+
+      // ---- MCP connectivity, both directions --------------------------------
+      function loadMcp() {
+        fetch("/api/mcp").then(function (x) { return x.json(); }).then(function (d) {
+          var kv = r("mcpKv"); if (!kv) return;
+          var c = d.consuming || {}, sv = d.serving || {}, g = (d.gate || {}).counts || {};
+          var servers = c.servers || [];
+          var rows = [
+            ["consuming", servers.length
+              ? servers.map(function (s) {
+                  return s.id + " (" + s.tools + " tools · needs " + s.requires.join(", ") + ")";
+                }).join("<br>")
+              : (c.note || "no servers connected")],
+            ["serving", sv.available
+              ? (sv.tools || []).join(", ") + "<br><span class=\"dg-empty\">" + sv.run + "</span>"
+              : (sv.note || "unavailable")],
+            // Allowed/refused/ungoverned as three separate numbers: a single "blocked"
+            // count would hide that a permissive gate is letting calls through unchecked.
+            ["gate", (g.allowed || 0) + " allowed · " + (g.refused || 0) + " refused · "
+                     + (g.ungoverned || 0) + " ungoverned"],
+          ];
+          kv.innerHTML = rows.map(function (p) {
+            return "<dt>" + p[0] + "</dt><dd>" + p[1] + "</dd>";
+          }).join("");
+
+          var ref = r("mcpRefusals");
+          var recent = (d.gate || {}).recent_refusals || [];
+          if (ref) {
+            ref.innerHTML = recent.length
+              ? recent.slice(0, 5).map(function (x) {
+                  return "<div>" + x.subject + " — " + x.reason + "</div>";
+                }).join("")
+              : "";
+          }
+        }).catch(function () {});
+      }
+
+      // ---- calibration quality -----------------------------------------------
+      function loadCalibration() {
+        fetch("/api/calibration").then(function (x) { return x.json(); }).then(function (d) {
+          var el = r("calBody"); if (!el) return;
+          if (!d.has_evidence) {
+            // Below a few settled tasks there is no shape to report, and drawing one
+            // would be inventing precision.
+            el.innerHTML = '<span class="dg-empty">Not enough settled tasks yet. '
+              + "Estimates run on the cold heuristic until a category has history.</span>";
+            return;
+          }
+          var cats = d.by_category || {};
+          var names = Object.keys(cats).sort();
+          var head = "<tr><th>Category</th><th>n</th><th>Typical error</th>"
+                   + "<th>Within 2\u00D7</th><th>Correction</th></tr>";
+          var body = names.map(function (name) {
+            var c = cats[name];
+            var within = (c.within_2x || 0);
+            var cls = within >= 0.8 ? "good" : "warn";
+            return "<tr><td>" + name + "</td><td>" + c.n + "</td><td>"
+                 + (c.geometric_mean_ratio || 0).toFixed(2) + "\u00D7</td>"
+                 + '<td class="' + cls + '">' + Math.round(within * 100) + "%</td><td>"
+                 + (c.deployed_factor || 1).toFixed(2) + "\u00D7</td></tr>";
+          }).join("");
+          var o = d.overall || {};
+          el.innerHTML = '<table class="mini">' + head + body + "</table>"
+            + '<div class="dg-empty" style="margin-top:8px">overall ' + o.n
+            + " settled · typical error " + (o.geometric_mean_ratio || 0).toFixed(2)
+            + "\u00D7 · " + Math.round((o.within_2x || 0) * 100) + "% within 2\u00D7</div>";
+        }).catch(function () {});
+      }
+      loadMcp(); loadCalibration();
+      setInterval(loadMcp, 10000);
+      setInterval(loadCalibration, 15000);
 
       // ---- delegation: render the live authority tree -------------------------
       // The gate was already refusing handoffs that nobody could see. A refusal visible
