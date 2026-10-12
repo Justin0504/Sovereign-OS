@@ -22,6 +22,12 @@ from typing import Any, Protocol
 
 from sovereign_os.agents.base import TaskResult
 from sovereign_os.auditor.review_engine import ReviewEngine, value_aware_min_score
+from sovereign_os.agents.auth import Capability
+from sovereign_os.agents.delegation_gate import (
+    active_grant,
+    authorize_external_agent,
+    delegate_budget,
+)
 from sovereign_os.governance.exceptions import FiscalInsolvencyError, HumanApprovalRequiredError
 from sovereign_os.governance.strategist import PlannedTask
 from sovereign_os.governance.treasury import Treasury
@@ -79,6 +85,25 @@ class OversightBroker:
         {posted, reason, bounty_id, escrow_id, price_cents}.
         Nothing is funded unless Treasury approves the spend.
         """
+        # Hiring an external worker is a delegation that moves real money to a real
+        # third party, so it needs authority as well as budget. The CFO gate below asks
+        # "can we afford it"; this asks "is this task allowed to spend at all". Budget
+        # approval alone would let any task — a read-only research task included — fund
+        # an escrow, which is the one place a mistake is not recoverable by stopping.
+        permitted, why = authorize_external_agent(
+            grant_id=active_grant(),
+            backend_id=f"escrow:{required_skill}",
+            task_id=title[:40],
+            capabilities={Capability.SPEND_USD},
+            subject="funding an escrow for an external worker",
+        )
+        if not permitted:
+            logger.warning("OVERSIGHT: authority gate REFUSED post '%s': %s", title[:40], why)
+            self._record(escrow_id=f"refused:{title[:40]}", title=title, price_cents=price_cents,
+                         status="refused", required_skill=required_skill,
+                         completion_criteria=completion_criteria, reason=why)
+            return {"posted": False, "reason": why, "price_cents": price_cents}
+
         try:
             self._treasury.approve_task(price_cents, task_id=title[:40], purpose="hire external worker")
         except (FiscalInsolvencyError, HumanApprovalRequiredError) as e:
@@ -100,13 +125,26 @@ class OversightBroker:
         # dispute refunds it.
         if self._ledger is not None and hasattr(self._ledger, "record_usd"):
             self._ledger.record_usd(-abs(price_cents), purpose="escrow_reserve", ref=f"escrow-{escrow_id}")
-        logger.info("OVERSIGHT: posted+funded '%s' (escrow=%s, $%.2f).", title[:40], escrow_id, price_cents / 100.0)
+        # Reserve the price out of the hiring task's grant too, not just the ledger, so
+        # several posts under one task cannot each pass their own check and collectively
+        # exceed what the task was approved for.
+        sub_grant = delegate_budget(
+            grant_id=active_grant(), agent_id=f"escrow:{escrow_id}",
+            cents=price_cents, reason=f"external worker for {title[:40]}",
+            # What an escrow delegate actually holds: the money, and nothing else. It
+            # never touches this machine, so granting it filesystem or shell authority
+            # would be both wrong and (correctly) refused by attenuation.
+            capabilities={Capability.SPEND_USD},
+        )
+        logger.info("OVERSIGHT: posted+funded '%s' (escrow=%s, $%.2f, grant=%s).",
+                    title[:40], escrow_id, price_cents / 100.0, sub_grant or "ungoverned")
         self._record(escrow_id=escrow_id, title=title, price_cents=price_cents, status="funded",
                      bounty_id=bounty_id, required_skill=required_skill,
                      completion_criteria=completion_criteria)
         return {
             "posted": True,
             "reason": "",
+            "grant_id": sub_grant,
             "bounty_id": bounty_id,
             "escrow_id": escrow_id,
             "price_cents": price_cents,

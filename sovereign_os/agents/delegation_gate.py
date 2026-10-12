@@ -116,7 +116,7 @@ def strict_delegation() -> bool:
 
 def authorize_external_agent(
     *, grant_id: str, backend_id: str, task_id: str,
-    capabilities=EXTERNAL_AGENT_CAPABILITIES,
+    capabilities=EXTERNAL_AGENT_CAPABILITIES, subject: str = "",
 ) -> tuple[bool, str]:
     """
     Decide whether this task may hand itself to an external agent.
@@ -156,9 +156,13 @@ def authorize_external_agent(
             missing.append(f"{capability.value} ({exc.__class__.__name__})")
 
     if missing:
-        reason = (f"grant {grant_id} does not authorize {', '.join(missing)} — an external "
-                  f"agent in a workspace needs them, so the handoff would exercise "
-                  f"authority this task does not hold")
+        # The explanation names what this particular handoff needs. A fixed sentence
+        # about a workspace reads as nonsense on the escrow path, where nothing touches
+        # this machine and what is being refused is the authority to move money.
+        what = subject or f"handing work to {backend_id}"
+        reason = (f"grant {grant_id} does not authorize {', '.join(missing)} — {what} "
+                  f"requires it, so the handoff would exercise authority this task does "
+                  f"not hold")
         _record("refused", subject=f"agent:{backend_id}", reason=reason)
         return False, reason
     _record("allowed")
@@ -214,10 +218,18 @@ def authorize_tool_call(
     return True, "authorized"
 
 
-def delegate_budget(*, grant_id: str, agent_id: str, cents: int, reason: str = "") -> str:
+def delegate_budget(
+    *, grant_id: str, agent_id: str, cents: int, reason: str = "", capabilities=None
+) -> str:
     """
-    Carve a sub-grant for an external agent, so what it spends is drawn from the task's
-    ceiling rather than from a fresh allowance. Returns the child grant id, or "".
+    Carve a sub-grant so what the delegate spends is drawn from the task's ceiling
+    rather than from a fresh allowance. Returns the child grant id, or "".
+
+    `capabilities` must describe what THIS delegate actually does. The default suits a
+    coding agent handed a workspace; an escrow is the counter-example that makes the
+    parameter necessary — a person doing a bounty receives money, not a shell, so
+    defaulting them into WRITE_FILES/EXECUTE_SHELL asks for authority the hiring task
+    may rightly not hold, and attenuation refuses the whole delegation.
     """
     broker = _BROKER
     if broker is None or not grant_id:
@@ -225,7 +237,7 @@ def delegate_budget(*, grant_id: str, agent_id: str, cents: int, reason: str = "
     try:
         child = broker.attenuate(
             grant_id, agent_id,
-            capabilities=EXTERNAL_AGENT_CAPABILITIES,
+            capabilities=frozenset(capabilities or EXTERNAL_AGENT_CAPABILITIES),
             budget_cents=cents, reason=reason,
         )
         return child.grant_id
