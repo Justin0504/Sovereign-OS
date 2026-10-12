@@ -80,6 +80,7 @@ class CodeAssistantWorker(BaseWorker):
                 grant_id=_ctx(task, "delegation_grant_id", ""),
                 backend_id=backend.backend_id,
                 task_id=task.task_id,
+                subject="an external coding agent given a workspace",
             )
             if not permitted:
                 logger.warning(
