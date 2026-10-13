@@ -15,6 +15,8 @@ from __future__ import annotations
 import dataclasses
 import logging
 import os
+import re
+import secrets as _secrets
 from typing import Any
 
 from sovereign_os.saas.plans import PLANS, get_plan
@@ -26,13 +28,34 @@ from sovereign_os.saas.tenancy import TenantConfig, TenantStore
 # MODULE globals. A `Request` imported inside create_saas_app is invisible there, so an
 # annotated parameter silently becomes a required query param and every POST 422s.
 try:  # pragma: no cover - fastapi is a hard dependency; guarded for import-only use
-    from fastapi import Request
+    from fastapi import HTTPException, Request
 except ImportError:  # pragma: no cover
     Request = None  # type: ignore[assignment]
 
 logger = logging.getLogger(__name__)
 
 _STORE: TenantStore | None = None
+
+
+# A workspace name is stored, returned over the API, and rendered in a browser. The
+# console no longer builds HTML from it, but validating at the boundary means a future
+# surface that is less careful inherits a value that was already bounded. Control
+# characters are rejected outright because their only use here is to forge log lines.
+_NAME_MAX = 80
+_CONTROL_CHARS = re.compile(r"[\x00-\x1f\x7f]")
+
+
+def _clean_name(raw: Any) -> str:
+    name = str(raw or "").strip()
+    if not name:
+        raise HTTPException(status_code=400, detail="name is required.")
+    if len(name) > _NAME_MAX:
+        raise HTTPException(
+            status_code=400,
+            detail=f"name must be at most {_NAME_MAX} characters (got {len(name)}).")
+    if _CONTROL_CHARS.search(name):
+        raise HTTPException(status_code=400, detail="name contains control characters.")
+    return name
 
 
 def get_store() -> TenantStore:
@@ -111,6 +134,41 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
             logger.warning("SAAS PREFLIGHT: %s", warning)
     app = FastAPI(title="Sovereign-OS SaaS")
 
+    # A browser is a hostile execution environment that we hand a tenant API key to, and
+    # the response had none of the headers that constrain it. The console keeps the key in
+    # localStorage, so a single injected script is a key exfiltration; `frame-ancestors`
+    # and `X-Frame-Options` stop the console being framed and clickjacked; `nosniff` stops
+    # a JSON error body being re-interpreted as HTML.
+    #
+    # The CSP is nonce-based rather than `unsafe-inline`, which is why the console has no
+    # `onclick=` attributes left: a nonce whitelists a <script> block, never an event
+    # handler attribute, so `unsafe-inline` would have been the only alternative and that
+    # whitelists the injected script too.
+    @app.middleware("http")
+    async def security_headers(request, call_next):
+        nonce = _secrets.token_urlsafe(16)
+        request.state.csp_nonce = nonce
+        response = await call_next(request)
+        response.headers["Content-Security-Policy"] = (
+            "default-src 'none'; "
+            f"script-src 'nonce-{nonce}'; "
+            f"style-src 'nonce-{nonce}' https://fonts.googleapis.com; "
+            "font-src https://fonts.gstatic.com; "
+            "connect-src 'self'; "
+            "img-src 'self' data:; "
+            "base-uri 'none'; form-action 'none'; frame-ancestors 'none'"
+        )
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["Referrer-Policy"] = "no-referrer"
+        response.headers["Permissions-Policy"] = "geolocation=(), microphone=(), camera=()"
+        response.headers["Cross-Origin-Opener-Policy"] = "same-origin"
+        # Only meaningful over TLS, and a lie over plain HTTP in local dev.
+        if hosted or request.url.scheme == "https":
+            response.headers["Strict-Transport-Security"] = (
+                "max-age=31536000; includeSubDomains")
+        return response
+
     def require_tenant(request: Request, x_tenant_key: str | None = Header(default=None)):
         caller = client_key(request)
         locked, retry_after = auth_throttle.is_locked(caller)
@@ -154,9 +212,7 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
     def signup(request: Request, payload: dict | None = Body(None)):
         _enforce(signup_limiter, client_key(request), "workspaces created")
         body = payload or {}
-        name = str(body.get("name") or "").strip()
-        if not name:
-            raise HTTPException(status_code=400, detail="name is required.")
+        name = _clean_name(body.get("name"))
         t = st.create(name, plan=str(body.get("plan") or "free"))
         # api_key is returned ONCE at signup; it's never returned again.
         return {"tenant": t.public(), "api_key": t.api_key}
@@ -210,8 +266,9 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
         }
 
     @app.get("/", response_class=HTMLResponse)
-    def console():
-        return HTMLResponse(_CONSOLE_HTML)
+    def console(request: Request):
+        nonce = getattr(request.state, "csp_nonce", "")
+        return HTMLResponse(_CONSOLE_HTML.replace("__CSP_NONCE__", nonce))
 
     return app
 
@@ -222,7 +279,7 @@ _CONSOLE_HTML = """<!doctype html><html lang=en><head><meta charset=utf-8>
 <title>Sovereign-OS · Console</title>
 <link rel=preconnect href=https://fonts.googleapis.com>
 <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel=stylesheet>
-<style>
+<style nonce=__CSP_NONCE__>
 :root{--bg:#fff;--ink:#0d0d0d;--soft:#565869;--mut:#8e8ea0;--bd:#ececee;--elev:#f7f7f8;--ok:#10a37f;--bad:#e02e2a}
 *{box-sizing:border-box}body{margin:0;font-family:Inter,-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5}
 .wrap{max-width:760px;margin:0 auto;padding:40px 22px 80px}
@@ -251,7 +308,7 @@ textarea{resize:vertical;min-height:70px}
   <h2>1 · Create workspace</h2>
   <label>Workspace name</label><input id=suName placeholder="Acme Inc.">
   <label>Plan</label><select id=suPlan></select>
-  <div class=row><button class=btn onclick=signup()>Create workspace</button></div>
+  <div class=row><button class=btn id=btn_signup>Create workspace</button></div>
   <div class="msg" id=suMsg></div>
   <div id=keyBox class=hide style=margin-top:14px>
     <div class=mut>Save this API key — it is shown only once:</div>
@@ -262,7 +319,7 @@ textarea{resize:vertical;min-height:70px}
 <div class=card>
   <h2>2 · Sign in</h2>
   <label>API key</label><input id=inKey placeholder="sk_ten_…">
-  <div class=row><button class=btn onclick=signin()>Sign in</button><span class=msg id=siMsg></span></div>
+  <div class=row><button class=btn id=btn_signin>Sign in</button><span class=msg id=siMsg></span></div>
 </div>
 
 <div id=app class=hide>
@@ -275,22 +332,27 @@ textarea{resize:vertical;min-height:70px}
     <label>Anthropic API key</label><input id=cfgAnthropic placeholder="sk-ant-…">
     <label>OpenAI API key</label><input id=cfgOpenAI placeholder="sk-…">
     <label>Charter YAML (optional)</label><textarea id=cfgCharter placeholder="mission: ..."></textarea>
-    <div class=row><button class=btn onclick=saveConfig()>Save</button><span class=msg id=cfgMsg></span></div>
+    <div class=row><button class=btn id=btn_saveConfig>Save</button><span class=msg id=cfgMsg></span></div>
     <div class=mut style=margin-top:8px>Keys are stored for your workspace only and used to run your missions. The platform never holds funds.</div>
   </div>
   <div class=card>
     <h2>4 · Run a mission</h2>
     <label>Goal</label><textarea id=goal placeholder="Summarize the market in one paragraph."></textarea>
-    <div class=row><button class=btn onclick=run()>Run</button><span class=msg id=runMsg></span></div>
+    <div class=row><button class=btn id=btn_run>Run</button><span class=msg id=runMsg></span></div>
     <div id=runOut class="out hide"></div>
   </div>
 </div>
 
-<script>
+<script nonce=__CSP_NONCE__>
 var KEY=localStorage.getItem("sov_key")||"";
 function h(){return KEY?{"X-Tenant-Key":KEY,"Content-Type":"application/json"}:{"Content-Type":"application/json"}}
 function el(id){return document.getElementById(id)}
-fetch("/saas/plans").then(r=>r.json()).then(d=>{el("suPlan").innerHTML=(d.plans||[]).map(p=>`<option value="${p.name}">${p.name} — $${(p.price_cents_month/100).toFixed(0)}/mo · ${p.max_missions_per_day} missions/day</option>`).join("")});
+fetch("/saas/plans").then(r=>r.json()).then(d=>{
+  var sel=el("suPlan");sel.textContent="";
+  (d.plans||[]).forEach(function(p){
+    var o=document.createElement("option");o.value=p.name;
+    o.textContent=p.name+" — $"+(p.price_cents_month/100).toFixed(0)+"/mo · "+p.max_missions_per_day+" missions/day";
+    sel.appendChild(o)})});
 function signup(){
   el("suMsg").className="msg";el("suMsg").textContent="Creating…";
   fetch("/saas/tenants",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name:el("suName").value,plan:el("suPlan").value})})
@@ -308,14 +370,23 @@ function signin(){
     if(d.tenant.config){el("cfgCharter").value="";}
   }).catch(e=>{el("siMsg").className="msg err";el("siMsg").textContent=String(e)})
 }
+function pill(text,dot){
+  // textContent, not innerHTML: the workspace name is whatever the tenant typed at
+  // signup, and the tenant API key sits in localStorage one DOM sink away.
+  var s=document.createElement("span");s.className="pill";
+  if(dot){var d=document.createElement("span");d.className="dot";s.appendChild(d)}
+  s.appendChild(document.createTextNode(text));return s;
+}
 function renderMe(d){
-  var c=d.tenant.config||{},u=d.usage||{};
-  el("meRow").innerHTML=`<span class=pill><span class=dot></span>${d.tenant.name}</span>`
-   +`<span class=pill>plan: ${d.tenant.plan}</span>`
-   +`<span class=pill>missions today: ${u.missions||0}/${d.plan.max_missions_per_day}</span>`
-   +`<span class=pill>spend today: $${((u.spend_cents||0)/100).toFixed(2)}</span>`
-   +`<span class=pill>anthropic: ${c.anthropic_api_key||"—"}</span>`
-   +`<span class=pill>openai: ${c.openai_api_key||"—"}</span>`;
+  var c=d.tenant.config||{},u=d.usage||{},row=el("meRow");
+  row.textContent="";
+  [[d.tenant.name,1],
+   ["plan: "+d.tenant.plan,0],
+   ["missions today: "+(u.missions||0)+"/"+d.plan.max_missions_per_day,0],
+   ["spend today: $"+((u.spend_cents||0)/100).toFixed(2),0],
+   ["anthropic: "+(c.anthropic_api_key||"—"),0],
+   ["openai: "+(c.openai_api_key||"—"),0]
+  ].forEach(function(p){row.appendChild(pill(p[0],p[1]))});
 }
 function saveConfig(){
   el("cfgMsg").className="msg";el("cfgMsg").textContent="Saving…";
@@ -340,6 +411,10 @@ function run(){
      fetch("/saas/tenants/me",{headers:h()}).then(r=>r.json()).then(renderMe);
    }).catch(e=>{el("runMsg").className="msg err";el("runMsg").textContent=String(e)})
 }
+el("btn_signup").addEventListener("click",signup);
+el("btn_signin").addEventListener("click",signin);
+el("btn_saveConfig").addEventListener("click",saveConfig);
+el("btn_run").addEventListener("click",run);
 if(KEY){el("inKey").value=KEY;signin()}
 </script></div></body></html>"""
 
