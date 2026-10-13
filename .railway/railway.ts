@@ -29,6 +29,22 @@ export default defineRailway(() => {
     healthcheck: "/saas/health",
     healthcheckTimeout: 30,
 
+    // Carried over from railway.json, which declared a restart policy that this file did
+    // not -- and which `plan` showed was never actually in effect: the live service had
+    // restartPolicyType null the whole time. Config-as-code is deprecated anyway (sunset
+    // 2026-12-01), so railway.json is gone and this is the only source of truth.
+    //
+    // `restartPolicyType` is deliberately NOT declared here. Railway accepts it, reports
+    // the apply as successful, and leaves the value null -- `plan` asks for the same
+    // change again immediately afterwards, every time. Declaring a field that never
+    // converges leaves `plan` permanently dirty, which trains you to ignore the diff and
+    // costs more than the setting is worth. Bounded retries do apply, and they are the
+    // half that matters: a container failing closed on a missing deployment secret fails
+    // identically forever, so an unbounded restart loop would bury the outage in noise.
+    deploy: {
+      restartPolicyMaxRetries: 3,
+    },
+
     // A correctness constraint, not a cost setting. Rate limiting and the tenant store
     // are both in-process: N replicas enforce N times the configured limit, and two
     // replicas writing the same tenant JSON lose updates with no error anywhere. Shared
