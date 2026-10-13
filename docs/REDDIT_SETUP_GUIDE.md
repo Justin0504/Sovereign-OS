@@ -152,7 +152,7 @@ Open **http://localhost:8000**. You should see the dashboard; after the next ing
 
 ## Part 4: Post a task on Reddit (so the bridge can pick it up)
 
-To test the full flow, **you** post a “client” task on Reddit using one of the short copy examples from [DEMO_TASK_POSTS.md](DEMO_TASK_POSTS.md). The bridge will crawl it, create a job with `delivery_contact`, and after Sovereign-OS completes the job it will reply on that post.
+To test the full flow, **you** post a “client” task on Reddit using one of the short copy examples from the example task posts in `examples/`. The bridge will crawl it, create a job with `delivery_contact`, and after Sovereign-OS completes the job it will reply on that post.
 
 ### 4.1 Go to the subreddit
 
@@ -166,7 +166,7 @@ To test the full flow, **you** post a “client” task on Reddit using one of t
 1. Click **“Create Post”** (or “Post”).
 2. Choose **“Post”** (text) or **“Link”** as needed; for a text task, **“Post”** is typical.
 3. **Title**: use a short, clear title that includes the price so the bridge can parse it (e.g. `[Hiring] $80 — 1000w B2B blog: reduce new-hire ramp-up (HR/ops audience). Deliver: draft + meta + 2 social captions. DM me.`).
-4. **Body** (if the subreddit allows body text): you can paste the same line or a slightly longer version from [DEMO_TASK_POSTS.md](DEMO_TASK_POSTS.md).
+4. **Body** (if the subreddit allows body text): you can paste the same line or a slightly longer version from the example task posts in `examples/`.
 
 Example for **Task 1 (Long-form blog, $80)**:
 
@@ -218,5 +218,5 @@ Example for **Task 3 (Cold email sequence, $60)**:
 3. [ ] Terminal 1 – Bridge: set `BRIDGE_REDDIT_ENABLED=true`, `REDDIT_*`, `BRIDGE_MODE=serve`, then `python -m sovereign_os.ingest_bridge`.
 4. [ ] Terminal 2 – Sovereign-OS: set `SOVEREIGN_INGEST_URL=http://localhost:9000/jobs?take=true`, `REDDIT_*` (including `REDDIT_USERNAME` + `REDDIT_PASSWORD` for posting), then `python -m sovereign_os.web.app`.
 5. [ ] Open http://localhost:8000; optionally set `SOVEREIGN_AUTO_APPROVE_JOBS=true` and LLM/Stripe keys.
-6. [ ] On Reddit, post in r/forhire (or r/HireaWriter) using a short copy from [DEMO_TASK_POSTS.md](DEMO_TASK_POSTS.md) (e.g. `[Hiring] $80 — 1000w B2B blog …`).
+6. [ ] On Reddit, post in r/forhire (or r/HireaWriter) using a short copy from the example task posts in `examples/` (e.g. `[Hiring] $80 — 1000w B2B blog …`).
 7. [ ] Wait for the next ingest poll; job appears in queue and runs; after completion, check your Reddit post for the delivery comment.

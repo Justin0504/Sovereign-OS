@@ -14,7 +14,7 @@ With the "ingest → approve → run → audit → charge → webhook" loop and 
 | **Open-source ready** | Default Charter, 16 built-in workers, QUICKSTART, config_warnings, input validation, rate limit, retry, webhook failure logging, batch API, job concurrency, IP allowlist |
 | **Observability** | /health (queue & mode hints), token usage, audit trail, optional Prometheus |
 
-See [OPEN_SOURCE_READY_PLAN.md](OPEN_SOURCE_READY_PLAN.md) and [OPTIMIZATION_ROADMAP.md](OPTIMIZATION_ROADMAP.md).
+See [OPTIMIZATION_ROADMAP.md](OPTIMIZATION_ROADMAP.md).
 
 ---
 

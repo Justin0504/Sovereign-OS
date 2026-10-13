@@ -141,7 +141,7 @@ If the URL returns **JSON**, the bridge expects an array (or `{ "jobs": [...] }`
    - `SOVEREIGN_INGEST_INTERVAL_SEC=60` (or your choice)
    - `SOVEREIGN_AUTO_APPROVE_JOBS=true` for full auto flow.
 
-Jobs from Reddit/scraper/retail will then appear in the Job queue and run through CEO/CFO/permissions/delivery/Stripe as in [DEMO_SCRIPT.md](DEMO_SCRIPT.md).
+Jobs from Reddit/scraper/retail will then appear in the Job queue and run through CEO/CFO/permissions/delivery/Stripe as in [QUICKSTART.md](QUICKSTART.md).
 
 ---
 

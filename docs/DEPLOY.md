@@ -93,8 +93,17 @@ used only for that tenant's missions.
 
 ## 3b · Deploy the hosted control plane to Railway
 
-The repo ships [`railway.json`](../railway.json), which builds
+The repo ships [`.railway/railway.ts`](../.railway/railway.ts), which builds
 [`deploy/Dockerfile.saas`](../deploy/Dockerfile.saas) and health-checks `/saas/health`.
+It is infrastructure-as-code and **authoritative**: anything it does not describe is
+removed on apply, which is why the volume's region and size and the Dockerfile builder
+are spelled out explicitly, and why `SOVEREIGN_SAAS_SECRET` is `preserve()`d rather than
+written down. Preview any change with `railway config plan` before `railway config apply`.
+
+(The older `railway.json` config-as-code file has been removed. Railway deprecated that
+format with a 2026-12-01 sunset, and keeping both meant two files describing one service —
+which is how its restart policy came to be declared in one of them and never actually
+applied.)
 
 **`numReplicas` is pinned to 1, and raising it will quietly break two things.** Rate
 limiting and the tenant store are both in-process: N replicas enforce N times the
@@ -105,7 +114,7 @@ safe. The number is a correctness constraint, not a cost setting.
 ### Steps
 
 1. **New project → Deploy from GitHub repo**, pick this repo. Railway reads
-   `railway.json`, so no build configuration is needed.
+   `.railway/railway.ts`, so no build configuration is needed.
 
 2. **Add a volume** mounted at `/data`. Not optional: it holds every tenant's ledger,
    audit trail, trust store and learned cost calibration. Without it a redeploy silently

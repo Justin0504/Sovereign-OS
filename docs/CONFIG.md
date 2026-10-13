@@ -37,7 +37,7 @@ The Web process is designed for **24/7** operation: a background thread continuo
 | `SOVEREIGN_INGEST_ENABLED` | When set to `false` (or `0`/`off`/`no`), the ingest poller is **not** started even if `SOVEREIGN_INGEST_URL` is set. Use to stop automatic "接单" and reduce API cost. Default `true` when URL is set. |
 | `SOVEREIGN_INGEST_ONCE` | When set to `true` (or `1`/`yes`), the poller **fetches once** and then stops (no repeated polling). Use for demo: one pull, no loop. |
 | `SOVEREIGN_INGEST_INTERVAL_SEC` | Polling interval in seconds (default `60`). Ignored when `SOVEREIGN_INGEST_ONCE=true`. |
-| `SOVEREIGN_INGEST_MAX_JOBS_PER_POLL` | If set (e.g. `1` or `2`), at most this many jobs are enqueued per poll. Use to cap token rate when the ingest URL returns many jobs (see [TOKEN_SPIKE_INVESTIGATION.md](TOKEN_SPIKE_INVESTIGATION.md)). Default `0` = no cap. |
+| `SOVEREIGN_INGEST_MAX_JOBS_PER_POLL` | If set (e.g. `1` or `2`), at most this many jobs are enqueued per poll. Use to cap token rate when the ingest URL returns many jobs (caps the token rate when a single poll returns many jobs). Default `0` = no cap. |
 | `SOVEREIGN_INGEST_DEDUP_SEC` | If set (e.g. `300`), the ingest poller will not enqueue a job when one with the same `goal` and `amount_cents` was already created within this many seconds. Reduces duplicate jobs from repeated polling. |
 
 ## Audit trail (verifiable)
@@ -50,7 +50,7 @@ The Web process is designed for **24/7** operation: a background thread continuo
 
 | Variable | Description |
 |----------|-------------|
-| `SOVEREIGN_COMPLIANCE_SPEND_THRESHOLD_CENTS` | If set to a positive number, the Web UI engine uses `ThresholdComplianceHook`: when a task’s estimated cost (cents) is ≥ this value, the job is put back to `pending` with “Human approval required” until a second approval. See [MONETIZATION.md](MONETIZATION.md) and [PHASE6.md](PHASE6.md). |
+| `SOVEREIGN_COMPLIANCE_SPEND_THRESHOLD_CENTS` | If set to a positive number, the Web UI engine uses `ThresholdComplianceHook`: when a task’s estimated cost (cents) is ≥ this value, the job is put back to `pending` with “Human approval required” until a second approval. See [MONETIZATION.md](MONETIZATION.md); the hook interface is `sovereign_os.compliance`. |
 | `SOVEREIGN_COMPLIANCE_AUTO_PROCEED` | When set to `true` (or `1`/`yes`), the CFO does **not** require human approval when the compliance hook returns “request human approval” for spend above the threshold; the task is allowed to proceed (human-out-of-loop for high spend). Use only when you accept the risk. |
 
 ## Controlling API cost (avoid jobs running / 接单 non-stop)
@@ -78,12 +78,12 @@ Startup logs will warn when auto-approve or ingest is on so you can adjust.
 | `SOVEREIGN_WEBHOOK_SECRET` | If set, the request body is signed with HMAC-SHA256 and sent in header `X-Sovereign-Signature: sha256=<hex>`. Receivers should verify this. |
 | `SOVEREIGN_WEBHOOK_LOG_PATH` | If set (default `data/webhook_log.jsonl` when logging is enabled), failed webhook deliveries (after all retries) are appended as one JSONL line per failure (url, job_id, status, error, ts). |
 | Per-job `callback_url` | In `POST /api/jobs` body you can pass `callback_url`; when that job completes, the webhook is sent to this URL instead of (or in addition to) the global `SOVEREIGN_WEBHOOK_URL`. |
-| Per-job `delivery_contact` | Optional. Dict e.g. `{"platform":"reddit","username":"x","post_id":"y","permalink":"/r/..."}`. When the job completes, the result can be posted back (e.g. Reddit comment on the post). See [DEMO_TASK_POSTS.md](DEMO_TASK_POSTS.md). |
+| Per-job `delivery_contact` | Optional. Dict e.g. `{"platform":"reddit","username":"x","post_id":"y","permalink":"/r/..."}`. When the job completes, the result can be posted back (e.g. Reddit comment on the post). |
 | `REDDIT_CLIENT_ID`, `REDDIT_CLIENT_SECRET`, `REDDIT_USER_AGENT` | Required for Reddit delivery (post comment with result). Same app as ingest or any Reddit app. |
 | `REDDIT_REFRESH_TOKEN` **or** `REDDIT_USERNAME` + `REDDIT_PASSWORD` | Reddit OAuth2 refresh token (preferred) or script-app credentials so the process can post the delivery comment. |
 | (payload) | Each job gets a `request_id` (trace id) at creation; it is included in the webhook payload when set, for correlating logs and delivery. |
 
-Payload format and retries: see [OPEN_SOURCE_READY_PLAN.md](OPEN_SOURCE_READY_PLAN.md) (Webhook payload spec). Typical use: your backend receives the webhook and then notifies the customer (email, Slack, etc.).
+Payload format and retries: see [MONETIZATION.md](MONETIZATION.md). Typical use: your backend receives the webhook and then notifies the customer (email, Slack, etc.).
 
 ## Payments (Stripe)
 

@@ -73,7 +73,7 @@ Open **http://localhost:8000** in your browser.
 1. In the Dashboard **Mission** box, enter a goal, e.g. `Summarize the market in one paragraph.`
 2. Click **Run**; the system uses the default Charter (`charter.default.yaml`) and built-in workers to plan and run.
 3. For **Job queue** payments:
-   - Submit a paid job via `POST /api/jobs` or the demo script (see [PAID_DEMO.md](PAID_DEMO.md)).
+   - Submit a paid job via `POST /api/jobs` or the demo script in `examples/`.
    - Approve the job in the Dashboard **Job queue**; when it completes, payment is taken and recorded in the Ledger.
 
 ---

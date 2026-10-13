@@ -69,4 +69,4 @@ With both set, the flow is: **ingest or API → auto-approve → run → audit �
 | Income on ledger | `record_usd(..., purpose="job_income")` |
 | Notify customer | Configure `SOVEREIGN_WEBHOOK_URL` or per-job `callback_url`; your backend receives the completion payload and sends email/Slack/etc. |
 
-See [CONFIG.md](CONFIG.md) for all env vars and [PHASE6.md](PHASE6.md) for the compliance hook interface.
+See [CONFIG.md](CONFIG.md) for all env vars; the compliance hook interface is `sovereign_os.compliance`.

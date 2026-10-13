@@ -59,9 +59,71 @@ The Ledger is append-only. The Auditor is cryptographically bound. Neither can b
 
 ---
 
+## What we measured
+
+Claims about governance are cheap. Each of these is a harness in this repo that you can
+run, and each reports a number we did not like.
+
+```bash
+python -m sovereign_os.bench.governance_eval    # fiscal · permission · audit integrity
+python -m sovereign_os.bench.calibration_run    # does it know what its own work costs?
+python -m sovereign_os.bench.ruin               # does being wrong about that bankrupt it?
+```
+
+**The cost estimator is tilted, not noisy.** Across 49 governed runs on a live model, small
+tasks are over-estimated ~1.8× and large ones under-estimated ~1.7× — monotonically and
+reproducibly, because the difficulty signal reads the goal string's length, which varies
+1.21× while realized cost varies 12.8×. 95% of the error is systematic rather than planner
+noise. The per-category multiplier the system ships **cannot** fix this: one factor shifts
+the line without changing its slope. Estimating from the task graph the planner already
+produces — computed before execution, then discarded — takes predictions within 2× of
+realized cost from 62% to 94%. See [docs/CALIBRATION_FINDINGS.md](docs/CALIBRATION_FINDINGS.md).
+
+**That tilt bankrupts an expected-value agent.** The error has a *direction*: large jobs look
+cheap, so their EV is inflated and they get accepted, which means the agent systematically
+takes the jobs it has underpriced. Simulated over a 4,000-task horizon at thin margins, the
+EV rule reaches zero in 10.8% of lifetimes. The control that makes this a finding rather
+than a statement about our assumptions: an ablation with the same noise and **no direction**
+ruins 0% at every horizon tested. Sizing on an upper quantile of the measured error removes
+the ruin *and* ends richer (median 127,543 vs 122,764) while accepting a third fewer jobs —
+there is no safety-versus-growth trade here, the EV rule is simply buying losers.
+
+**Where a claim is narrower than it sounds.** The audit `proof_hash` covers the verdict —
+seven fields — and *not* `agent_id`. A report re-attributed to a different agent still
+verifies: 120/120 in-scope tampering caught, **0/120** out-of-scope. We report this rather
+than the word "tamper-evident" on its own.
+
+Fiscal enforcement is 30/30 violations refused and audit integrity 1,200/1,200 verifying
+with zero collisions. The permission figure (200/200) measures self-consistency with the
+threshold policy, which is a weaker question than a hand-labelled oracle would answer — so
+it is not comparable to the 94% an earlier version of the paper reported.
+
+---
+
 ## Quick Start
 
-Everything runs on your machine, on your keys — nothing is sent to a central service.
+Self-hosted, everything runs on your machine on your keys. There is also a hosted
+control plane if you want to try it without installing anything — it is the same
+governance core, multi-tenant, and it still never holds your keys or your funds.
+
+**Hosted — nothing to install:**
+
+```bash
+# create a workspace (or use the console at the URL below)
+curl -sX POST https://sovereign-saas-production.up.railway.app/saas/tenants \
+  -H 'Content-Type: application/json' -d '{"name":"Acme","plan":"free"}'
+# → {"tenant": {...}, "api_key": "sk_ten_…"}   ← returned ONCE, never again
+
+curl -sX POST https://sovereign-saas-production.up.railway.app/saas/tenants/me/missions \
+  -H "X-Tenant-Key: sk_ten_…" -H 'Content-Type: application/json' \
+  -d '{"goal":"Summarize the current AI agent landscape."}'
+```
+
+Console: **https://sovereign-saas-production.up.railway.app** · API: [docs/SAAS.md](docs/SAAS.md)
+
+You supply your own Anthropic/OpenAI key per workspace; it is encrypted at rest (AES-GCM)
+and masked in every API response. Tenant API keys are stored hashed, so they are not
+recoverable — losing one means rotating it, by design. No funds are ever custodied.
 
 **Docker — the whole workspace:**
 
@@ -221,11 +283,12 @@ sovereign connectors                    # connector readiness + required MCP ser
 - **Reactive self-repair** — a task that fails audit is automatically re-run with the Auditor's reason + fix folded into its brief (`SOVEREIGN_MAX_REPAIR_ATTEMPTS=N`), recovering quality with no human in the loop. Only a fully-passing mission reaches delivery/settlement — a failed audit never gets submitted to a platform or charged.
 - CFO (Treasury) enforces `max_task_cost_usd`, `daily_budget_usd`, `runway_days`, and `min_job_margin_ratio` *before* any task runs. A runtime **SpendCircuitBreaker** adds fast-fail *during* a session — it halts the loop when cumulative spend hits a session ceiling, audits fail past a streak limit, or ROI collapses (the guard that stops runaway agent loops the pre-flight gates miss). Configure via `SOVEREIGN_SESSION_CEILING_CENTS`, `SOVEREIGN_MAX_CONSECUTIVE_FAILURES`, `SOVEREIGN_ROI_FLOOR` (all default off); watch it live on the dashboard **Guardrails** tab (session spend vs. ceiling, failure streak, ROI, one-click reset).
 - **Permissions** — TrustScore-gated capabilities (`READ_FILES`, `WRITE_FILES`, `EXECUTE_SHELL`, `SPEND_USD`, `CALL_EXTERNAL_API`), earned per category, with graduated autonomous-spend ceilings. High-risk grants use **just-in-time leases**: scoped to one task, bounded by TTL and use-count, auto-revoked on completion (`grant_lease` / `use_lease` / `revoke_task_leases`). Active leases and per-agent trust are shown live on the dashboard **Guardrails** tab.
+- **Governed delegation** — the moment an agent hands work to something else (a sub-agent, an MCP tool, an external coding agent, a funded escrow), every check performed on the planner was performed on the wrong thing. Authority is modelled as object capabilities that can only *narrow* as they are passed on: effective authority is the intersection of the grant and the holder's own eligibility, budget is **reserved from the parent** rather than reissued (so splitting a task across three sub-agents cannot outspend the task), revocation cascades, and a principal chain makes any leaf action attributable to the root mission. Evaluated against an explicit adversary — 14 attacks, reported per elicitation level — rather than a cooperative one. Permissive by default so the single-tenant self-host keeps working; set `SOVEREIGN_STRICT_DELEGATION=1` to turn an unauthorized handoff into a refusal (the hosted deployment sets it). See [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 - **Two dashboards, same guardrails** — the web dashboard (Guardrails tab + per-task quality scorecard) and a **Textual terminal Command Center** (`python -m sovereign_os.ui.app`) both surface the CFO circuit breaker (session spend vs. ceiling, failure streak, ROI; press `b` to reset), active JIT leases, and the category-rubric breakdown streamed live under each audit verdict.
 - **Prometheus metrics** — all three guardrails export on `/metrics` for Grafana: breaker session spend/ceiling/ROI/trips, active JIT leases, per-agent trust, and per-category audit-quality histograms (overall + per rubric criterion). See [docs/METRICS.md](docs/METRICS.md) for the metric list and PromQL starter panels.
 
 **Execution**
-- 16 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`.
+- 20 built-in workers: `summarize`, `research`, `reply`, `write_article`, `write_email`, `write_post`, `meeting_minutes`, `translate`, `rewrite_polish`, `collect_info`, `extract_structured`, `spec_writer`, `solve_problem`, `assistant_chat`, `code_assistant`, `code_review`, `test_gen`, `data_analysis`, `design_brief`, `help_docs`.
 - **Verification-driven coding** — the coding worker runs a harness-enforced loop (`run_with_verified_tools`): it won't accept "done" until the **test suite actually passes**. A premature answer bounces back with the failing test output and the model must fix and re-verify — code that can't reach green is marked `tests_verified=false` / `success=false`, so broken work never ships to a paid bounty. Gates only when execution is enabled (`SOVEREIGN_CODE_EXEC_ENABLED`); otherwise it's a no-op skip.
 - Multi-model: Strategist and workers can use different backends (e.g. GPT-4o for planning, Claude for execution).
 - **Pluggable agent backends** — for complex delivery a worker can delegate a whole task to a purpose-built coding agent (**Claude Code, OpenAI Codex, Gemini CLI, Aider**, or any headless CLI via a command template) instead of a single chat call. One stable `AgentBackend` seam; new agents plug in by config (`SOVEREIGN_AGENT_BACKEND` / `SOVEREIGN_BACKEND_<CATEGORY>`), dry-run until `SOVEREIGN_AGENT_BACKEND_ENABLED=true`.
@@ -344,6 +407,43 @@ services:
 
 See [docs/DEPLOY.md](docs/DEPLOY.md) for volume strategy, health checks, and graceful shutdown.
 
+### Hosted control plane (multi-tenant)
+
+The multi-tenant SaaS is a **separate app** from the single-tenant dashboard
+(`sovereign_os/saas/`, image `deploy/Dockerfile.saas`), because it holds other people's
+credentials and the postures differ:
+
+| | Self-host (`web/`) | Hosted (`saas/`) |
+|---|---|---|
+| Keys | yours, from the environment | per tenant, AES-GCM at rest, masked in responses |
+| Tenant auth | optional bearer token | per-tenant API key, stored **hashed** (not recoverable) |
+| Delegation | permissive by default | `SOVEREIGN_STRICT_DELEGATION=1` — unauthorized handoff refused |
+| Missing deployment secret | starts | **refuses to start** rather than write credentials in plaintext |
+| Process | root OK | non-root, privileges dropped in the entrypoint |
+
+Deployment is declared in [`.railway/railway.ts`](.railway/railway.ts) as infrastructure-as-code.
+That file is **authoritative** — anything it does not describe is removed on apply, which
+is why the volume's region and size, and the Dockerfile builder, are spelled out
+explicitly, and why the deployment secret is `preserve()`d rather than written down
+(losing it makes every stored tenant credential permanently undecryptable).
+
+```bash
+railway config plan     # preview; shows drift without applying
+railway config apply
+railway up
+```
+
+`replicas: 1` is a correctness constraint, not a cost setting: rate limiting and the
+tenant store are both in-process, so N replicas enforce N times the configured limit and
+two replicas writing the same tenant record lose updates silently. Shared state is a
+prerequisite for raising it — `/saas/health` reports `rate_limits_process_local` so this
+is visible rather than folklore.
+
+The console is served with a nonce-based CSP (`default-src 'none'`, no `unsafe-inline`),
+HSTS, `frame-ancestors 'none'`, and `nosniff` on every response including errors, and it
+builds its DOM with `textContent` — it keeps a tenant API key in `localStorage`, so one
+injected script would be a key exfiltration.
+
 ### Ingest bridge (optional)
 
 Pull real orders from Reddit, scrapers, or Shopify:
@@ -417,7 +517,9 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-Tests (257, all passing) cover the governance engine, CFO circuit breaker, JIT capability leases, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, compliance hooks, web API, and webhook delivery. Run with LLM keys unset so tests use stubs (no network).
+716 tests (715 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
+
+**The suite is hermetic — it does not touch the network, whatever is in your shell.** That is enforced, not assumed: an autouse fixture scrubs every outbound credential before any test runs, and a test that genuinely needs a provider must mark itself `live_api` and be run with `--live-api`. This used to be a convention ("run with your keys unset") and conventions do not hold: the model clients fall back to a key read from the environment, so tests written against a stub quietly billed the live API whenever a key happened to be exported. The same commit gave 657 passed with no key set and 639 passed / 18 failed with an exhausted one — every failure an HTTP 429. `tests/test_hermetic_suite.py` pins the guard by driving the real tests in a subprocess with a bogus key exported.
 
 ---
 
@@ -435,7 +537,11 @@ Tests (257, all passing) cover the governance engine, CFO circuit breaker, JIT c
 | [POSITIONING.md](docs/POSITIONING.md) | Order sources (open platforms, partners, API), service model. |
 | [CEO_CFO_PROFITABILITY.md](docs/CEO_CFO_PROFITABILITY.md) | Unit economics: margin floor, rejecting unprofitable jobs. |
 | [ARCHITECTURE_FAQ.md](docs/ARCHITECTURE_FAQ.md) | Design decisions and trade-offs. |
-| [AUDIT_PROOF.md](docs/AUDIT_PROOF.md) | Verifiable audit trail, `proof_hash`, integrity check. |
+| [AUDIT_PROOF.md](docs/AUDIT_PROOF.md) | Verifiable audit trail, `proof_hash`, integrity check — including what it does *not* cover. |
+| [CALIBRATION_FINDINGS.md](docs/CALIBRATION_FINDINGS.md) | The cost-estimator measurement: why it is tilted, why a per-category multiplier can't fix it. |
+| [THREAT_MODEL.md](docs/THREAT_MODEL.md) | The 14 attacks, elicitation levels, and what each would falsify. |
+| [SAAS.md](docs/SAAS.md) | Multi-tenant control plane: signup, per-tenant keys, isolation, limits. |
+| [MCP.md](docs/MCP.md) | Model Context Protocol in both directions — consuming servers, and serving governed execution. |
 | [METRICS.md](docs/METRICS.md) | Prometheus metrics (breaker, JIT leases, audit quality) + Grafana/PromQL starter. |
 | [BACKENDS.md](docs/BACKENDS.md) | Pluggable agent backends (Claude Code / Codex / CLI agents), MCP compatibility, adapting to platform updates. |
 | [AUTONOMY.md](docs/AUTONOMY.md) | Human-out-of-loop runbook: profit screening, self-repair, platform notes, safety switches. |
