@@ -390,50 +390,168 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
 # --------------------------------------------------------------------- console UI
 _CONSOLE_HTML = """<!doctype html><html lang=en><head><meta charset=utf-8>
 <meta name=viewport content="width=device-width, initial-scale=1">
-<title>Sovereign-OS · Console</title>
+<title>Sovereign-OS Console</title>
 <link rel=preconnect href=https://fonts.googleapis.com>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel=stylesheet>
+<link rel=preconnect href=https://fonts.gstatic.com crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=swap" rel=stylesheet>
 <style nonce=__CSP_NONCE__>
-:root{--bg:#fff;--ink:#0d0d0d;--soft:#565869;--mut:#8e8ea0;--bd:#ececee;--elev:#f7f7f8;--ok:#10a37f;--bad:#e02e2a}
-*{box-sizing:border-box}body{margin:0;font-family:Inter,-apple-system,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.5}
-.wrap{max-width:760px;margin:0 auto;padding:40px 22px 80px}
-h1{font-size:1.7rem;font-weight:800;letter-spacing:-.02em;margin:0 0 4px}
-.sub{color:var(--soft);margin:0 0 28px}
-.card{border:1px solid var(--bd);border-radius:16px;padding:22px;margin-bottom:18px}
-.card h2{font-size:.78rem;text-transform:uppercase;letter-spacing:.06em;color:var(--mut);margin:0 0 14px;font-weight:700}
-label{display:block;font-size:.82rem;color:var(--soft);margin:12px 0 5px;font-weight:500}
-input,textarea,select{width:100%;padding:10px 12px;border:1px solid var(--bd);border-radius:10px;font:inherit;background:#fff;color:var(--ink)}
-input:focus,textarea:focus,select:focus{outline:2px solid var(--ink);outline-offset:1px;border-color:var(--ink)}
-textarea{resize:vertical;min-height:70px}
-.btn{padding:10px 18px;border:none;border-radius:10px;background:var(--ink);color:#fff;font:inherit;font-weight:600;cursor:pointer;transition:background .15s}
-.btn:hover{background:#2b2b2b}.btn.ghost{background:var(--elev);color:var(--ink);border:1px solid var(--bd)}
-.row{display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-top:14px}
-.key{font-family:ui-monospace,monospace;font-size:.82rem;background:var(--elev);border:1px solid var(--bd);border-radius:8px;padding:8px 10px;word-break:break-all}
-.pill{display:inline-flex;gap:6px;align-items:center;font-size:.75rem;border:1px solid var(--bd);border-radius:999px;padding:3px 10px;color:var(--soft)}
-.dot{width:7px;height:7px;border-radius:50%;background:var(--ok)}
-.msg{font-size:.82rem;margin-top:10px;min-height:1em}.msg.err{color:var(--bad)}.msg.ok{color:var(--ok)}
-.hide{display:none}.out{white-space:pre-wrap;background:var(--elev);border:1px solid var(--bd);border-radius:10px;padding:12px;font-size:.86rem;margin-top:12px;max-height:340px;overflow:auto}
-.mut{color:var(--mut);font-size:.8rem}
+/* Tokens are the self-host dashboard's, deliberately. The console and the dashboard
+   were visibly different products -- Inter and pure black here, Hanken Grotesk and a
+   pine accent there -- which is the cheapest credibility loss a two-surface product
+   can take. Three families (display / serif / mono), three neutrals, one accent. */
+:root{
+  --bg:hsl(40 24% 98%); --surface:#fff; --elev:hsl(40 16% 96%);
+  --ink:hsl(220 14% 11%); --soft:hsl(220 8% 42%); --mut:hsl(220 7% 58%);
+  --bd:hsl(40 10% 90%);
+  --pine:#0c5c46; --pine-soft:#e7f2ee;
+  --ok:#10a37f; --bad:#e02e2a; --warn:#b45309;
+  --font-display:'Hanken Grotesk',-apple-system,BlinkMacSystemFont,'Segoe UI',sans-serif;
+  --font-serif:'Instrument Serif',Georgia,serif;
+  --font-mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  /* 1.25 ratio, so no two sizes are a near-miss of each other */
+  --t-xs:0.75rem; --t-sm:0.875rem; --t-md:1rem; --t-lg:1.25rem;
+  --t-xl:1.5rem; --t-2xl:2.25rem; --t-3xl:3rem;
+  --ease:cubic-bezier(0.4,0,0.2,1);
+}
+*{box-sizing:border-box}
+body{margin:0;font-family:var(--font-display);background:var(--bg);color:var(--ink);
+     font-size:var(--t-md);line-height:1.6;-webkit-font-smoothing:antialiased}
+.wrap{max-width:1080px;margin:0 auto;padding:64px 24px 96px}
+a{color:var(--pine)}
+
+/* ---------- masthead: answers "what is this" before any form ---------- */
+.hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:48px;
+      align-items:center;margin-bottom:64px}
+.eyebrow{font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;
+         color:var(--pine);font-weight:600;margin:0 0 12px}
+h1{font-family:var(--font-serif);font-size:var(--t-3xl);line-height:1.1;
+   font-weight:400;margin:0 0 16px;max-width:22ch;letter-spacing:-.01em}
+h1 em{font-style:italic;color:var(--pine)}
+.lede{color:var(--soft);margin:0 0 24px;max-width:46ch;font-size:var(--t-lg);line-height:1.5}
+.facts{display:flex;gap:24px;flex-wrap:wrap;margin:0;padding:0;list-style:none}
+.facts div{font-size:var(--t-xs);color:var(--mut)}
+.facts b{display:block;font-family:var(--font-mono);font-size:var(--t-lg);
+         color:var(--ink);font-weight:500;letter-spacing:-.02em}
+
+/* ---------- the diagram: what the product actually does ---------- */
+.diagram{width:100%;height:auto}
+.diagram text{font-family:var(--font-mono);font-size:8px;fill:var(--soft)}
+.diagram .lbl{font-family:var(--font-display);font-size:11px;font-weight:600;fill:var(--ink)}
+.diagram .onDark{fill:#fff}
+.diagram .onDarkMut{fill:hsl(220 7% 72%)}
+.diagram .gate{fill:var(--pine-soft);stroke:var(--pine);stroke-width:1}
+.diagram .step{fill:#fff;stroke:var(--bd);stroke-width:1}
+.diagram .flow{stroke:var(--mut);stroke-width:1.25;fill:none}
+
+/* ---------- cards ---------- */
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:20px}
+.card{background:var(--surface);border:1px solid var(--bd);border-radius:12px;padding:24px;
+      margin-bottom:20px}
+.card h2{font-size:var(--t-xs);text-transform:uppercase;letter-spacing:.09em;
+         color:var(--mut);margin:0 0 16px;font-weight:600}
+.card h2 span{color:var(--pine)}
+label{display:block;font-size:var(--t-sm);color:var(--soft);margin:16px 0 6px;font-weight:500}
+input,textarea,select{width:100%;padding:12px;border:1px solid var(--bd);border-radius:8px;
+  font:inherit;font-size:var(--t-sm);background:var(--surface);color:var(--ink);
+  transition:border-color .15s var(--ease),box-shadow .15s var(--ease)}
+input:focus,textarea:focus,select:focus{outline:none;border-color:var(--pine);
+  box-shadow:0 0 0 3px var(--pine-soft)}
+textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:var(--t-xs);
+         line-height:1.6}
+.btn{padding:12px 20px;border:none;border-radius:8px;background:var(--pine);color:#fff;
+  font:inherit;font-weight:600;font-size:var(--t-sm);cursor:pointer;min-height:44px;
+  transition:background .15s var(--ease)}
+.btn:hover{background:#0a4a39}
+.btn:focus-visible{outline:2px solid var(--ink);outline-offset:2px}
+.row{display:flex;gap:12px;flex-wrap:wrap;align-items:center;margin-top:16px}
+.key{font-family:var(--font-mono);font-size:var(--t-xs);background:var(--elev);
+  border:1px solid var(--bd);border-radius:6px;padding:12px;word-break:break-all}
+.pill{display:inline-flex;gap:6px;align-items:center;font-size:var(--t-xs);
+  border:1px solid var(--bd);border-radius:999px;padding:4px 12px;color:var(--soft);
+  background:var(--surface);font-family:var(--font-mono)}
+.dot{width:6px;height:6px;border-radius:50%;background:var(--ok)}
+.msg{font-size:var(--t-sm);margin-top:12px;min-height:1em}
+.msg.err{color:var(--bad)}.msg.ok{color:var(--ok)}
+.hide{display:none}
+.out{white-space:pre-wrap;background:var(--elev);border:1px solid var(--bd);border-radius:8px;
+  padding:16px;font-family:var(--font-mono);font-size:var(--t-xs);line-height:1.6;
+  margin-top:16px;max-height:360px;overflow:auto}
+.mut{color:var(--mut);font-size:var(--t-xs);max-width:65ch}
+.steps{counter-reset:s}
+@media (max-width:860px){
+  .hero{grid-template-columns:1fr;gap:32px}
+  h1{font-size:var(--t-2xl)}
+  .wrap{padding:40px 20px 72px}
+}
 </style></head><body><div class=wrap>
-<h1>Sovereign-OS Console</h1>
-<p class=sub>Governed AI agent workspace · bring your own keys · your work stays yours</p>
 
-<div class=card id=signupCard>
-  <h2>1 · Create workspace</h2>
-  <label>Workspace name</label><input id=suName placeholder="Acme Inc.">
-  <label>Plan</label><select id=suPlan></select>
-  <div class=row><button class=btn id=btn_signup>Create workspace</button></div>
-  <div class="msg" id=suMsg></div>
-  <div id=keyBox class=hide style=margin-top:14px>
-    <div class=mut>Save this API key — it is shown only once:</div>
-    <div class=key id=apiKey></div>
+<header class=hero>
+  <div>
+    <p class=eyebrow>Governed agent workspace</p>
+    <h1>Agents that spend money need a <em>constitution</em>, not a prompt.</h1>
+    <p class=lede>Declare the budget, the permissions and the quality bar in one
+      YAML Charter. Every task is gated against it before it runs, and audited after.</p>
+    <ul class=facts>
+      <div><b>BYO</b>your keys, your spend</div>
+      <div><b>0</b>funds custodied</div>
+      <div><b>SHA-256</b>on every audit</div>
+    </ul>
   </div>
-</div>
+  <svg class=diagram viewBox="0 0 420 200" role=img
+       aria-label="Charter governs plan, budget check, permission, execute, audit; all flows recorded in an append-only ledger.">
+    <rect x="8" y="8" width="404" height="26" rx="6" fill="hsl(220 14% 11%)"/>
+    <text x="20" y="25" class="lbl onDark">CHARTER</text>
+    <text x="96" y="25" class=onDarkMut>budget · permissions · KPIs</text>
 
-<div class=card>
-  <h2>2 · Sign in</h2>
-  <label>API key</label><input id=inKey placeholder="sk_ten_…">
-  <div class=row><button class=btn id=btn_signin>Sign in</button><span class=msg id=siMsg></span></div>
+    <rect class=step x="8"   y="70" width="69" height="42" rx="6"/>
+    <rect class=gate x="91"  y="70" width="69" height="42" rx="6"/>
+    <rect class=gate x="174" y="70" width="69" height="42" rx="6"/>
+    <rect class=step x="257" y="70" width="69" height="42" rx="6"/>
+    <rect class=gate x="340" y="70" width="69" height="42" rx="6"/>
+
+    <text class=lbl x="18"  y="88">Plan</text><text x="18"  y="101">CEO</text>
+    <text class=lbl x="101" y="88">Budget</text><text x="101" y="101">CFO gate</text>
+    <text class=lbl x="184" y="88">Permit</text><text x="184" y="101">earned</text>
+    <text class=lbl x="267" y="88">Execute</text><text x="267" y="101">worker</text>
+    <text class=lbl x="350" y="88">Audit</text><text x="350" y="101">rubric</text>
+
+    <path class=flow d="M77 91 H91 M160 91 H174 M243 91 H257 M326 91 H340"
+          marker-end="url(#ar)"/>
+    <defs><marker id=ar viewBox="0 0 8 8" refX="6" refY="4" markerWidth="5"
+      markerHeight="5" orient="auto"><path d="M0 0 L8 4 L0 8 z" fill="hsl(220 7% 58%)"/>
+    </marker></defs>
+
+    <path class=flow d="M42 34 V70 M125 34 V70 M208 34 V70 M291 34 V70 M374 34 V70"
+          stroke-dasharray="2 3"/>
+
+    <rect x="8" y="150" width="404" height="30" rx="6" fill="hsl(40 16% 96%)"
+          stroke="hsl(40 10% 90%)"/>
+    <text class=lbl x="20" y="169">LEDGER</text>
+    <text x="86" y="169">append-only · proof-hashed · every cent and token</text>
+    <path class=flow d="M42 112 V150 M125 112 V150 M208 112 V150 M291 112 V150 M374 112 V150"
+          stroke-dasharray="2 3"/>
+  </svg>
+</header>
+
+<div class=grid>
+  <div class=card id=signupCard>
+    <h2><span>01</span> &nbsp;Create workspace</h2>
+    <label for=suName>Workspace name</label><input id=suName placeholder="Acme Inc.">
+    <label for=suPlan>Plan</label><select id=suPlan></select>
+    <div class=row><button class=btn id=btn_signup>Create workspace</button></div>
+    <div class="msg" id=suMsg></div>
+    <div id=keyBox class=hide>
+      <div class=mut>Save this key now — it is shown once and stored hashed, so we
+        cannot show it again.</div>
+      <div class=key id=apiKey></div>
+    </div>
+  </div>
+
+  <div class=card>
+    <h2><span>02</span> &nbsp;Sign in</h2>
+    <label for=inKey>Workspace key</label><input id=inKey placeholder="sk_ten_…">
+    <div class=row><button class=btn id=btn_signin>Sign in</button><span class=msg id=siMsg></span></div>
+  </div>
 </div>
 
 <div id=app class=hide>
@@ -443,16 +561,17 @@ textarea{resize:vertical;min-height:70px}
     <div class="row hide" id=govBox></div>
   </div>
   <div class=card>
-    <h2>3 · Bring your own keys</h2>
-    <label>Anthropic API key</label><input id=cfgAnthropic placeholder="sk-ant-…">
-    <label>OpenAI API key</label><input id=cfgOpenAI placeholder="sk-…">
-    <label>Charter YAML (optional)</label><textarea id=cfgCharter placeholder="mission: ..."></textarea>
+    <h2><span>03</span> &nbsp;Bring your own keys</h2>
+    <label for=cfgAnthropic>Anthropic API key</label><input id=cfgAnthropic placeholder="sk-ant-…">
+    <label for=cfgOpenAI>OpenAI API key</label><input id=cfgOpenAI placeholder="sk-…">
+    <label for=cfgCharter>Charter YAML</label><textarea id=cfgCharter placeholder="mission: Ship weekly research briefs.&#10;fiscal_boundaries:&#10;  daily_burn_max_usd: 5.0"></textarea>
     <div class=row><button class=btn id=btn_saveConfig>Save</button><span class=msg id=cfgMsg></span></div>
-    <div class=mut style=margin-top:8px>Keys are stored for your workspace only and used to run your missions. The platform never holds funds.</div>
+    <div class=mut>Provider keys are encrypted at rest and used only for your missions.
+      The platform never holds funds.</div>
   </div>
   <div class=card>
-    <h2>4 · Run a mission</h2>
-    <label>Goal</label><textarea id=goal placeholder="Summarize the market in one paragraph."></textarea>
+    <h2><span>04</span> &nbsp;Run a mission</h2>
+    <label for=goal>Goal</label><textarea id=goal placeholder="Summarize this week's agent-infrastructure releases."></textarea>
     <div class=row><button class=btn id=btn_run>Run</button><span class=msg id=runMsg></span></div>
     <div id=runOut class="out hide"></div>
   </div>
