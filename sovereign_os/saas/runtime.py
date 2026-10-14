@@ -38,14 +38,26 @@ def _charter_for(tenant: Tenant):
     from sovereign_os.models.charter import Charter
 
     raw = (tenant.config.charter_yaml or "").strip()
-    if raw:
-        try:
-            import yaml
+    if not raw:
+        # No charter set is a legitimate state: the tenant gets the default workspace.
+        return Charter(mission=f"{tenant.name} — governed AI agent workspace.")
+    try:
+        import yaml
 
-            return Charter.model_validate(yaml.safe_load(raw) or {})
-        except Exception:  # noqa: BLE001 - fall back to a default charter
-            pass
-    return Charter(mission=f"{tenant.name} — governed AI agent workspace.")
+        return Charter.model_validate(yaml.safe_load(raw) or {})
+    except Exception as exc:  # noqa: BLE001
+        # Fail closed. This used to fall through to the default charter, which meant a
+        # tenant whose charter stopped loading -- a schema change, a bad migration --
+        # kept running missions under default fiscal boundaries while the API still
+        # reported has_charter=true. Spending limits silently replaced by different
+        # spending limits is the governance failure this system exists to prevent, and
+        # a mission refused with a readable reason is strictly better than one that
+        # succeeds under rules nobody chose.
+        raise PermissionError(
+            f"tenant {tenant.id} has a stored charter that no longer loads ({exc}). "
+            f"Missions are refused until it is corrected, because running under the "
+            f"default fiscal boundaries instead would silently change your limits."
+        ) from None
 
 
 def build_tenant_engine(tenant: Tenant, store: TenantStore) -> tuple[Any, Any, Any]:

@@ -58,6 +58,70 @@ def _clean_name(raw: Any) -> str:
     return name
 
 
+def _validated_charter_yaml(raw: Any) -> str:
+    """
+    Parse a tenant's charter before storing it, and refuse it if it will not load.
+
+    The Charter is the constitutional document: fiscal boundaries, competencies, KPIs.
+    Previously any string was stored, the API answered 200 with has_charter=true, and the
+    runtime caught the parse failure at use and quietly substituted a DEFAULT charter with
+    default spending limits. A tenant who mistyped their daily cap was told it was in
+    force while every mission ran under limits they never chose -- the control plane
+    reporting a constraint the effect site was not applying.
+    """
+    text = str(raw or "")
+    if not text.strip():
+        return ""                      # clearing the charter is legitimate
+    try:
+        import yaml
+
+        parsed = yaml.safe_load(text)
+    except Exception as exc:  # noqa: BLE001 - the parser's message is the useful part
+        raise HTTPException(status_code=400,
+                            detail=f"charter_yaml is not valid YAML: {exc}") from None
+    if not isinstance(parsed, dict):
+        raise HTTPException(
+            status_code=400,
+            detail="charter_yaml must be a YAML mapping (got "
+                   f"{type(parsed).__name__}).")
+    try:
+        from sovereign_os.models.charter import Charter
+
+        Charter.model_validate(parsed)
+    except Exception as exc:  # noqa: BLE001
+        raise HTTPException(status_code=400,
+                            detail=f"charter_yaml is not a valid Charter: {exc}") from None
+    return text
+
+
+def _validated_provider_key(field: str, raw: Any) -> str:
+    """
+    Catch the paste error, not the key format.
+
+    A deliberately loose check: provider key formats change, and a strict pattern would
+    break the product the day one does. This rejects only input that cannot be a key at
+    all -- a bare word, a shell variable someone forgot to expand, embedded whitespace --
+    because the alternative is storing it, reporting success, and surfacing it much later
+    as an opaque provider error in the middle of a mission.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return ""                      # clearing a key is legitimate
+    if any(ch.isspace() for ch in text):
+        raise HTTPException(status_code=400,
+                            detail=f"{field} contains whitespace; check what was pasted.")
+    if text.startswith("$") or text.startswith("<"):
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field} looks like an unexpanded placeholder ({text[:12]}…).")
+    if not text.startswith("sk-") or len(text) < 20:
+        raise HTTPException(
+            status_code=400,
+            detail=f"{field} does not look like a provider key (expected an 'sk-' "
+                   f"prefix and at least 20 characters).")
+    return text
+
+
 def get_store() -> TenantStore:
     """Process-wide tenant store (created once)."""
     global _STORE
@@ -227,14 +291,34 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
     def update_config(payload: dict | None = Body(None), t=Depends(require_tenant)):
         body = payload or {}
         cfg = t.config
+        # Validate everything before mutating anything: a request that half-applies and
+        # then 400s leaves the tenant in a state neither of us asked for.
+        staged: dict[str, Any] = {}
         for k in _CONFIG_FIELDS:
-            if k in body:
-                if k == "earning_enabled":
-                    setattr(cfg, k, bool(body[k]))
-                else:
-                    setattr(cfg, k, str(body[k] or ""))
+            if k not in body:
+                continue
+            if k == "earning_enabled":
+                staged[k] = bool(body[k])
+            elif k == "charter_yaml":
+                staged[k] = _validated_charter_yaml(body[k])
+            elif k in ("anthropic_api_key", "openai_api_key"):
+                staged[k] = _validated_provider_key(k, body[k])
+            else:
+                staged[k] = str(body[k] or "")
+        new_plan = None
         if "plan" in body:  # (billing is out of scope for the MVP; allow set for now)
-            t.plan = get_plan(body["plan"]).name
+            requested = str(body["plan"] or "").strip().lower()
+            if requested not in PLANS:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"unknown plan {requested!r}; choose one of "
+                           f"{', '.join(sorted(PLANS))}.")
+            new_plan = get_plan(requested).name
+
+        for k, v in staged.items():
+            setattr(cfg, k, v)
+        if new_plan:
+            t.plan = new_plan
         st.update(t)
         return {"tenant": t.public(), "plan": _plan_info(t.plan)}
 
