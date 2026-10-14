@@ -42,13 +42,19 @@ from dataclasses import dataclass, field
 
 # Measured in bench/calibration_run.py: geometric-mean realized/predicted per tier, and
 # the log-space spread of the raw estimator across the suite.
-MEASURED_BIAS = {"small": 0.55, "medium": 0.97, "large": 1.66}
-MEASURED_SPREAD_LOG = 0.601
+MEASURED_BIAS = {"small": 0.48, "medium": 0.90, "large": 1.66}
+MEASURED_SPREAD_LOG = 0.700
 """Residual sd of log(realized/predicted) with no correction applied. This is the number
 that should set how far below full Kelly a policy sizes: fractional Kelly exists because
-edge estimates are uncertain, and this is that uncertainty, measured rather than guessed."""
+edge estimates are uncertain, and this is that uncertainty, measured rather than guessed.
 
-CALIBRATED_SPREAD_LOG = 0.393
+Pooled over all 49 usable samples in `data/calibration_*.jsonl`. The earlier values here
+(0.601, and medium 0.97) were taken from one run of 17 while the paper described them as
+coming from 49 -- and 0.97 matched no run at all, the three giving 0.84, 0.85 and 1.06.
+`tests/test_ruin_constants.py` recomputes all of these from the committed data, so the
+constants and the sample they claim to come from cannot drift apart again."""
+
+CALIBRATED_SPREAD_LOG = 0.465
 """Residual after the best per-tier correction — the spread a well-calibrated version of
 this system would still face."""
 

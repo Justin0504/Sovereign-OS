@@ -64,9 +64,14 @@ def test_removing_the_measured_bias_removes_the_ruin():
     biased = evaluate("ev", trials=400, horizon=1000, m=THIN)
     clean = evaluate("ev", trials=400, horizon=1000, m=THIN, bias=PERFECT_CALIBRATION)
 
-    assert biased["ruin_rate"] > 0.01
-    assert clean["ruin_rate"] == 0.0
-    assert biased["ruin_rate"] > clean["ruin_rate"]
+    assert biased["ruin_rate"] > 0.05
+    # Not `== 0.0`. An unbiased estimator with the measured *spread* still ruins
+    # occasionally at thin margins, and asserting an exact zero here is what let the
+    # paper claim the ablation "ruins zero times" -- true only with an understated
+    # spread (0.601 from one run of 17 rather than 0.700 pooled over all 49). The claim
+    # that survives measurement is the order of magnitude, which is the finding anyway.
+    assert clean["ruin_rate"] < 0.01
+    assert biased["ruin_rate"] > 20 * max(clean["ruin_rate"], 1e-4)
 
 
 def test_ruin_accumulates_with_horizon_under_the_bias():
@@ -77,14 +82,21 @@ def test_ruin_accumulates_with_horizon_under_the_bias():
 
 
 def test_perfect_calibration_stays_safe_at_every_horizon():
+    """Safe means a rate that stays negligible as the horizon grows, not a rate of zero:
+    ruin is absorbing, so with any noise at all a long enough horizon finds some."""
     for horizon in (250, 1000, 2000):
-        r = evaluate("ev", trials=300, horizon=horizon, m=THIN, bias=PERFECT_CALIBRATION)
-        assert r["ruin_rate"] == 0.0, horizon
+        clean = evaluate("ev", trials=300, horizon=horizon, m=THIN,
+                         bias=PERFECT_CALIBRATION)["ruin_rate"]
+        biased = evaluate("ev", trials=300, horizon=horizon, m=THIN)["ruin_rate"]
+        assert clean < 0.01, horizon
+        assert biased > 10 * max(clean, 1e-4), horizon
 
 
 def test_risk_adjusted_sizing_also_removes_the_ruin():
-    r = evaluate("risk_adjusted", trials=400, horizon=2000, m=THIN)
-    assert r["ruin_rate"] == 0.0
+    safe = evaluate("risk_adjusted", trials=400, horizon=2000, m=THIN)["ruin_rate"]
+    ev = evaluate("ev", trials=400, horizon=2000, m=THIN)["ruin_rate"]
+    assert safe < 0.01
+    assert ev > 20 * max(safe, 1e-4)
 
 
 def test_the_safe_policy_is_not_paying_for_safety_with_returns():

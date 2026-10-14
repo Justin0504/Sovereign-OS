@@ -71,9 +71,9 @@ python -m sovereign_os.bench.ruin               # does being wrong about that ba
 ```
 
 **The cost estimator is tilted, not noisy.** Across 49 governed runs on a live model, small
-tasks are over-estimated ~1.8× and large ones under-estimated ~1.7× — monotonically and
+tasks are over-estimated ~2.1× and large ones under-estimated ~1.7× — monotonically and
 reproducibly, because the difficulty signal reads the goal string's length, which varies
-1.21× while realized cost varies 12.8×. 95% of the error is systematic rather than planner
+1.22× while realized cost varies 19.5×. 97% of the error is systematic rather than planner
 noise. The per-category multiplier the system ships **cannot** fix this: one factor shifts
 the line without changing its slope. Estimating from the task graph the planner already
 produces — computed before execution, then discarded — takes predictions within 2× of
@@ -82,12 +82,13 @@ realized cost from 62% to 94%. See [docs/CALIBRATION_FINDINGS.md](docs/CALIBRATI
 **That tilt bankrupts an expected-value agent.** The error has a *direction*: large jobs look
 cheap, so their EV is inflated and they get accepted, which means the agent systematically
 takes the jobs it has underpriced. Simulated over a 4,000-task horizon at thin margins, the
-EV rule reaches zero in 9.3% of lifetimes, rising monotonically with horizon (1.4% → 3.5% →
-6.6% → 8.5% → 9.3%). The control that makes this a finding rather than a statement about our
-assumptions: an ablation with the same noise and **no direction** ruins 0% at every horizon
-tested. Sizing on an upper quantile of the measured error holds ruin at or below 0.1% *and*
-ends 47% richer (median 28,215 vs 19,151) while taking a *third as many* jobs — there is no
-safety-versus-growth trade here, the EV rule is simply buying losers.
+EV rule reaches zero in 28.2% of lifetimes, rising monotonically with horizon (4.1% → 9.9%
+→ 16.7% → 23.7% → 28.2%). The control that makes this a finding rather than a statement
+about our assumptions: an ablation with the same noise and **no direction** holds ruin below
+0.3% at every horizon — two orders of magnitude lower. Sizing on an upper quantile of the
+measured error does the same *and* ends 70% richer (median 26,599 vs 15,662) while taking a
+*quarter as many* jobs — there is no safety-versus-growth trade here, the EV rule is simply
+buying losers.
 
 Reproduce both tables exactly with `python -m sovereign_os.bench.ruin --paper`. The flag
 matters: the CLI default is the generous regime (500c payouts against ~260c costs) where
@@ -523,7 +524,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-718 tests (717 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
+724 tests (723 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
 
 **The suite is hermetic — it does not touch the network, whatever is in your shell.** That is enforced, not assumed: an autouse fixture scrubs every outbound credential before any test runs, and a test that genuinely needs a provider must mark itself `live_api` and be run with `--live-api`. This used to be a convention ("run with your keys unset") and conventions do not hold: the model clients fall back to a key read from the environment, so tests written against a stub quietly billed the live API whenever a key happened to be exported. The same commit gave 657 passed with no key set and 639 passed / 18 failed with an exhausted one — every failure an HTTP 429. `tests/test_hermetic_suite.py` pins the guard by driving the real tests in a subprocess with a bogus key exported.
 
