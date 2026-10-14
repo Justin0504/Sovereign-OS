@@ -122,6 +122,35 @@ def _validated_provider_key(field: str, raw: Any) -> str:
     return text
 
 
+
+def _effective_governance(tenant) -> dict:
+    """
+    The limits that will actually apply to the next mission.
+
+    "Do I have a charter" is not the question a tenant needs answered; "what am I
+    actually capped at" is. Those can differ -- a charter that fails to load used to be
+    replaced silently by a default one -- so this resolves the charter the same way the
+    runtime does and reports the resulting boundaries, plus whether they came from the
+    tenant's own document or from the default. If the stored charter no longer loads it
+    says so here rather than leaving the tenant to discover it when a mission is refused.
+    """
+    from sovereign_os.saas.runtime import _charter_for
+
+    try:
+        charter = _charter_for(tenant)
+    except PermissionError as exc:
+        return {"source": "error", "error": str(exc)}
+    fb = charter.fiscal_boundaries
+    return {
+        "source": "charter" if tenant.config.charter_yaml.strip() else "default",
+        "mission": charter.mission,
+        "daily_burn_max_usd": fb.daily_burn_max_usd,
+        "max_budget_usd": fb.max_budget_usd,
+        "currency": fb.currency,
+        "min_job_margin_ratio": fb.min_job_margin_ratio,
+    }
+
+
 def get_store() -> TenantStore:
     """Process-wide tenant store (created once)."""
     global _STORE
@@ -285,6 +314,7 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
     def me(t=Depends(require_tenant)):
         return {"tenant": t.public(), "plan": _plan_info(t.plan),
                 "usage": dataclasses.asdict(st.usage(t.id)),
+                "governance": _effective_governance(t),
                 "earning_active": tenant_earning_active(t)}
 
     @app.put("/saas/tenants/me/config")
@@ -410,6 +440,7 @@ textarea{resize:vertical;min-height:70px}
   <div class=card>
     <h2>Workspace</h2>
     <div class=row id=meRow></div>
+    <div class="row hide" id=govBox></div>
   </div>
   <div class=card>
     <h2>3 · Bring your own keys</h2>
@@ -451,7 +482,6 @@ function signin(){
   fetch("/saas/tenants/me",{headers:h()}).then(r=>r.json().then(d=>({ok:r.ok,d}))).then(({ok,d})=>{
     if(!ok){el("siMsg").className="msg err";el("siMsg").textContent=d.detail||"Invalid key";return}
     localStorage.setItem("sov_key",KEY);el("app").classList.remove("hide");renderMe(d);
-    if(d.tenant.config){el("cfgCharter").value="";}
   }).catch(e=>{el("siMsg").className="msg err";el("siMsg").textContent=String(e)})
 }
 function pill(text,dot){
@@ -463,6 +493,11 @@ function pill(text,dot){
 }
 function renderMe(d){
   var c=d.tenant.config||{},u=d.usage||{},row=el("meRow");
+  // The charter is the tenant's own document; show it rather than an empty box they
+  // can only overwrite blind. Only replace the editor when it is not being edited.
+  var ta=el("cfgCharter");
+  if(document.activeElement!==ta){ta.value=c.charter_yaml||""}
+  renderGovernance(d.governance||{});
   row.textContent="";
   [[d.tenant.name,1],
    ["plan: "+d.tenant.plan,0],
@@ -471,6 +506,21 @@ function renderMe(d){
    ["anthropic: "+(c.anthropic_api_key||"—"),0],
    ["openai: "+(c.openai_api_key||"—"),0]
   ].forEach(function(p){row.appendChild(pill(p[0],p[1]))});
+}
+function renderGovernance(g){
+  var box=el("govBox");box.textContent="";
+  if(!g.source){box.classList.add("hide");return}
+  box.classList.remove("hide");
+  if(g.source==="error"){
+    box.appendChild(pill("charter will not load — missions refused",0));
+    var p=document.createElement("div");p.className="msg err";p.textContent=g.error;
+    box.appendChild(p);return;
+  }
+  // What the next mission is actually capped at, and where the number came from.
+  box.appendChild(pill("limits from: "+(g.source==="charter"?"your charter":"default"),1));
+  box.appendChild(pill("daily burn cap: "+(g.daily_burn_max_usd?("$"+g.daily_burn_max_usd.toFixed(2)):"none"),0));
+  box.appendChild(pill("budget ceiling: "+(g.max_budget_usd?("$"+g.max_budget_usd.toFixed(2)):"none"),0));
+  box.appendChild(pill("margin floor: "+Math.round((g.min_job_margin_ratio||0)*100)+"%",0));
 }
 function saveConfig(){
   el("cfgMsg").className="msg";el("cfgMsg").textContent="Saving…";

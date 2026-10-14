@@ -172,3 +172,64 @@ def test_a_rejected_field_does_not_half_apply_the_request(client, key):
     me = _me(client, key)
     assert me["tenant"]["config"]["has_charter"] is False, "the charter leaked through a 400"
     assert me["tenant"]["plan"] == "free"
+
+
+# ------------------------------------------- the charter was write-only; now it is not
+
+def test_a_tenant_can_read_back_their_own_charter(client, key):
+    """
+    It was write-only: the API returned has_charter and nothing else, and the console
+    blanked its editor on sign-in. A tenant could set the document that governs their
+    spending and then had no way to see what it said.
+    """
+    _put(client, key, {"charter_yaml": VALID_CHARTER})
+    cfg = _me(client, key)["tenant"]["config"]
+    assert cfg["charter_yaml"].strip() == VALID_CHARTER.strip()
+
+
+def test_reading_the_charter_does_not_leak_credentials(client, key):
+    """The charter is the tenant's own document, not a secret. Keys still are."""
+    _put(client, key, {"anthropic_api_key": "sk-ant-api03-" + "z" * 32,
+                       "charter_yaml": VALID_CHARTER})
+    cfg = _me(client, key)["tenant"]["config"]
+    assert "z" * 32 not in cfg["anthropic_api_key"]
+    assert cfg["charter_yaml"]
+
+
+def test_the_limits_actually_in_force_are_reported(client, key):
+    """
+    "Do I have a charter" is not the question; "what am I capped at" is. The two can
+    diverge, which is the whole reason this endpoint resolves the charter the same way
+    the runtime does instead of reporting a boolean.
+    """
+    _put(client, key, {"charter_yaml": VALID_CHARTER})
+    g = _me(client, key)["governance"]
+    assert g["source"] == "charter"
+    assert g["daily_burn_max_usd"] == 5.0
+    assert g["max_budget_usd"] == 100.0
+
+
+def test_without_a_charter_the_defaults_are_named_as_defaults(client, key):
+    g = _me(client, key)["governance"]
+    assert g["source"] == "default"
+    assert "daily_burn_max_usd" in g
+
+
+def test_a_charter_that_stops_loading_is_surfaced_not_hidden(client, key):
+    """
+    The tenant should learn this from their own status page, not from a refused mission.
+    Writes past the API, as a schema change or bad migration would.
+    """
+    import tempfile as _tf
+
+    from sovereign_os.saas.api import _effective_governance
+    from sovereign_os.saas.tenancy import TenantStore as _TS
+
+    store = _TS(_tf.mkdtemp())
+    t = store.create("Acme", plan="free")
+    t.config.charter_yaml = "mission: [unclosed"
+    store.update(t)
+
+    g = _effective_governance(t)
+    assert g["source"] == "error"
+    assert "refused" in g["error"]

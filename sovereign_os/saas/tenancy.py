@@ -72,6 +72,13 @@ class TenantConfig:
             "stripe_api_key": mask(self.stripe_api_key),
             "x402_pay_to": self.x402_pay_to,
             "has_charter": bool(self.charter_yaml.strip()),
+            # The charter itself, not just a boolean. It is the tenant's own
+            # constitutional document -- their spending limits and KPIs -- and it was
+            # write-only: the API returned has_charter and nothing else, and the console
+            # blanked its editor on sign-in, so a tenant could set a charter and then had
+            # no way to read it back, review it, or make a small edit. Unlike the
+            # provider keys above it is not a credential, so there is nothing to mask.
+            "charter_yaml": self.charter_yaml,
             "earning_enabled": self.earning_enabled,
         }
 
