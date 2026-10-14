@@ -284,6 +284,42 @@ def find_margin_frontier(*, trials: int = 500, horizon: int = 400,
     return rows
 
 
+def _paper_tables(trials: int = 4000) -> int:
+    """
+    Reproduce section 7.5 exactly.
+
+    This exists because there was no command that did. The CLI default is the generous
+    regime (500c payouts against ~260c costs), where nothing can lose and every policy
+    reports ~0.1% -- which is the uninformative run the paper describes rejecting. A
+    reader following the paper got that, and would have concluded the reported 9.3% was
+    unsupported.
+
+    4000 trials rather than the CLI default because the safe policy's ruin rate sits near
+    0.1%: at 2000 trials the estimator's resolution is 0.05% and the figure moves with the
+    seed, which is not a number to quote to one decimal place in a paper. `evaluate` is
+    seeded, so this output is byte-stable.
+    """
+    thin = MarketAssumptions(payout_mean_cents=150.0)
+    print(f"section 7.5, thin margins (payout 150c vs 260c medium cost), {trials} trials\n")
+
+    print("Table: ruin rate by horizon")
+    print(f"  {'horizon':>8}{'EV (measured bias)':>21}{'EV (ablated)':>15}{'risk-adjusted':>16}")
+    for h in (250, 500, 1000, 2000, 4000):
+        biased = evaluate("ev", trials=trials, horizon=h, m=thin)["ruin_rate"]
+        clean = evaluate("ev", trials=trials, horizon=h, m=thin,
+                         bias=PERFECT_CALIBRATION)["ruin_rate"]
+        safe = evaluate("risk_adjusted", trials=trials, horizon=h, m=thin)["ruin_rate"]
+        print(f"  {h:>8}{biased:>20.1%}{clean:>15.1%}{safe:>16.1%}")
+
+    print("\nTable: policy comparison at horizon 1000")
+    print(f"  {'policy':16}{'accepted':>10}{'median final wealth':>22}{'ruin':>8}")
+    for name in ("ev", "risk_adjusted"):
+        r = evaluate(name, trials=trials, horizon=1000, m=thin)
+        print(f"  {name:16}{r['acceptance_rate']:>10.1%}"
+              f"{r['median_final_wealth']:>22,.0f}{r['ruin_rate']:>8.1%}")
+    return 0
+
+
 def main() -> int:  # pragma: no cover - CLI
     import argparse
     import json
@@ -291,13 +327,45 @@ def main() -> int:  # pragma: no cover - CLI
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--trials", type=int, default=2000)
     parser.add_argument("--horizon", type=int, default=1000)
+    # The paper's §7.5 figures are the thin-margin regime (--payout 150), which is what
+    # the system is designed for. Without this flag there was no documented way to
+    # reproduce them: the default 500c against ~260c costs is the generous regime where
+    # nothing can lose, every policy reports ~0.1%, and the experiment is asking whether
+    # a profitable market is profitable. That is the uninformative run the paper
+    # describes rejecting, and it was the only one the CLI could produce.
+    parser.add_argument("--payout", type=float, default=MarketAssumptions.payout_mean_cents,
+                        help="mean payout in cents; 150 is the thin-margin regime the "
+                             "paper reports, 500 (default) is the generous one")
+    parser.add_argument("--paper", action="store_true",
+                        help="reproduce the two tables in the paper's section 7.5 "
+                             "(thin margins, 4000 trials) and exit")
+    parser.add_argument("--ablate-bias", action="store_true",
+                        help="run with the measured directional bias removed -- the "
+                             "control that makes a ruin rate a finding about the "
+                             "estimator rather than about the assumed market")
     parser.add_argument("--sweep", action="store_true")
     parser.add_argument("--frontier", action="store_true",
                         help="sweep market thinness, with and without the measured bias")
     parser.add_argument("--out", default="")
     args = parser.parse_args()
 
-    rows = compare(trials=args.trials, horizon=args.horizon)
+    if args.paper:
+        return _paper_tables()
+
+    market = MarketAssumptions(payout_mean_cents=args.payout)
+    kw = {"trials": args.trials, "horizon": args.horizon, "m": market}
+    if args.ablate_bias:
+        kw["bias"] = PERFECT_CALIBRATION
+    rows = compare(**kw)
+
+    margin = args.payout / market.base_cost_cents["medium"]
+    regime = "thin" if margin < 1.5 else "generous"
+    print(f"market: payout {args.payout:.0f}c vs medium-task cost "
+          f"{market.base_cost_cents['medium']:.0f}c  ({margin:.2f}x, {regime})"
+          f"{'   [bias ABLATED]' if args.ablate_bias else ''}")
+    if regime == "generous" and not args.ablate_bias:
+        print("note: at this margin almost nothing can lose. The paper reports "
+              "--payout 150; see §7.5.")
     print(f"{'policy':18}{'ruin':>8}{'median final':>14}{'accept':>9}{'to ruin':>9}")
     for r in rows:
         print(f"{r['policy']:18}{r['ruin_rate']:>7.1%}{r['median_final_wealth']:>14,.0f}"

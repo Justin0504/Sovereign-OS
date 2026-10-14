@@ -82,11 +82,17 @@ realized cost from 62% to 94%. See [docs/CALIBRATION_FINDINGS.md](docs/CALIBRATI
 **That tilt bankrupts an expected-value agent.** The error has a *direction*: large jobs look
 cheap, so their EV is inflated and they get accepted, which means the agent systematically
 takes the jobs it has underpriced. Simulated over a 4,000-task horizon at thin margins, the
-EV rule reaches zero in 10.8% of lifetimes. The control that makes this a finding rather
-than a statement about our assumptions: an ablation with the same noise and **no direction**
-ruins 0% at every horizon tested. Sizing on an upper quantile of the measured error removes
-the ruin *and* ends richer (median 127,543 vs 122,764) while accepting a third fewer jobs —
-there is no safety-versus-growth trade here, the EV rule is simply buying losers.
+EV rule reaches zero in 9.3% of lifetimes, rising monotonically with horizon (1.4% → 3.5% →
+6.6% → 8.5% → 9.3%). The control that makes this a finding rather than a statement about our
+assumptions: an ablation with the same noise and **no direction** ruins 0% at every horizon
+tested. Sizing on an upper quantile of the measured error holds ruin at or below 0.1% *and*
+ends 47% richer (median 28,215 vs 19,151) while taking a *third as many* jobs — there is no
+safety-versus-growth trade here, the EV rule is simply buying losers.
+
+Reproduce both tables exactly with `python -m sovereign_os.bench.ruin --paper`. The flag
+matters: the CLI default is the generous regime (500c payouts against ~260c costs) where
+nothing can lose and every policy reports ~0.1%, which is the uninformative run the paper
+describes rejecting.
 
 **Where a claim is narrower than it sounds.** The audit `proof_hash` covers the verdict —
 seven fields — and *not* `agent_id`. A report re-attributed to a different agent still
@@ -517,7 +523,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-716 tests (715 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
+718 tests (717 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
 
 **The suite is hermetic — it does not touch the network, whatever is in your shell.** That is enforced, not assumed: an autouse fixture scrubs every outbound credential before any test runs, and a test that genuinely needs a provider must mark itself `live_api` and be run with `--live-api`. This used to be a convention ("run with your keys unset") and conventions do not hold: the model clients fall back to a key read from the environment, so tests written against a stub quietly billed the live API whenever a key happened to be exported. The same commit gave 657 passed with no key set and 639 passed / 18 failed with an exhausted one — every failure an HTTP 429. `tests/test_hermetic_suite.py` pins the guard by driving the real tests in a subprocess with a bogus key exported.
 

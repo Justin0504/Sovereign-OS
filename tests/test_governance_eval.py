@@ -119,3 +119,47 @@ def test_failures_are_surfaced_not_summarised_away():
     """A report that only carries a rate hides what went wrong."""
     result = run_fiscal_axis()
     assert "failures" in result.as_dict()
+
+
+# --------------------------------------------------------------- reported, not just computed
+
+def test_the_integrity_axis_reports_what_the_paper_cites():
+    """
+    The tamper probe was computed and then dropped on the way out: `as_dict` emitted only
+    `failures`, which filters to `ok is False`, so the summary row carrying the collision
+    count and the proof hash's actual scope never reached the report. The paper cites
+    those numbers and tells readers to reproduce them by running this module, which would
+    have printed three ratios and nothing else.
+
+    This asserts on the emitted report, not on the function that computes the row, because
+    the bug was entirely in the emitting.
+    """
+    from sovereign_os.bench.governance_eval import run_all
+
+    report = run_all(missions=20, reports=200)
+    findings = report["axes"]["audit_integrity"]["findings"]
+    assert len(findings) == 1, "the integrity axis should emit exactly one summary row"
+    row = findings[0]
+
+    assert row["collisions"] == 0
+    assert row["distinct_hashes"] == 200
+    # The honest qualification: in-scope tampering is caught, out-of-scope is not.
+    assert row["tamper_inside_canonical"].endswith("caught")
+    assert row["tamper_outside_canonical"].startswith("0/")
+    assert "agent_id" not in row["covered_fields"], \
+        "if agent_id becomes covered, the paper's stated limitation is now wrong"
+    assert len(row["covered_fields"]) == 7, "the paper says the hash covers seven fields"
+
+
+def test_per_case_rows_do_not_masquerade_as_summaries():
+    """
+    `findings` keys on an explicit `summary` flag rather than on `ok`, because the fiscal
+    and permission axes record one passing row per case. Keying on `ok` buried the one row
+    worth reading under 230 of them.
+    """
+    from sovereign_os.bench.governance_eval import run_all
+
+    report = run_all(missions=20, reports=50)
+    for name in ("fiscal_governance", "permission_gating"):
+        assert report["axes"][name]["findings"] == [], \
+            f"{name} is emitting per-case rows as summaries"

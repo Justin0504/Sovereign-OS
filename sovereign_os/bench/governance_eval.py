@@ -40,9 +40,20 @@ class AxisResult:
         return (self.passed / self.total) if self.total else 0.0
 
     def as_dict(self) -> dict:
+        # `findings` carries the axis-level summary rows -- hash collisions, and which
+        # tampering the proof hash does and does not catch. They were computed and then
+        # dropped here, because the only detail key emitted was `failures`, which filters
+        # to `ok is False`. The paper cites those numbers and tells readers to reproduce
+        # them with this command, so a harness that prints three ratios and silently
+        # discards its own qualification is the exact failure it exists to rule out.
+        #
+        # Keyed on an explicit `summary` flag rather than on `ok`: the fiscal and
+        # permission axes record one `ok: True` row per case (30 and 200 of them), which
+        # are evidence, not a summary, and would bury the thing worth reading.
         return {"name": self.name, "total": self.total, "passed": self.passed,
-                "rate": round(self.rate, 4), "failures": [
-                    d for d in self.details if not d.get("ok")][:20]}
+                "rate": round(self.rate, 4),
+                "failures": [d for d in self.details if not d.get("ok")][:20],
+                "findings": [d for d in self.details if d.get("summary")]}
 
 
 # --------------------------------------------------------------- axis 1: fiscal
@@ -245,7 +256,8 @@ def run_integrity_axis(reports: int = 1200, seed: int = 20261009) -> AxisResult:
                                    "got": "verifier rejected an untampered report"})
 
     result.details.append({
-        "ok": True, "distinct_hashes": len(hashes), "collisions": reports - len(hashes),
+        "ok": True, "summary": True,
+        "distinct_hashes": len(hashes), "collisions": reports - len(hashes),
         "tamper_inside_canonical": f"{tamper_caught}/{tamper_attempts} caught",
         "tamper_outside_canonical": f"{uncovered_caught}/{uncovered_attempts} caught",
         "covered_fields": list(CANONICAL),
@@ -280,6 +292,12 @@ def main() -> int:  # pragma: no cover - CLI
     out.write_text(json.dumps(report, indent=2), encoding="utf-8")
 
     print(json.dumps(report["summary"], indent=2))
+    for name, axis in report["axes"].items():
+        for finding in axis.get("findings", []):
+            for k, v in finding.items():
+                if k in ("ok", "summary"):
+                    continue
+                print(f"  {name}.{k}: {v}")
     for name, axis in report["axes"].items():
         if axis["failures"]:
             print(f"\n{name}: {len(axis['failures'])} failure(s), first few:")
