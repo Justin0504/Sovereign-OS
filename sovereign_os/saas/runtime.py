@@ -85,7 +85,23 @@ def build_tenant_engine(tenant: Tenant, store: TenantStore) -> tuple[Any, Any, A
     ledger = UnifiedLedger(persist_path=str(d / "ledger.jsonl"))
     auth = SovereignAuth(persist_path=str(d / "trust.json"))
     review = ReviewEngine(charter, audit_trail_path=str(d / "audit.jsonl"))
-    breaker = SpendCircuitBreaker(session_ceiling_cents=get_plan(tenant.plan).max_daily_spend_cents)
+    # The ceiling is the REMAINING daily allowance, not the whole plan cap. It used to
+    # be the cap, and a fresh breaker is built per mission, so a tenant 450c into a 500c
+    # day started the next mission with a 500c ceiling and could reach 950c -- and the
+    # free plan allows 20 missions a day. `can_run` only looks at the total before the
+    # mission starts, which bounds when a mission may begin and not what it may spend;
+    # that is the same pre-flight-gate-without-an-in-flight-bound failure this system
+    # exists to catch, here on the platform's own billing boundary.
+    #
+    # Floor of 1, never 0: 0 means "no ceiling" to the breaker, so clamping an
+    # overspent tenant with max(0, ...) would hand them an unlimited session.
+    plan_cap = get_plan(tenant.plan).max_daily_spend_cents
+    if plan_cap > 0:
+        spent_today = store.usage(tenant.id).spend_cents
+        ceiling = max(1, plan_cap - spent_today)
+    else:
+        ceiling = 0                      # plan with no daily cap
+    breaker = SpendCircuitBreaker(session_ceiling_cents=ceiling)
     calibrator = CostCalibrator.load(d / "calibration.json")
     # Per tenant, like everything else here: a shared broker would let one tenant's
     # delegation tree answer another tenant's authority questions.
