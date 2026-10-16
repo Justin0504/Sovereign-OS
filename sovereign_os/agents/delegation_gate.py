@@ -36,7 +36,17 @@ EXTERNAL_AGENT_CAPABILITIES = frozenset({
     Capability.EXECUTE_SHELL,
 })
 
-_BROKER = None
+# A ContextVar, not a plain global. Missions are async and the hosted control plane runs
+# them concurrently in one process, so a module global is shared by every tenant in
+# flight: whoever calls set_broker last wins, and the first mission's authority checks
+# then run against someone else's delegation tree -- or against None, which in permissive
+# mode means ungoverned and in strict mode means its legitimate handoffs are refused.
+# Measured, not theorised: two concurrent missions, and the longer one saw None after its
+# await because the shorter one had finished and reset the global.
+#
+# `_active_grant` below was already a ContextVar. The grant travelled per-context and the
+# broker that interprets it did not, which is the half that was missed.
+_BROKER: contextvars.ContextVar = contextvars.ContextVar("_delegation_broker", default=None)
 
 # A refusal that is only logged is invisible to the person running the system, who then
 # cannot tell an enforcing gate from a decorative one. Counted here so the console can
@@ -100,14 +110,14 @@ def bind_authority(fn):
 
 
 def set_broker(broker) -> None:
-    """Install the process's delegation broker. A tenant-scoped deployment sets the
-    tenant's own, so one tenant's authority decisions never consult another's tree."""
-    global _BROKER
-    _BROKER = broker
+    """Install the delegation broker for the current context. A tenant-scoped deployment
+    sets the tenant's own, so one tenant's authority decisions never consult another's
+    tree -- including while both are mid-flight in the same process."""
+    _BROKER.set(broker)
 
 
 def get_broker():
-    return _BROKER
+    return _BROKER.get()
 
 
 def strict_delegation() -> bool:
@@ -125,7 +135,7 @@ def authorize_external_agent(
     caller has a safe alternative — the native path, which cannot write files or run
     commands — so a refusal should degrade the work rather than fail the mission.
     """
-    broker = _BROKER
+    broker = _BROKER.get()
     if broker is None:
         if strict_delegation():
             reason = (f"{STRICT_ENV} is set but no delegation broker is installed, so "
@@ -185,7 +195,7 @@ def authorize_tool_call(
     gid = active_grant() if grant_id is None else grant_id
     label = f"{server_id}:{tool_name}" if server_id else tool_name
 
-    broker = _BROKER
+    broker = _BROKER.get()
     if broker is None:
         if strict_delegation():
             reason = f"{STRICT_ENV} is set but no delegation broker is installed"
@@ -231,7 +241,7 @@ def delegate_budget(
     defaulting them into WRITE_FILES/EXECUTE_SHELL asks for authority the hiring task
     may rightly not hold, and attenuation refuses the whole delegation.
     """
-    broker = _BROKER
+    broker = _BROKER.get()
     if broker is None or not grant_id:
         return ""
     try:
@@ -254,7 +264,7 @@ def release_task(task_id: str) -> int:
     task's name, and a sub-agent left holding a live grant is exactly the lease that
     never expired.
     """
-    broker = _BROKER
+    broker = _BROKER.get()
     if broker is None:
         return 0
     try:

@@ -137,19 +137,29 @@ async def run_tenant_mission(tenant: Tenant, store: TenantStore, goal: str, *,
     from sovereign_os.agents.delegation_gate import set_broker
 
     set_broker(getattr(engine, "_delegation", None))
-    with tenant_llm_context(tenant):
-        result = await engine.run_mission_with_audit(
-            goal, abort_on_audit_failure=False,
-            job_revenue_cents=job_revenue_cents, max_repair_attempts=max_repair_attempts,
-        )
+    try:
+        with tenant_llm_context(tenant):
+            result = await engine.run_mission_with_audit(
+                goal, abort_on_audit_failure=False,
+                job_revenue_cents=job_revenue_cents,
+                max_repair_attempts=max_repair_attempts,
+            )
+    finally:
+        # Both of these used to sit after the await on the success path only, so a
+        # mission that raised -- a provider 503, a timeout -- left the broker installed
+        # and the spend unmetered. Unmetered meant a failing tenant could retry without
+        # limit, burning real tokens against a quota that never moved, which is a billing
+        # hole and a retry-loop abuse vector at once. The tokens were spent whether or
+        # not the mission finished, so the ledger delta is metered either way.
+        set_broker(None)
+        store.record_mission(tenant.id, spend_cents=max(0, _spend_cents(ledger) - before))
+
     # Persist what this mission taught the tenant's estimator; without this the learning
     # is discarded on restart and the budget gate reverts to the cold heuristic.
-    set_broker(None)
     cal = getattr(engine, "_calibrator", None)
     if cal is not None:
         try:
             cal.save(store.data_dir(tenant) / "calibration.json")
         except Exception:  # noqa: BLE001 - never fail a settled mission over bookkeeping
             pass
-    store.record_mission(tenant.id, spend_cents=max(0, _spend_cents(ledger) - before))
     return result
