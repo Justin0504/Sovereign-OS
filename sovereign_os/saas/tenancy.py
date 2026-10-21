@@ -200,13 +200,46 @@ class TenantStore:
         self._save_tenants()
 
     def delete(self, tenant_id: str) -> bool:
-        if tenant_id in self._tenants:
-            del self._tenants[tenant_id]
-            self._usage.pop(tenant_id, None)
-            self._save_tenants()
-            self._save_usage()
-            return True
-        return False
+        """
+        Remove a tenant and everything stored for them, including the data directory.
+
+        The directory is the point. It holds the tenant's encrypted provider keys, their
+        ledger, their audit trail, their trust store and their learned cost calibration.
+        Dropping the record while leaving that on the volume is a delete that does not
+        delete -- the tenant is told their workspace is gone while their credentials stay
+        on our disk.
+        """
+        if tenant_id not in self._tenants:
+            return False
+        del self._tenants[tenant_id]
+        self._usage.pop(tenant_id, None)
+        self._save_tenants()
+        self._save_usage()
+
+        # Resolve both sides before comparing: a tenant id is generated, not user input,
+        # but a path check that can be skipped by a symlink is not a path check.
+        d = (self.root / tenant_id).resolve()
+        root = self.root.resolve()
+        if d.is_dir() and d != root and root in d.parents:
+            import shutil
+
+            shutil.rmtree(d, ignore_errors=True)
+        return True
+
+    def rotate_api_key(self, tenant: Tenant) -> str:
+        """
+        Issue a new workspace key and invalidate the old one. Returns the new key, once.
+
+        Without this a leaked key is permanent: it is the only credential, it is stored
+        hashed so it cannot be looked up, and whoever holds it can spend the tenant's
+        provider key indefinitely. "Create a new workspace" is not a remedy when the old
+        one still works.
+        """
+        api_key = new_api_key()
+        tenant.api_key = api_key
+        tenant.api_key_hash = hash_api_key(api_key)
+        self.update(tenant)
+        return api_key
 
     # --------------------------------------------------------------- isolation
     def data_dir(self, tenant: Tenant | str) -> Path:

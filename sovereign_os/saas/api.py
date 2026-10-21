@@ -13,10 +13,12 @@ Env:  SOVEREIGN_SAAS_ROOT  (tenant data root, default ".saas-data")
 from __future__ import annotations
 
 import dataclasses
+import json
 import logging
 import os
 import re
 import secrets as _secrets
+import time
 from typing import Any
 
 from sovereign_os.saas.plans import PLANS, get_plan
@@ -379,6 +381,85 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
             "usage": dataclasses.asdict(st.usage(t.id)),
         }
 
+    @app.post("/saas/tenants/me/rotate-key")
+    def rotate_key(request: Request, t=Depends(require_tenant)):
+        """
+        Issue a new workspace key and invalidate the old one.
+
+        The workspace key is the only credential, it is stored hashed, and it is shown
+        once. Before this there was no recovery from leaking it: the holder could spend
+        the tenant's provider key indefinitely and the tenant could neither rotate nor
+        revoke nor delete. Rate-limited on the caller, because an endpoint that mints
+        credentials is worth hammering.
+        """
+        _enforce(signup_limiter, client_key(request), "key rotations")
+        new_key = st.rotate_api_key(t)
+        logger.info("SAAS: workspace key rotated for %s", t.id)
+        return {"tenant": t.public(), "api_key": new_key,
+                "note": "The previous key stopped working immediately. This one is "
+                        "shown once."}
+
+    @app.get("/saas/tenants/me/export")
+    def export_workspace(t=Depends(require_tenant)):
+        """
+        Everything this workspace holds, as JSON.
+
+        The counterpart to deletion: being able to destroy your audit trail without being
+        able to keep a copy is not control over your data, it is a choice between losing
+        it and leaving it with us. Provider keys are masked here exactly as they are
+        everywhere else -- this is the tenant's record of what happened, not a way to read
+        back a credential we promised to keep encrypted.
+        """
+        d = st.data_dir(t)
+
+        def _lines(name: str, cap: int = 50_000) -> list:
+            f = d / name
+            if not f.exists():
+                return []
+            out = []
+            for line in f.read_text("utf-8", errors="ignore").splitlines()[:cap]:
+                line = line.strip()
+                if not line:
+                    continue
+                try:
+                    out.append(json.loads(line))
+                except ValueError:
+                    out.append({"unparsed": line})
+            return out
+
+        return {
+            "tenant": t.public(),
+            "plan": _plan_info(t.plan),
+            "governance": _effective_governance(t),
+            "usage_today": dataclasses.asdict(st.usage(t.id)),
+            "charter_yaml": t.config.charter_yaml,
+            "ledger": _lines("ledger.jsonl"),
+            "audit_trail": _lines("audit.jsonl"),
+            "exported_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+        }
+
+    @app.delete("/saas/tenants/me")
+    def delete_workspace(payload: dict | None = Body(None), t=Depends(require_tenant)):
+        """
+        Delete the workspace and everything stored for it.
+
+        Requires the workspace id in the body. A tenant handed us their provider keys;
+        being able to take them back is the minimum, and a one-call irreversible wipe
+        behind a header that may be sitting in someone's shell history is not something
+        to offer without a deliberate confirmation.
+        """
+        confirm = str((payload or {}).get("confirm") or "").strip()
+        if confirm != t.id:
+            raise HTTPException(
+                status_code=400,
+                detail=f"to confirm deletion, send {{\"confirm\": \"{t.id}\"}}. "
+                       f"This removes the workspace, its stored provider keys, its "
+                       f"ledger and its audit trail, and cannot be undone.")
+        tenant_id = t.id
+        st.delete(tenant_id)
+        logger.info("SAAS: workspace %s deleted at tenant request", tenant_id)
+        return {"deleted": tenant_id}
+
     @app.get("/", response_class=HTMLResponse)
     def console(request: Request):
         nonce = getattr(request.state, "csp_nonce", "")
@@ -476,7 +557,11 @@ textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:
 .out{white-space:pre-wrap;background:var(--elev);border:1px solid var(--bd);border-radius:8px;
   padding:16px;font-family:var(--font-mono);font-size:var(--t-xs);line-height:1.6;
   margin-top:16px;max-height:360px;overflow:auto}
-.mut{color:var(--mut);font-size:var(--t-xs);max-width:65ch}
+.mut{color:var(--mut);font-size:var(--t-xs);max-width:65ch;margin:16px 0 0}
+.card.danger{border-color:hsl(0 40% 88%)}
+.btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--bd)}
+.btn.ghost:hover{background:var(--elev)}
+.btn.warn{background:var(--bad)}.btn.warn:hover{background:#b8241f}
 .steps{counter-reset:s}
 @media (max-width:860px){
   .hero{grid-template-columns:1fr;gap:32px}
@@ -569,6 +654,23 @@ textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:
     <div class=mut>Provider keys are encrypted at rest and used only for your missions.
       The platform never holds funds.</div>
   </div>
+  <div class="card danger">
+    <h2>Workspace control</h2>
+    <p class=mut>Your workspace key is the only credential and is stored hashed, so if it
+      leaks, rotating is the remedy — the old key stops working immediately.</p>
+    <div class=row>
+      <button class="btn ghost" id=btn_rotate>Rotate workspace key</button>
+      <span class=msg id=rotMsg></span>
+    </div>
+    <div id=rotBox class=hide><div class=key id=rotKey></div></div>
+    <p class=mut>Deleting removes this workspace, the provider keys stored in it, its
+      ledger and its audit trail. It cannot be undone.</p>
+    <div class=row>
+      <button class="btn warn" id=btn_delete>Delete workspace</button>
+      <span class=msg id=delMsg></span>
+    </div>
+  </div>
+
   <div class=card>
     <h2><span>04</span> &nbsp;Run a mission</h2>
     <label for=goal>Goal</label><textarea id=goal placeholder="Summarize this week's agent-infrastructure releases."></textarea>
@@ -579,6 +681,7 @@ textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:
 
 <script nonce=__CSP_NONCE__>
 var KEY=localStorage.getItem("sov_key")||"";
+var CURRENT_ID="";
 function h(){return KEY?{"X-Tenant-Key":KEY,"Content-Type":"application/json"}:{"Content-Type":"application/json"}}
 function el(id){return document.getElementById(id)}
 fetch("/saas/plans").then(r=>r.json()).then(d=>{
@@ -612,6 +715,7 @@ function pill(text,dot){
 }
 function renderMe(d){
   var c=d.tenant.config||{},u=d.usage||{},row=el("meRow");
+  CURRENT_ID=d.tenant.id||"";
   // The charter is the tenant's own document; show it rather than an empty box they
   // can only overwrite blind. Only replace the editor when it is not being edited.
   var ta=el("cfgCharter");
@@ -664,6 +768,33 @@ function run(){
      fetch("/saas/tenants/me",{headers:h()}).then(r=>r.json()).then(renderMe);
    }).catch(e=>{el("runMsg").className="msg err";el("runMsg").textContent=String(e)})
 }
+function rotate(){
+  if(!confirm("Rotate the workspace key? The current key stops working immediately."))return;
+  el("rotMsg").className="msg";el("rotMsg").textContent="Rotating…";
+  fetch("/saas/tenants/me/rotate-key",{method:"POST",headers:h()})
+   .then(r=>r.json().then(d=>({ok:r.ok,d}))).then(({ok,d})=>{
+     if(!ok){el("rotMsg").className="msg err";el("rotMsg").textContent=d.detail||"Error";return}
+     KEY=d.api_key;localStorage.setItem("sov_key",KEY);el("inKey").value=KEY;
+     el("rotKey").textContent=d.api_key;el("rotBox").classList.remove("hide");
+     el("rotMsg").className="msg ok";el("rotMsg").textContent="Rotated — save the new key, it is shown once.";
+   }).catch(e=>{el("rotMsg").className="msg err";el("rotMsg").textContent=String(e)})
+}
+function destroy(){
+  var id=(CURRENT_ID||"");
+  var typed=prompt("This deletes the workspace, its stored provider keys, its ledger and "+
+                   "its audit trail, and cannot be undone.\n\nType the workspace id to confirm:\n"+id);
+  if(!typed)return;
+  el("delMsg").className="msg";el("delMsg").textContent="Deleting…";
+  fetch("/saas/tenants/me",{method:"DELETE",headers:h(),body:JSON.stringify({confirm:typed.trim()})})
+   .then(r=>r.json().then(d=>({ok:r.ok,d}))).then(({ok,d})=>{
+     if(!ok){el("delMsg").className="msg err";el("delMsg").textContent=d.detail||"Error";return}
+     localStorage.removeItem("sov_key");KEY="";
+     el("app").classList.add("hide");
+     el("siMsg").className="msg ok";el("siMsg").textContent="Workspace "+d.deleted+" deleted.";
+   }).catch(e=>{el("delMsg").className="msg err";el("delMsg").textContent=String(e)})
+}
+el("btn_rotate").addEventListener("click",rotate);
+el("btn_delete").addEventListener("click",destroy);
 el("btn_signup").addEventListener("click",signup);
 el("btn_signin").addEventListener("click",signin);
 el("btn_saveConfig").addEventListener("click",saveConfig);
