@@ -399,6 +399,25 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
                 "note": "The previous key stopped working immediately. This one is "
                         "shown once."}
 
+    @app.get("/saas/demo")
+    def demo(request: Request):
+        """
+        A governed mission a visitor can watch without supplying an API key.
+
+        The console used to ask for an Anthropic key before showing anything, so anyone
+        evaluating the system -- the entire reason a console is public -- saw a signup
+        form and left. Governance does not need a model: the Treasury, TrustScore
+        thresholds, audit rubric and proof hashes in this trace are the same code a paid
+        mission runs through. Only the deliverable is a placeholder, and the response
+        says so.
+
+        Unauthenticated, so rate-limited on the caller.
+        """
+        _enforce(signup_limiter, client_key(request), "demo runs")
+        from sovereign_os.saas.demo import run_demo_mission
+
+        return run_demo_mission()
+
     @app.get("/saas/tenants/me/export")
     def export_workspace(t=Depends(require_tenant)):
         """
@@ -502,7 +521,7 @@ a{color:var(--pine)}
 
 /* ---------- masthead: answers "what is this" before any form ---------- */
 .hero{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:48px;
-      align-items:center;margin-bottom:64px}
+      align-items:start;margin-bottom:64px}
 .eyebrow{font-size:var(--t-xs);letter-spacing:.12em;text-transform:uppercase;
          color:var(--pine);font-weight:600;margin:0 0 12px}
 h1{font-family:var(--font-serif);font-size:var(--t-3xl);line-height:1.1;
@@ -558,6 +577,15 @@ textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:
   padding:16px;font-family:var(--font-mono);font-size:var(--t-xs);line-height:1.6;
   margin-top:16px;max-height:360px;overflow:auto}
 .mut{color:var(--mut);font-size:var(--t-xs);max-width:65ch;margin:16px 0 0}
+.trace{margin-top:20px;border:1px solid var(--bd);border-radius:10px;overflow:hidden;background:var(--surface)}
+.trace .r{display:flex;gap:12px;align-items:baseline;padding:10px 14px;border-top:1px solid var(--bd);font-size:var(--t-sm)}
+.trace .r:first-child{border-top:none}
+.trace .st{font-family:var(--font-mono);font-size:var(--t-xs);color:var(--mut);min-width:78px}
+.trace .v{font-family:var(--font-mono);font-size:10px;letter-spacing:.06em;text-transform:uppercase;border-radius:999px;padding:2px 8px;white-space:nowrap}
+.trace .v.allowed{background:var(--pine-soft);color:var(--pine)}
+.trace .v.refused{background:#fdeceb;color:var(--bad)}
+.trace .v.recorded{background:var(--elev);color:var(--soft)}
+.trace .note{padding:12px 14px;background:var(--elev);color:var(--soft);font-size:var(--t-xs);line-height:1.5}
 .card.danger{border-color:hsl(0 40% 88%)}
 .btn.ghost{background:var(--surface);color:var(--ink);border:1px solid var(--bd)}
 .btn.ghost:hover{background:var(--elev)}
@@ -576,6 +604,11 @@ textarea{resize:vertical;min-height:84px;font-family:var(--font-mono);font-size:
     <h1>Agents that spend money need a <em>constitution</em>, not a prompt.</h1>
     <p class=lede>Declare the budget, the permissions and the quality bar in one
       YAML Charter. Every task is gated against it before it runs, and audited after.</p>
+    <div class=row>
+      <button class=btn id=btn_demo>See a governed run</button>
+      <span class=mut id=demoHint>No key needed — real gates, placeholder output.</span>
+    </div>
+    <div id=demoOut class="trace hide"></div>
     <ul class=facts>
       <div><b>BYO</b>your keys, your spend</div>
       <div><b>0</b>funds custodied</div>
@@ -793,6 +826,24 @@ function destroy(){
      el("siMsg").className="msg ok";el("siMsg").textContent="Workspace "+d.deleted+" deleted.";
    }).catch(e=>{el("delMsg").className="msg err";el("delMsg").textContent=String(e)})
 }
+function runDemo(){
+  var btn=el("btn_demo");btn.disabled=true;el("demoHint").textContent="Running…";
+  fetch("/saas/demo").then(r=>r.json()).then(function(d){
+    var box=el("demoOut");box.textContent="";
+    (d.steps||[]).forEach(function(s){
+      var row=document.createElement("div");row.className="r";
+      var st=document.createElement("span");st.className="st";st.textContent=s.stage;
+      var v=document.createElement("span");v.className="v "+s.decision;v.textContent=s.decision;
+      var h=document.createElement("span");h.textContent=s.headline;
+      row.appendChild(st);row.appendChild(v);row.appendChild(h);box.appendChild(row);
+    });
+    var n=document.createElement("div");n.className="note";n.textContent=d.disclaimer||"";
+    box.appendChild(n);box.classList.remove("hide");
+    el("demoHint").textContent=d.refusals+" of these decisions were refusals.";
+    btn.disabled=false;
+  }).catch(function(e){el("demoHint").textContent=String(e);btn.disabled=false});
+}
+el("btn_demo").addEventListener("click",runDemo);
 el("btn_rotate").addEventListener("click",rotate);
 el("btn_delete").addEventListener("click",destroy);
 el("btn_signup").addEventListener("click",signup);
