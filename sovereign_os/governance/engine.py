@@ -150,6 +150,17 @@ class GovernanceEngine:
         self._delegation = delegation_broker
         # Cumulative actual spend within the current dispatch run (cents), for budget halt.
         self._mission_spent_cents: int = 0
+        # How much of that spend the circuit breaker has already been told about. The
+        # breaker is fed the delta, so repair attempts -- which re-dispatch and add to
+        # _mission_spent_cents -- reach it too. See the breaker feed in the audit loop.
+        self._breaker_fed_cents: int = 0
+        # True while run_mission_with_audit owns the spend counters. Repair re-enters
+        # dispatch() sequentially (the outer dispatch has already returned), so a
+        # depth counter does not help: each repair dispatch would look outermost and
+        # reset the running total to zero, hiding retry spend from the mission cap and
+        # the breaker (BE-03). While a mission is active, dispatch does not reset; the
+        # mission resets once at its own start.
+        self._mission_counters_owned: bool = False
 
     def _default_registry(self) -> WorkerRegistry:
         r = WorkerRegistry(self._charter, mcp_tool_graph=self._mcp_tool_graph)
@@ -647,7 +658,12 @@ class GovernanceEngine:
             lifecycle = TaskLifecycleManager([t.task_id for t in task_plan.tasks])
             result_by_id: dict[str, TaskResult] = {}
             wbt = winner_by_task_id or {}
-            self._mission_spent_cents = 0  # reset cumulative spend for this dispatch run
+            # A standalone dispatch owns its own run and resets the counters. A dispatch
+            # under an active mission (including a repair's sequential re-dispatch)
+            # accumulates into the mission total, which the mission reset once at its start.
+            if not self._mission_counters_owned:
+                self._mission_spent_cents = 0
+                self._breaker_fed_cents = 0
 
             while not lifecycle.all_done():
                 cap = self._mission_cost_cap_cents()
@@ -696,8 +712,10 @@ class GovernanceEngine:
         """
         Re-run a failed task with the Auditor's fix folded into its brief, up to
         max_attempts. Returns the best (result, report): a passing repair as soon as
-        one is found, else the last attempt. Never raises — on any error it returns
-        the original failed (result, report) so the mission proceeds to record it.
+        one is found, else the last attempt. On an ordinary error it returns the original
+        failed (result, report) so the mission proceeds to record it. The one exception it
+        does propagate is CircuitBreakerTrippedError: when retry spend crosses the session
+        ceiling the loop must fast-fail, not swallow the signal and keep spending.
         """
         attempt = 0
         while not report.passed and attempt < max_attempts:
@@ -725,6 +743,23 @@ class GovernanceEngine:
                     "passed": new_report.passed, "score": new_report.score,
                 })
             result, report = new_result, new_report
+            # Fast-fail between attempts: feed the breaker the spend this attempt added
+            # and stop the loop if it trips, rather than running the whole repair budget
+            # and discovering the overrun afterwards. This is what makes the session
+            # ceiling an actual bound on retry amplification (BE-03) rather than a
+            # post-hoc report. The outer audit loop re-feeds from _breaker_fed_cents, so
+            # feeding here does not double-count.
+            if self._circuit_breaker is not None:
+                delta = self._mission_spent_cents - self._breaker_fed_cents
+                self._breaker_fed_cents = self._mission_spent_cents
+                self._circuit_breaker.record_spend(max(0, delta))
+                try:
+                    self._circuit_breaker.check()
+                except CircuitBreakerTrippedError:
+                    logger.warning(
+                        "GOVERNANCE: repair loop for [%s] halted by circuit breaker after "
+                        "%d attempt(s).", task.task_id, attempt)
+                    raise
         if attempt > 0:
             try:
                 from sovereign_os.telemetry.tracer import record_task_repair
@@ -758,6 +793,33 @@ class GovernanceEngine:
         plan = await self.run_mission(goal_text, job_revenue_cents=job_revenue_cents)
         plan.original_goal = goal_text  # So workers receive full client brief for industrial delivery
         winner_by_task_id = await self._run_auction(plan)
+        # Own the spend counters for the whole mission -- the initial dispatch plus every
+        # repair's sequential re-dispatch -- so retry spend accumulates into one total
+        # instead of each repair dispatch resetting it (BE-03). Reset once here; released
+        # in the finally so an exception mid-mission does not pollute the next one.
+        self._mission_spent_cents = 0
+        self._breaker_fed_cents = 0
+        self._mission_counters_owned = True
+        try:
+            return await self._run_mission_body(
+                plan, goal_text, winner_by_task_id,
+                job_revenue_cents=job_revenue_cents,
+                abort_on_audit_failure=abort_on_audit_failure,
+                max_repair_attempts=max_repair_attempts,
+            )
+        finally:
+            self._mission_counters_owned = False
+
+    async def _run_mission_body(
+        self,
+        plan: "TaskPlan",
+        goal_text: str,
+        winner_by_task_id: dict,
+        *,
+        job_revenue_cents: int | None,
+        abort_on_audit_failure: bool,
+        max_repair_attempts: int,
+    ) -> tuple["TaskPlan", list[TaskResult], list[AuditReport]]:
         results = await self.dispatch(plan, winner_by_task_id=winner_by_task_id)
         reports: list[AuditReport] = []
 
@@ -840,7 +902,17 @@ class GovernanceEngine:
             # halt the loop if the path stops being worth funding (ceiling / failure
             # streak / ROI). Off unless a breaker was supplied.
             if self._circuit_breaker is not None:
-                self._circuit_breaker.record_spend(self._task_estimate_cents.get(task.task_id, 0))
+                # Feed the breaker ACTUAL spend, as the delta of cumulative mission spend
+                # since it was last fed -- not the task's static estimate. The estimate
+                # was recorded once per task, so a self-repair loop that re-ran a failing
+                # task N times (BE-03, retry amplification) burned N times the tokens
+                # while the breaker's session counter moved by one estimate. Repairs
+                # re-dispatch and add their real cost to _mission_spent_cents, so the
+                # delta captures them, and the session ceiling now bounds retry spend as
+                # the threat model's defense claimed it did.
+                delta = self._mission_spent_cents - self._breaker_fed_cents
+                self._breaker_fed_cents = self._mission_spent_cents
+                self._circuit_breaker.record_spend(max(0, delta))
                 self._circuit_breaker.record_outcome(report.passed)
                 # Refresh governance gauges so Prometheus reflects live session state
                 # even when scraped via the standalone metrics server (TUI path).
