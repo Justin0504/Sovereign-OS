@@ -203,10 +203,11 @@ class TenantStore:
         """
         Remove a tenant and everything stored for them, including the data directory.
 
-        The directory is the point. It holds the tenant's encrypted provider keys, their
-        ledger, their audit trail, their trust store and their learned cost calibration.
-        Dropping the record while leaving that on the volume is a delete that does not
-        delete -- the tenant is told their workspace is gone while their credentials stay
+        Two stores, and both have to go. The encrypted provider keys live in the tenant
+        record inside tenants.json, so dropping the record removes them. The data
+        directory holds everything else -- the ledger, the audit trail, the trust store,
+        the learned cost calibration -- and it was being left on the volume: a delete that
+        told the tenant their workspace was gone while their operational history stayed
         on our disk.
         """
         if tenant_id not in self._tenants:

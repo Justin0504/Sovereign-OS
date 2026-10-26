@@ -6,9 +6,11 @@ shown once, so a leaked key was permanent: whoever held it could spend the tenan
 provider key indefinitely, and the tenant could not rotate it, revoke it, or delete the
 workspace. "Create a new one" is not a remedy while the old one still works.
 
-Deletion existed at the store level and left the data directory on disk -- the encrypted
-provider keys, the ledger, the audit trail, the trust store. A delete that tells the
-tenant their workspace is gone while their credentials stay on our volume.
+Deletion existed at the store level and left the data directory on disk -- the ledger, the
+audit trail, the trust store, the cost calibration. (The encrypted provider keys were never
+in that directory: they live in the tenant record in tenants.json, which the old delete did
+remove. An earlier version of this docstring said otherwise; the test below now checks both
+stores separately so neither claim has to be taken on trust.)
 """
 
 import tempfile
@@ -114,10 +116,10 @@ def test_a_confirmed_delete_removes_the_workspace(client):
     assert _me(client, key).status_code == 401
 
 
-def test_a_confirmed_delete_removes_the_stored_credentials_from_disk(client, store):
+def test_a_confirmed_delete_removes_the_operational_data_from_disk(client, store):
     """
-    The load-bearing one. The record going away is not the same as the data going away,
-    and what is on disk is the tenant's encrypted provider keys.
+    The record going away is not the same as the data going away. The data directory
+    holds the ledger, audit trail and trust store, and was the part being left behind.
     """
     key, tid = _signup(client)
     client.put("/saas/tenants/me/config",
@@ -194,3 +196,24 @@ def test_export_survives_a_corrupt_line_in_the_trail(client, store):
     j = client.get("/saas/tenants/me/export", headers={"X-Tenant-Key": key}).json()
     assert len(j["audit_trail"]) == 2
     assert j["audit_trail"][1]["unparsed"].startswith('{"truncated"')
+
+
+def test_a_confirmed_delete_removes_the_encrypted_key_from_the_tenant_store(client, store):
+    """
+    The credential claim, checked where the credential actually lives. Provider keys are
+    stored encrypted in tenants.json, not in the data directory, so a test of the data
+    directory alone says nothing about them.
+    """
+    import json
+
+    key, tid = _signup(client)
+    client.put("/saas/tenants/me/config",
+               json={"anthropic_api_key": "sk-ant-api03-" + "q" * 32},
+               headers={"X-Tenant-Key": key})
+    tenants_file = store.root / "tenants.json"
+    assert tid in tenants_file.read_text(), "the record was never written; proves nothing"
+
+    client.request("DELETE", "/saas/tenants/me", json={"confirm": tid},
+                   headers={"X-Tenant-Key": key})
+    remaining = json.loads(tenants_file.read_text())
+    assert tid not in json.dumps(remaining), "the deleted tenant's record, and its key, remain"
