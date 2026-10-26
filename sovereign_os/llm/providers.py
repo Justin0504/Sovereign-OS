@@ -223,6 +223,10 @@ class OpenAIChatLLM:
                 "input_tokens": getattr(usage, "prompt_tokens", 0) or 0,
                 "output_tokens": getattr(usage, "completion_tokens", 0) or 0,
             }
+            from sovereign_os.llm.usage_meter import record
+
+            record(getattr(response, "model", None) or self._model,
+                   self._last_usage["input_tokens"], self._last_usage["output_tokens"])
         return str(content)
 
 
@@ -312,6 +316,10 @@ class AnthropicChatLLM:
                 "input_tokens": int(inp) if inp is not None else 0,
                 "output_tokens": int(out_tok) if out_tok is not None else 0,
             }
+            from sovereign_os.llm.usage_meter import record
+
+            record(getattr(message, "model", None) or self._model,
+                   self._last_usage["input_tokens"], self._last_usage["output_tokens"])
         else:
             self._last_usage = None
             logger.info(

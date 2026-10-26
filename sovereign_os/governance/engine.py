@@ -546,7 +546,9 @@ class GovernanceEngine:
             # reach the task that called it — the grant has to travel with the context.
             from sovereign_os.agents.delegation_gate import task_authority
 
-            with task_authority(grant_id):
+            from sovereign_os.llm.usage_meter import meter_task
+
+            with task_authority(grant_id), meter_task() as metered:
                 try:
                     result = await worker.execute(task_input)
                 finally:
@@ -561,17 +563,38 @@ class GovernanceEngine:
             # Record token cost whenever usage is reported — including failed tasks, which
             # still burn tokens. (Gating on success previously leaked the cost of failures.)
             meta = result.metadata or {}
-            has_usage = meta.get("input_tokens") is not None and meta.get("output_tokens") is not None
+            has_usage = (metered.calls > 0) or (
+                meta.get("input_tokens") is not None and meta.get("output_tokens") is not None)
             if self._ledger and hasattr(self._ledger, "record_token") and (result.success or has_usage):
                 from sovereign_os.governance.pricing import estimate_cost_cents
 
                 inp = meta.get("input_tokens")
                 out = meta.get("output_tokens")
                 model_id = meta.get("model_id") or getattr(getattr(worker, "llm", None), "model_name", None) or "default"
+                metered_cents = None
+                if metered.calls:
+                    # Price what the API reported, per model actually invoked, rather than
+                    # what the worker says it used. Under-reporting is logged: that gap is
+                    # the BE-04 signal, and a mismatch is a finding, not a rounding issue.
+                    metered_cents = sum(estimate_cost_cents(m, v[0], v[1])
+                                        for m, v in metered.by_model.items())
+                    reported = (estimate_cost_cents(model_id, int(inp), int(out))
+                                if inp is not None and out is not None else None)
+                    if reported is not None and reported < metered_cents:
+                        logger.warning(
+                            "GOVERNANCE: task %s reported %sc of usage but the client layer "
+                            "metered %sc across %s; billing the metered figure.",
+                            task.task_id, reported, metered_cents, sorted(metered.by_model))
+                    inp, out = metered.input_tokens, metered.output_tokens
+                    model_id = (next(iter(metered.by_model)) if len(metered.by_model) == 1
+                                else "+".join(sorted(metered.by_model)))
                 if inp is None or out is None:
                     bud = getattr(task, "estimated_token_budget", 2000)
                     inp, out = bud // 2, bud - bud // 2
                     est_cents = self._cost_converter(task)
+                elif metered_cents is not None:
+                    inp, out = int(inp), int(out)
+                    est_cents = metered_cents
                 else:
                     inp, out = int(inp), int(out)
                     # Accurate per-model cost (input/output priced separately).

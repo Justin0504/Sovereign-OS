@@ -530,7 +530,7 @@ pip install -e ".[dev]"
 pytest tests/ -v
 ```
 
-802 tests (801 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
+808 tests (807 passing, 1 opt-in) cover the governance engine, CFO circuit breaker, JIT capability leases, object-capability delegation, category-tuned audit rubric, reactive planning, ledger accounting, marketplace oversight, payments (Stripe + x402), job store, multi-tenant isolation, the hosted console's browser posture, compliance hooks, web API, and webhook delivery.
 
 **The suite is hermetic — it does not touch the network, whatever is in your shell.** That is enforced, not assumed: an autouse fixture scrubs every outbound credential before any test runs, and a test that genuinely needs a provider must mark itself `live_api` and be run with `--live-api`. This used to be a convention ("run with your keys unset") and conventions do not hold: the model clients fall back to a key read from the environment, so tests written against a stub quietly billed the live API whenever a key happened to be exported. The same commit gave 657 passed with no key set and 639 passed / 18 failed with an exhausted one — every failure an HTTP 429. `tests/test_hermetic_suite.py` pins the guard by driving the real tests in a subprocess with a bogus key exported.
 
