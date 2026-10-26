@@ -567,9 +567,23 @@ class GovernanceEngine:
                     # it succeeded or threw. Authority that outlives the work it was
                     # issued for is standing privilege wearing a task's name, and a
                     # sub-agent left holding a live grant is the lease that never expired.
+                    #
+                    # Two authority stores, and both must be torn down (SE-02, revocation
+                    # survival). release_task revokes the delegation grants; the JIT
+                    # capability leases on SovereignAuth are separate, and their teardown
+                    # -- revoke_task_leases, documented as "the privileges drop to baseline
+                    # when not actively engaged" step -- was defined and tested but never
+                    # called here. A lease granted for the task therefore stayed usable
+                    # after it ended. Wired now, in the same finally.
                     from sovereign_os.agents.delegation_gate import release_task
 
                     release_task(task.task_id)
+                    try:
+                        if hasattr(self._auth, "revoke_task_leases"):
+                            self._auth.revoke_task_leases(task.task_id)
+                    except Exception:  # noqa: BLE001 - teardown must not fail the task
+                        logger.warning("GOVERNANCE: lease teardown failed for task [%s].",
+                                       task.task_id, exc_info=True)
             result_by_id[task.task_id] = result
             # Record token cost whenever usage is reported — including failed tasks, which
             # still burn tokens. (Gating on success previously leaked the cost of failures.)
