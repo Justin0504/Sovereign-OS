@@ -4,8 +4,9 @@ test runner. Gives coding workers the context that TaskBounty-style bug-fix
 bounties require (read the repo, then propose a fix).
 
 Safety:
-- list_files / read_file refuse any path that escapes `root` (resolved + containment
-  check), and cap read size.
+- list_files / read_file / write_file refuse any path that escapes `root` (resolved +
+  containment check), and cap read size. list_files also rejects globs with ".." or an
+  absolute pattern, and resolves every match -- it was previously the one unchecked path.
 - run_tests executes a command only when SOVEREIGN_CODE_EXEC_ENABLED is truthy;
   otherwise it is a dry-run no-op. Even when enabled it runs under a timeout in
   the workspace dir. Arbitrary code execution is opt-in and the operator's call.
@@ -35,12 +36,37 @@ def _safe_path(root: str | Path, relpath: str) -> Path | None:
 
 
 def list_files(root: str | Path, glob: str = "**/*") -> dict:
+    """
+    List files under root matching glob, contained the same way reads and writes are.
+
+    This used to be the one path in the module with no containment check, while the
+    module docstring said it had one. The glob is caller-supplied -- an agent passes it
+    through the list_files tool -- and Path.glob honours ".." segments and absolute
+    patterns, so a pattern could enumerate the host filesystem outside the workspace.
+    read_file and write_file were contained; list_files was not. Found by an L2
+    (iterative) probe in the adversarial harness after the L0 and L1 probes against
+    read and write were all refused -- the case a single pass/fail number reports as
+    "defended".
+
+    Two layers, because either alone has a gap: the pattern is rejected if it can
+    address anything outside root, and every match is resolved and containment-checked
+    anyway, which also catches a symlink inside the workspace pointing out of it.
+    """
     base = Path(root).resolve()
     if not base.is_dir():
         return {"root": str(base), "files": [], "error": "root is not a directory"}
+    pattern = str(glob or "**/*")
+    if Path(pattern).is_absolute() or ".." in Path(pattern).parts:
+        return {"root": str(base), "files": [], "truncated": False,
+                "error": "glob escapes workspace root (refused)"}
     files = []
-    for p in base.glob(glob):
-        if p.is_file():
+    for p in base.glob(pattern):
+        try:
+            resolved = p.resolve()
+            resolved.relative_to(base)
+        except (OSError, ValueError):
+            continue                      # resolves outside root, e.g. via a symlink
+        if resolved.is_file():
             files.append(str(p.relative_to(base)))
             if len(files) >= MAX_LIST:
                 break
