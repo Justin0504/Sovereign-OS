@@ -17,10 +17,12 @@ import json
 import logging
 import os
 import re
+import hmac
 import secrets as _secrets
 import time
 from typing import Any
 
+from sovereign_os.saas import platform_metrics as _metrics
 from sovereign_os.saas.plans import PLANS, get_plan
 from sovereign_os.saas.runtime import run_tenant_mission, tenant_earning_active
 from sovereign_os.saas.tenancy import TenantConfig, TenantStore
@@ -202,7 +204,7 @@ def hosted_preflight(store: TenantStore) -> list[str]:
 def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -> Any:
     try:
         from fastapi import Body, Depends, FastAPI, Header, HTTPException
-        from fastapi.responses import HTMLResponse
+        from fastapi.responses import HTMLResponse, PlainTextResponse
     except ImportError:  # pragma: no cover
         raise ImportError("fastapi required; pip install fastapi uvicorn")
 
@@ -276,6 +278,9 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
         t = st.by_api_key(x_tenant_key or "")
         if t is None:
             auth_throttle.record_failure(caller)
+            _metrics.incr("sovereign_auth_failures_total")
+            if auth_throttle.is_locked(caller)[0]:
+                _metrics.incr("sovereign_auth_lockouts_total")
             raise HTTPException(status_code=401, detail="Invalid or missing X-Tenant-Key.")
         auth_throttle.record_success(caller)
         return t
@@ -309,6 +314,7 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
         body = payload or {}
         name = _clean_name(body.get("name"))
         t = st.create(name, plan=str(body.get("plan") or "free"))
+        _metrics.incr("sovereign_signups_total")
         # api_key is returned ONCE at signup; it's never returned again.
         return {"tenant": t.public(), "api_key": t.api_key}
 
@@ -321,6 +327,14 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
 
     @app.put("/saas/tenants/me/config")
     def update_config(payload: dict | None = Body(None), t=Depends(require_tenant)):
+        try:
+            return _update_config_inner(payload, t)
+        except HTTPException as e:
+            if e.status_code == 400:
+                _metrics.incr("sovereign_config_rejected_total")
+            raise
+
+    def _update_config_inner(payload, t):
         body = payload or {}
         cfg = t.config
         # Validate everything before mutating anything: a request that half-applies and
@@ -365,15 +379,21 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
             repair = int((payload or {}).get("max_repair_attempts") or 0)
         except (TypeError, ValueError):
             repair = 0
+        _metrics.incr("sovereign_missions_total")
         try:
             plan, results, reports = await run_tenant_mission(t, st, goal, max_repair_attempts=repair)
         except PermissionError as e:
+            _metrics.incr("sovereign_missions_failed_total")
             raise HTTPException(status_code=402, detail=str(e))  # limit / no key
         except Exception as e:  # noqa: BLE001
+            _metrics.incr("sovereign_missions_failed_total")
             raise HTTPException(status_code=500, detail=f"mission failed: {e}")
+        all_passed = all(getattr(r, "passed", False) for r in reports) if reports else True
+        _metrics.incr("sovereign_missions_passed_total" if all_passed
+                      else "sovereign_missions_failed_total")
         return {
             "goal": goal,
-            "all_passed": all(getattr(r, "passed", False) for r in reports) if reports else True,
+            "all_passed": all_passed,
             "tasks": [{"task_id": r.task_id, "success": r.success, "output": (r.output or "")[:8000]}
                       for r in (results or [])],
             "audits": [{"task_id": rep.task_id, "passed": rep.passed, "score": rep.score,
@@ -399,6 +419,30 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
                 "note": "The previous key stopped working immediately. This one is "
                         "shown once."}
 
+    @app.get("/saas/metrics")
+    def metrics(request: Request):
+        """
+        Platform-aggregate operational metrics, Prometheus text format.
+
+        Disabled unless SOVEREIGN_METRICS_TOKEN is set (fail closed: a hosted service does
+        not expose its operational shape by default), and then requires it as a bearer
+        token. Every series is a platform total -- there are no per-tenant labels, because
+        a metric a scraper could break down by tenant is a cross-tenant leak through the
+        monitoring port. The only live reading is the current tenant count, computed here
+        rather than stored.
+        """
+        if not _metrics.enabled():
+            raise HTTPException(status_code=404, detail="metrics are not enabled")
+        auth = (request.headers.get("authorization") or "").strip()
+        presented = auth[7:].strip() if auth.lower().startswith("bearer ") else ""
+        if not presented or not hmac.compare_digest(presented, _metrics.metrics_token()):
+            raise HTTPException(status_code=401, detail="metrics require a bearer token")
+        gauges = {
+            "sovereign_tenants": ("Workspaces that currently exist", float(len(st.list()))),
+        }
+        return PlainTextResponse(_metrics.render(gauges),
+                                 media_type="text/plain; version=0.0.4")
+
     @app.get("/saas/demo")
     def demo(request: Request):
         """
@@ -416,6 +460,7 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
         _enforce(signup_limiter, client_key(request), "demo runs")
         from sovereign_os.saas.demo import run_demo_mission
 
+        _metrics.incr("sovereign_demo_runs_total")
         return run_demo_mission()
 
     @app.get("/saas/tenants/me/export")
