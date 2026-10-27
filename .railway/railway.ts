@@ -62,6 +62,12 @@ export default defineRailway(() => {
       // credential permanently undecryptable, since the ciphertext is keyed to it.
       SOVEREIGN_SAAS_SECRET: preserve(),
 
+      // Optional operator token for GET /saas/metrics. preserve() so setting it in the
+      // Railway dashboard enables the endpoint without the token entering version control,
+      // and an apply does not wipe it. Unset here on purpose: metrics are off until an
+      // operator opts in, and the endpoint fails closed (404) without it.
+      SOVEREIGN_METRICS_TOKEN: preserve(),
+
       // Turns a lost tenant key context into a hard failure instead of a silent
       // fallback to the platform's own API key.
       SOVEREIGN_MULTI_TENANT: "1",
