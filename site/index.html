@@ -6,7 +6,7 @@
 <title>Sovereign-OS — Know what agent work costs before it runs</title>
 <meta name="description" content="Sovereign-OS is an open-source, self-hosted control plane for autonomous AI agents. We measured how well it predicts what its own work will cost across 49 governed runs, and fixed what the measurement found.">
 <meta property="og:title" content="Sovereign-OS">
-<meta property="og:description" content="Measured cost prediction for autonomous AI agents: 49 governed runs, 95% of estimate error systematic, 94% of predictions within 2x after the fix. Open source, self-hosted.">
+<meta property="og:description" content="Measured cost prediction for autonomous AI agents: 49 governed runs, 97% of estimate error systematic, 94% of predictions within 2x after the fix. Open source, self-hosted.">
 <meta property="og:type" content="website">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
@@ -241,7 +241,7 @@
       <a href="#quickstart">Quickstart</a>
     </div>
     <a class="btn btn-ghost btn-sm" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">GitHub</a>
-    <a class="btn btn-primary btn-sm nav-cta" href="#quickstart">Run it yourself</a>
+    <a class="btn btn-primary btn-sm nav-cta" href="https://sovereign-saas-production.up.railway.app" target="_blank" rel="noopener">Open console</a>
   </div>
 </nav>
 
@@ -251,12 +251,10 @@
     <h1>Know what the work costs <em>before</em> it runs.</h1>
     <p class="lede">Agent budgets are guesses, and nobody checks them. We measured ours across 49 governed runs — then fixed what the measurement found.</p>
     <div class="hero-cta">
-      <a class="btn btn-primary" href="#quickstart">Run it yourself</a>
-      <a class="btn btn-ghost" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">
-        <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 .5A11.5 11.5 0 0 0 8.4 22.9c.6.1.8-.2.8-.6v-2c-3.3.7-4-1.6-4-1.6-.5-1.4-1.3-1.7-1.3-1.7-1.1-.7 0-.7 0-.7 1.2 0 1.8 1.2 1.8 1.2 1 1.8 2.8 1.3 3.5 1 0-.8.4-1.3.7-1.6-2.7-.3-5.5-1.3-5.5-5.9 0-1.3.5-2.4 1.2-3.2 0-.4-.5-1.6.2-3.2 0 0 1-.3 3.3 1.2a11.5 11.5 0 0 1 6 0C17.3 4 18.3 4.3 18.3 4.3c.7 1.6.2 2.8.1 3.2.8.8 1.2 1.9 1.2 3.2 0 4.6-2.8 5.6-5.5 5.9.4.4.8 1.1.8 2.2v3.3c0 .4.2.7.8.6A11.5 11.5 0 0 0 12 .5Z"/></svg>
-        View source
-      </a>
+      <a class="btn btn-primary" href="https://sovereign-saas-production.up.railway.app" target="_blank" rel="noopener">See a governed run</a>
+      <a class="btn btn-ghost" href="#quickstart">Run it yourself</a>
     </div>
+    <p class="mono" style="font-size:.76rem;color:var(--faint);margin:.5rem 0 0">No key, no signup — one click runs the real budget, permission and audit gates, refusals and all.</p>
     <div class="trust-note">
       <span><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Runs on your machine</span>
       <span><svg class="tick" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4"><path d="M20 6 9 17l-5-5"/></svg>Bring your own keys</span>
@@ -303,7 +301,7 @@
 <line class="cx-axis" x1="48" y1="236" x2="500" y2="236"/>
 </svg>
     <p class="note">Across work whose real cost moved <strong>3.6&times;</strong>, the estimate moved
-      <strong>1.17&times;</strong> — it read the goal's string length, not the work. 95% of that error is
+      <strong>1.17&times;</strong> — it read the goal's string length, not the work. 97% of that error is
       systematic, not run-to-run noise. Estimating from the planner's task graph instead cuts the
       scatter 47% and lands 94% of predictions within 2&times;.</p>
     <details>
@@ -323,7 +321,7 @@
 <div class="wrap">
   <div class="facts">
     <div class="fact"><div class="n">49</div><div class="l">governed runs measured, over three repeats</div></div>
-    <div class="fact"><div class="n">95<span class="u">%</span></div><div class="l">of the estimate error is systematic, not noise</div></div>
+    <div class="fact"><div class="n">97<span class="u">%</span></div><div class="l">of the estimate error is systematic, not noise</div></div>
     <div class="fact"><div class="n">47<span class="u">%</span></div><div class="l">less scatter when estimating from the task graph</div></div>
     <div class="fact"><div class="n">94<span class="u">%</span></div><div class="l">of predictions land within 2&times; of real cost</div></div>
   </div>
@@ -467,7 +465,7 @@
     <div class="head">
       <div class="eyebrow">Editions</div>
       <h2>Free and open source. Host it yourself.</h2>
-      <p>The whole governed control plane is MIT-licensed and yours to run — your machine, your keys, your data. A managed edition is coming for teams who'd rather not operate it.</p>
+      <p>The whole governed control plane is MIT-licensed and yours to run — your machine, your keys, your data. A managed edition is live for teams who'd rather not operate it — bring your key, keep your data, start free.</p>
     </div>
     <div class="plans">
       <div class="plan feat">
@@ -495,14 +493,14 @@
       </div>
       <div class="plan">
         <div class="pn">Hosted</div>
-        <div class="pr">Soon<span class="per"> · managed</span></div>
+        <div class="pr">Live<span class="per"> · free to start</span></div>
         <ul>
           <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>Fully managed — we run the infra</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>Still bring your own keys</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>SSO &amp; audit exports</li>
-          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>Priority support</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>Bring your own key, encrypted at rest</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>Isolated workspace · rotate / export / delete</li>
+          <li><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6"><path d="M20 6 9 17l-5-5"/></svg>20 free missions a day, no card</li>
         </ul>
-        <a class="btn btn-ghost" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">Join the waitlist</a>
+        <a class="btn btn-primary" href="https://sovereign-saas-production.up.railway.app" target="_blank" rel="noopener">Open the console</a>
       </div>
     </div>
     <div style="margin-top:30px">
@@ -525,8 +523,8 @@
     <h2>Give every agent a budget, a boundary, and a verifiable receipt.</h2>
     <p>Open source, MIT-licensed, and running in under five minutes — on your machine, on your keys. Put your AI workforce under a charter.</p>
     <div class="hero-cta">
-      <a class="btn btn-primary" href="#quickstart">Run it yourself</a>
-      <a class="btn btn-ghost" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">Read the docs</a>
+      <a class="btn btn-primary" href="https://sovereign-saas-production.up.railway.app" target="_blank" rel="noopener">See a governed run</a>
+      <a class="btn btn-ghost" href="#quickstart">Run it yourself</a>
     </div>
   </div>
 </section>
@@ -534,7 +532,7 @@
 <footer>
   <div class="wrap foot-in">
     <div class="brand" style="font-size:.95rem"><span class="mark"></span>Sovereign-OS</div>
-    <div>Open source · MIT · <a class="link" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">github.com/Justin0504/Sovereign-OS</a></div>
+    <div>Open source · MIT · <a class="link" href="https://github.com/Justin0504/Sovereign-OS" target="_blank" rel="noopener">GitHub</a> · <a class="link" href="https://arxiv.org/abs/2603.14011" target="_blank" rel="noopener">Paper (arXiv)</a> · <a class="link" href="https://sovereign-saas-production.up.railway.app" target="_blank" rel="noopener">Console</a></div>
     <div class="mono" style="font-size:.76rem;color:var(--faint)">Experimental — keep a human in the loop for financial and production decisions.</div>
   </div>
 </footer>
