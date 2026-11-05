@@ -150,3 +150,23 @@ def test_a_name_that_is_markup_is_stored_verbatim_and_never_executed(client):
     assert r.status_code == 200
     assert r.json()["tenant"]["name"] == name
     assert name not in client.get("/").text
+
+
+def test_the_served_console_script_parses(client, tmp_path):
+    """Every guard above is moot if the script never runs. The console once shipped with
+    a JS string literal broken across lines (a Python escape turned "\\n" into a real
+    newline), a SyntaxError that disabled every button while every header test passed.
+    Parse the script exactly as served."""
+    import shutil
+    import subprocess
+
+    node = shutil.which("node")
+    if not node:
+        pytest.skip("node not installed; cannot parse the served script")
+    html = client.get("/").text
+    m = re.search(r"<script nonce=[^>]+>(.*?)</script>", html, re.S)
+    assert m, "console has no nonce'd script"
+    js = tmp_path / "console.js"
+    js.write_text(m.group(1))
+    r = subprocess.run([node, "--check", str(js)], capture_output=True, text=True)
+    assert r.returncode == 0, r.stderr
