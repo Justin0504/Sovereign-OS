@@ -39,3 +39,6 @@ build/
 # Railway IaC SDK (dev-only, required by `railway config plan/apply`)
 node_modules/
 package-lock.json
+
+# local hosted-console tenant data (holds encrypted provider keys) -- never commit or upload
+.saas-data/
