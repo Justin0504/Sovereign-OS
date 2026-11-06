@@ -130,7 +130,13 @@ async def run_tenant_mission(tenant: Tenant, store: TenantStore, goal: str, *,
     ok, reason = store.can_run(tenant)
     if not ok:
         raise PermissionError(reason)
-    engine, ledger, _auth = build_tenant_engine(tenant, store)
+    # Built INSIDE the tenant's key context. It used to be built outside it, and the
+    # ReviewEngine constructs its Judge client eagerly: with no key bound that
+    # construction failed and fell back to StubAuditor, which passes any non-empty
+    # output at a fixed 0.9. Workers build their clients lazily (inside the context),
+    # so missions produced real output while every hosted "audit" was a stub.
+    with tenant_llm_context(tenant):
+        engine, ledger, _auth = build_tenant_engine(tenant, store)
     before = _spend_cents(ledger)
     # Point the process-level gate at THIS tenant's broker for the duration of the
     # mission, so a handoff is authorized against the tenant's own delegation tree.
