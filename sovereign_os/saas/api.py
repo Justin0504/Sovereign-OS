@@ -397,7 +397,8 @@ def create_saas_app(store: TenantStore | None = None, *, hosted: bool = False) -
             "tasks": [{"task_id": r.task_id, "success": r.success, "output": (r.output or "")[:8000]}
                       for r in (results or [])],
             "audits": [{"task_id": rep.task_id, "passed": rep.passed, "score": rep.score,
-                        "reason": rep.reason} for rep in (reports or [])],
+                        "reason": rep.reason, "auditor": rep.auditor,
+                        "proof_hash": rep.proof_hash} for rep in (reports or [])],
             "usage": dataclasses.asdict(st.usage(t.id)),
         }
 
@@ -1487,10 +1488,12 @@ function renderResults(d){
   (d.tasks||[]).forEach(function(t){
     var a=audits[t.task_id],r=mk("div","res"),hd=mk("div","rh");
     hd.appendChild(mk("span","id",t.task_id));hd.appendChild(mk("span","sp"));
+    if(a&&a.auditor)hd.appendChild(mk("span","sc",a.auditor==="rule"?"rule check":a.auditor.replace(/^judge:/,"judged by ")));
     if(a&&a.score!=null)hd.appendChild(mk("span","sc","score "+Number(a.score).toFixed(2)));
     var ok=a?a.passed:t.success;hd.appendChild(mk("span","tag "+(ok?"pass":"fail"),ok?"pass":"fail"));
     r.appendChild(hd);
     if(a&&a.reason)r.appendChild(mk("div","why",a.reason));
+    if(a&&a.proof_hash)r.appendChild(mk("div","sc","proof "+a.proof_hash.slice(0,16)+"…"));
     r.appendChild(mk("pre",null,t.output||"(no output)"));list.appendChild(r);
   });
   out.appendChild(list);out.classList.remove("hide");el("runEmpty").classList.add("hide");

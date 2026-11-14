@@ -46,18 +46,22 @@ def load_audit_trail(path: Path | str, limit: int = 500) -> list[dict]:
 
 def verify_report_integrity(entry: dict) -> bool:
     """Recompute proof_hash from entry (without proof_hash) and compare. Returns True if intact."""
-    import hashlib
+    from sovereign_os.auditor.base import canonical_audit_fields, hash_canonical
+
     proof = entry.get("proof_hash") or ""
     if not proof:
         return False
-    canonical = {
-        "task_id": entry.get("task_id", ""),
-        "kpi_name": entry.get("kpi_name", ""),
-        "passed": bool(entry.get("passed", False)),
-        "score": float(entry.get("score", 0)),
-        "reason": entry.get("reason", ""),
-        "suggested_fix": entry.get("suggested_fix", ""),
-        "timestamp_utc": entry.get("timestamp_utc", ""),
-    }
-    payload = json.dumps(canonical, sort_keys=True, ensure_ascii=False)
-    return hashlib.sha256(payload.encode("utf-8")).hexdigest() == proof
+    try:
+        fields = canonical_audit_fields(
+            task_id=entry.get("task_id", ""),
+            kpi_name=entry.get("kpi_name", ""),
+            passed=entry.get("passed", False),
+            score=entry.get("score", 0),
+            reason=entry.get("reason", ""),
+            suggested_fix=entry.get("suggested_fix", ""),
+            timestamp_utc=entry.get("timestamp_utc", ""),
+            auditor=entry.get("auditor", "") or "",
+        )
+    except (TypeError, ValueError):
+        return False  # a malformed entry is not intact
+    return hash_canonical(fields) == proof

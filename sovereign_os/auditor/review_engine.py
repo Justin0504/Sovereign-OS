@@ -66,6 +66,36 @@ def should_skip_audit(task_value_cents: int, judge_model: str, est_tokens: int =
     return judge_cost > ratio * task_value_cents
 
 
+def _parse_verdict(content: str | None) -> dict | None:
+    """
+    The judge's reply as a JSON object, or None.
+
+    Strict on purpose: only the whole reply (optionally in a ``` fence) counts. Fishing a
+    {...} out of surrounding prose would let a judge that quotes the deliverable hand the
+    verdict to whatever JSON the deliverable planted.
+    """
+    text = (content or "").strip()
+    if text.startswith("```"):
+        text = text.removeprefix("```json").removeprefix("```").strip().removesuffix("```").strip()
+    try:
+        data = json.loads(text)
+    except (json.JSONDecodeError, ValueError):
+        return None
+    return data if isinstance(data, dict) else None
+
+
+def _unit(value: object) -> float | None:
+    """A score in [0, 1], or None. Booleans, strings, NaN and out-of-range values are not scores."""
+    import math
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return None
+    v = float(value)
+    if math.isnan(v) or v < 0.0 or v > 1.0:
+        return None
+    return v
+
+
 class JudgeLLMProtocol(Protocol):
     """Async interface for Judge LLM: returns passed, score, reason, suggested_fix."""
 
@@ -171,34 +201,41 @@ class JudgeLLM(BaseAuditor):
                     {"role": "user", "content": user},
                 ]
             )
-        content = (content or "{}").strip()
-        content = content.removeprefix("```json").removeprefix("```").strip().removesuffix("```").strip()
-        try:
-            data = json.loads(content)
-        except json.JSONDecodeError:
-            # Fallback: non-empty output passes (unless a strict value-aware bar is set)
-            non_empty = bool(task_output.strip())
-            fallback_score = 0.80 if non_empty else 0.0
-            passed = non_empty and (min_score is None or fallback_score >= min_score)
+        auditor = f"judge:{self._model}"
+        data = _parse_verdict(content)
+
+        def no_verdict(why: str) -> AuditReport:
+            # Fail CLOSED. This used to pass any non-empty output at 0.80, which made
+            # "get the judge to answer in prose" a pass for anything -- the same attack
+            # AC-02 fences against, through a side door -- and that pass also fed the
+            # agent's trust score. A judge that gives no verdict has not approved.
+            logger.warning("GOVERNANCE AUDITOR: Task [%s] judge gave no usable verdict (%s); failing closed.",
+                           task_id, why)
             return AuditReport(
-                task_id=task_id,
-                kpi_name=kpi_name,
-                passed=passed,
-                score=fallback_score,
-                reason="Judge parse error; rule-based fallback applied.",
-                suggested_fix="" if passed else "Provide clearer, on-topic output for this paid deliverable.",
+                task_id=task_id, kpi_name=kpi_name, passed=False, score=0.0, auditor=auditor,
+                reason=f"Judge returned no usable verdict ({why}); failed closed.",
+                suggested_fix="Re-run the audit; the deliverable was not approved.",
             )
+
+        if data is None:
+            return no_verdict("response was not a JSON object")
         sub_scores: dict[str, float] = {}
         if rubric:
-            crit = {k: float(data.get(k, 0.0)) for k, _ in criteria}
-            sub_scores = {k: max(0.0, min(1.0, v)) for k, v in crit.items()}
-            score = sum(sub_scores.values()) / len(sub_scores) if sub_scores else 0.0
+            parsed = {k: _unit(data.get(k)) for k, _ in criteria}
+            if all(v is None for v in parsed.values()):
+                return no_verdict("no rubric criterion was scored")
+            # A criterion the judge skipped or mis-typed counts as 0, never as a pass.
+            sub_scores = {k: (0.0 if v is None else v) for k, v in parsed.items()}
+            score = sum(sub_scores.values()) / len(sub_scores)
             # High-value bar; the rubric average must clear it.
             passed = score >= max(self.PASS_THRESHOLD, min_score)
         else:
-            score = float(data.get("score", 0.0))
-            # Default leniency: score >= PASS_THRESHOLD always passes regardless of LLM's flag.
-            passed = bool(data.get("passed", False)) or (score >= self.PASS_THRESHOLD)
+            score = _unit(data.get("score"))
+            if score is None:
+                return no_verdict("score missing or not a number in [0, 1]")
+            # The score decides, both ways. The model's own "passed" flag used to be OR-ed
+            # in through bool(), so the string "false" -- truthy -- passed at any score.
+            passed = score >= self.PASS_THRESHOLD
         return AuditReport(
             sub_scores=sub_scores,
             task_id=task_id,
@@ -207,6 +244,7 @@ class JudgeLLM(BaseAuditor):
             score=score,
             reason=str(data.get("reason", "")),
             suggested_fix=str(data.get("suggested_fix", "")) if not passed else "",
+            auditor=auditor,
         )
 
 
@@ -233,6 +271,7 @@ class StubAuditor(BaseAuditor):
             score=score,
             reason="Stub verification: output present" if passed else "Stub: empty output",
             suggested_fix="" if passed else "Provide non-empty task output.",
+            auditor="rule",
         )
 
 
@@ -259,6 +298,17 @@ class ReviewEngine:
             try:
                 self._judge = JudgeLLM()
             except Exception as e:  # pragma: no cover - optional LLM path
+                from sovereign_os.llm.providers import multi_tenant_mode
+
+                if multi_tenant_mode():
+                    # Hosted: a stub "audit" is a fake verdict shown to a paying tenant.
+                    # Refuse to build rather than degrade silently (this is how every
+                    # hosted audit became a stub when the engine was built outside the
+                    # tenant's key context).
+                    raise RuntimeError(
+                        "No Judge LLM could be built in multi-tenant mode; refusing to fall "
+                        f"back to the rule-based stub. ({e})"
+                    ) from e
                 logger.warning(
                     "GOVERNANCE AUDITOR: No Judge LLM configured; "
                     "falling back to StubAuditor. (%s)",
