@@ -571,7 +571,6 @@ a{color:inherit}
 button{font:inherit;color:inherit}
 :focus-visible{outline:2px solid var(--pine);outline-offset:2px;border-radius:4px}
 .hide{display:none!important}
-.mobonly{display:none!important}
 .mono{font-family:var(--mono)}
 .shell{max-width:1160px;margin:0 auto;padding:0 24px}
 .ico{width:16px;height:16px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
@@ -848,8 +847,15 @@ footer{margin-top:72px;border-top:1px solid var(--line-2);padding:44px 0 48px;fo
 /* ================= signed-in app shell ================= */
 body.authed #mkt{display:none}
 body.authed .nav{display:none}
-#app{min-height:100vh;display:grid;grid-template-columns:240px minmax(0,1fr)}
-.side{background:#fbfbfa;border-right:1px solid var(--line);padding:18px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+/* The rail is painted by #app, not by .side: .side is sticky at 100vh, so when a page
+   ran longer than the viewport its background stopped and the canvas showed under it. */
+#app{min-height:100vh;display:grid;grid-template-columns:240px minmax(0,1fr);align-items:start;
+  background:linear-gradient(90deg,#fbfbfa 0 239px,var(--line) 239px 240px,transparent 240px)}
+.side{padding:18px 14px;position:sticky;top:0;height:100vh;display:flex;flex-direction:column;gap:4px}
+.tab .ls{display:none}
+.ws .so{display:none;margin-left:auto;flex:none;border:1px solid var(--line);background:var(--paper);border-radius:8px;
+  width:34px;height:34px;place-items:center;cursor:pointer;color:var(--soft)}
+.ws .so:hover{color:var(--ink);border-color:var(--line-2)}
 .side .brand{padding:6px 8px 18px}
 .ws{display:flex;align-items:center;gap:10px;padding:10px;border:1px solid var(--line);border-radius:10px;background:var(--paper);margin-bottom:14px}
 .ws .av{width:30px;height:30px;border-radius:8px;background:var(--pine);color:#fff;display:grid;place-items:center;font-weight:600;font-size:13px;flex:none}
@@ -867,6 +873,7 @@ body.authed .nav{display:none}
 .topbar{display:flex;align-items:center;justify-content:space-between;gap:16px;padding-bottom:22px;border-bottom:1px solid var(--line);margin-bottom:28px}
 .topbar h1{font-size:24px;letter-spacing:-.02em;margin:0;max-width:none;line-height:1.2;text-align:left}
 .topbar p{margin:2px 0 0;font-size:13.5px;color:var(--soft)}
+.topbar .row{margin-top:0}
 .panel{display:grid;gap:16px}
 .tiles{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 .tile{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 18px;min-width:0}
@@ -876,23 +883,55 @@ body.authed .nav{display:none}
 .tile .meter{margin:12px 0 2px}
 .tile .meter b{background:var(--pine)}
 .tile .d{font-size:12px;color:var(--mut);margin-top:6px}
+.tile.warn{border-color:#efd3ce;background:linear-gradient(#fff,#fff) padding-box}
+.tile.warn .n{color:var(--bad)}.tile.warn .d{color:var(--bad)}
+.steps{list-style:none;margin:14px 0 0;padding:0;display:grid;gap:2px}
+.steps li{display:flex;align-items:center;gap:12px;padding:9px 0;font-size:14px;color:var(--soft);border-bottom:1px solid var(--line)}
+.steps li:last-child{border-bottom:none}
+.steps .ck{width:20px;height:20px;border-radius:999px;border:1.5px solid var(--line-2);display:grid;place-items:center;flex:none;
+  font-family:var(--mono);font-size:11px;color:var(--mut)}
+.steps li.done{color:var(--ink)}
+.steps li.done .ck{background:var(--pine);border-color:var(--pine);color:#fff}
+.steps li.done .ck .ico{width:12px;height:12px;stroke:#fff;stroke-width:3}
+.steps li .opt{margin-left:auto;font-size:12px;color:var(--mut)}
+.keyst{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.keyst .kv{font-family:var(--mono);font-size:11.5px;color:var(--mut);font-weight:400}
+.keyst .kv.on{color:var(--ok)}
 .two{display:grid;grid-template-columns:minmax(0,3fr) minmax(0,2fr);gap:16px}
 .card .hdr{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:6px}
 .empty{border:1px dashed var(--line-2);border-radius:10px;padding:22px;text-align:center;color:var(--soft);font-size:14px;margin-top:16px}
 .results{display:grid;gap:10px;margin-top:16px}
-.res{border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.res .rh{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#fcfcfb;border-bottom:1px solid var(--line);font-size:13px}
-.res .rh .id{font-family:var(--mono);font-weight:500}
+.res{border:1px solid var(--line);border-radius:10px;overflow:hidden;background:var(--paper)}
+.res .rh{display:flex;align-items:center;gap:10px;padding:11px 16px;background:#fcfcfb;border-bottom:1px solid var(--line);font-size:13px}
+.res .rh .nm{font-weight:600;font-size:14px;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.res .rh .id{font-family:var(--mono);font-size:11.5px;color:var(--mut)}
 .res .rh .sp{flex:1}
-.res .sc{font-family:var(--mono);font-size:12px;color:var(--soft)}
-.res .why{padding:10px 14px 0;font-size:13px;color:var(--soft)}
-.res pre{margin:0;padding:12px 14px 14px;white-space:pre-wrap;font-family:var(--mono);font-size:12px;line-height:1.6;max-height:280px;overflow:auto}
-.sum{display:flex;align-items:center;gap:10px;margin-top:18px;font-size:14px;font-weight:500}
+.res .sbar{display:block;width:64px;height:5px;padding:0;border:0;border-radius:999px;background:#ecece8;overflow:hidden;flex:none}
+.res .sbar b{display:block;height:100%;border-radius:inherit;background:var(--ok)}
+.res.bad .sbar b{background:var(--bad)}
+.res .num{font-family:var(--mono);font-size:12px;color:var(--ink-2);font-variant-numeric:tabular-nums}
+.res .why{margin:12px 16px 0;padding:9px 12px;font-size:13px;line-height:1.5;color:var(--ink-2);background:var(--tint);border-left:2px solid var(--ok);border-radius:0 6px 6px 0}
+.res.bad .why{background:var(--bad-soft);border-left-color:var(--bad)}
+.res .why b{font-weight:600;margin-right:6px}
+.res .out{padding:12px 16px 14px;white-space:pre-wrap;font-size:14px;line-height:1.65;color:var(--ink);max-height:320px;overflow:auto;overflow-wrap:anywhere}
+.res .rf{display:flex;gap:6px 14px;flex-wrap:wrap;padding:9px 16px;border-top:1px solid var(--line);font-family:var(--mono);font-size:11px;color:var(--mut)}
+.sum{display:flex;align-items:center;gap:10px 14px;flex-wrap:wrap;margin-top:22px;padding:12px 16px;border:1px solid var(--line);border-radius:10px;background:var(--tint);font-size:14px}
+.sum .k{font-weight:600}.sum .m{color:var(--soft)}.sum .sp{flex:1}
+.sum .m.mono{font-family:var(--mono);font-size:11.5px;color:var(--mut)}
+.goalq{font-size:14px;color:var(--soft);margin-top:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+#goal{font-family:var(--sans);font-size:15px;line-height:1.55}
+.btn.busy{pointer-events:none;opacity:.85}
+.btn.busy .ico{display:none}
+.btn.busy::before{content:"";width:14px;height:14px;border-radius:999px;border:2px solid rgba(255,255,255,.35);border-top-color:#fff;animation:spin .7s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
 .gov{display:grid;gap:0}
 .gov div{display:flex;justify-content:space-between;gap:12px;padding:11px 0;border-bottom:1px solid var(--line);font-size:14px;color:var(--soft)}
 .gov div:last-child{border-bottom:none}
 .gov b{font-family:var(--mono);font-weight:500;color:var(--ink);font-size:13px}
 .danger{border-color:#efd3ce}
+.dz+.row:has(>.msg:empty:only-child){display:none}
+.card>.row:last-child:has(>.msg:empty:only-child){display:none}
+.danger .zh{font-size:11.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--bad);font-weight:600;margin:0 0 2px}
 .dz{display:flex;justify-content:space-between;align-items:center;gap:24px;padding:18px 0;border-top:1px solid var(--line)}
 .dz:first-of-type{border-top:none}
 .dz h5{margin:0;font-size:14.5px;font-weight:600}
@@ -922,14 +961,17 @@ table.log tbody tr{animation:rise .4s var(--ease) both}
   .faq{gap:20px}
   .closer{grid-template-columns:minmax(0,1fr);padding:44px 28px}
   .fgrid{grid-template-columns:repeat(2,minmax(0,1fr))}
-  #app{grid-template-columns:minmax(0,1fr)}
-  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;border-right:none;border-bottom:1px solid var(--line);padding:12px 16px}
+  #app{grid-template-columns:minmax(0,1fr);background:none}
+  .side{position:static;height:auto;flex-direction:row;flex-wrap:wrap;align-items:center;background:#fbfbfa;border-bottom:1px solid var(--line);padding:12px 16px}
   .side .brand,.side .grow,.side .foot{display:none}
-  .ws{margin:0 0 8px;flex:1 1 100%}
-  #tabs{display:flex;gap:4px;overflow-x:auto;flex:1 1 100%;scrollbar-width:none}
-  .tab{width:auto;flex:none}
+  .ws{margin:0 0 10px;flex:1 1 100%}
+  .ws .so{display:grid}
+  /* Four equal segments: the old scrolling strip cut "Charter & keys" off mid-word. */
+  #tabs{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:4px;flex:1 1 100%}
+  .tab{width:auto;justify-content:center;gap:6px;padding:8px 4px;font-size:13px}
+  .tab .lf{display:none}.tab .ls{display:inline}
   #btn_signout{display:none}
-  .mobonly{display:inline-flex!important}
+  .topbar>.row{display:none}
   .main{padding:22px 16px 48px}
   .tiles{grid-template-columns:repeat(2,minmax(0,1fr))}
 }
@@ -946,6 +988,12 @@ table.log tbody tr{animation:rise .4s var(--ease) both}
   .fact .n{font-size:34px}
   .topbar{flex-wrap:wrap}
   .dz{flex-direction:column;align-items:flex-start}
+  .tab .ico{display:none}
+  .res .rh{flex-wrap:wrap;row-gap:6px}
+  .res .rh .sp{flex-basis:100%;height:0}
+  .card .hdr .small{display:none}
+  #app .card{padding:20px 18px}
+  .res .rh,.res .out,.res .rf{padding-left:14px;padding-right:14px}.res .why{margin-left:14px;margin-right:14px}
 }
 </style></head><body>
 
@@ -1209,12 +1257,12 @@ table.log tbody tr{animation:rise .4s var(--ease) both}
 <div id=app class=hide>
   <aside class=side>
     <a class=brand href="#" id=appBrand><svg viewBox="0 0 24 24" aria-hidden=true><rect x="2" y="2" width="20" height="5" rx="1.5" fill="#121417"/><rect x="2" y="9.5" width="5.5" height="5" rx="1.2" fill="#121417"/><rect x="9.25" y="9.5" width="5.5" height="5" rx="1.2" fill="#0c5c46"/><rect x="16.5" y="9.5" width="5.5" height="5" rx="1.2" fill="#121417"/><rect x="2.75" y="17.75" width="18.5" height="3.5" rx="1.2" fill="none" stroke="#121417" stroke-width="1.5"/></svg>Sovereign-OS</a>
-    <div class=ws><div class=av id=wsAv>W</div><div><div class=nm id=wsName>Workspace</div><div class=pl id=wsPlan>free plan</div></div></div>
+    <div class=ws><div class=av id=wsAv>W</div><div><div class=nm id=wsName>Workspace</div><div class=pl id=wsPlan>free plan</div></div><button class=so id=btn_signout2 type=button aria-label="Sign out" title="Sign out"><svg class=ico viewBox="0 0 24 24"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4M16 17l5-5-5-5M21 12H9"/></svg></button></div>
     <div role=tablist aria-label="Workspace sections" id=tabs>
-      <button class=tab role=tab aria-selected=true data-p=overview type=button><svg class=ico viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>Overview</button>
-      <button class=tab role=tab aria-selected=false data-p=run type=button><svg class=ico viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg>Run a mission</button>
-      <button class=tab role=tab aria-selected=false data-p=config type=button><svg class=ico viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg>Charter &amp; keys</button>
-      <button class=tab role=tab aria-selected=false data-p=settings type=button><svg class=ico viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg>Settings</button>
+      <button class=tab role=tab aria-selected=true data-p=overview type=button><svg class=ico viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg><span class=lf>Overview</span><span class=ls>Overview</span></button>
+      <button class=tab role=tab aria-selected=false data-p=run type=button><svg class=ico viewBox="0 0 24 24"><path d="M6 4l14 8-14 8z"/></svg><span class=lf>Run a mission</span><span class=ls>Run</span></button>
+      <button class=tab role=tab aria-selected=false data-p=config type=button><svg class=ico viewBox="0 0 24 24"><path d="M14 3H6a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><path d="M14 3v6h6M8 13h8M8 17h5"/></svg><span class=lf>Charter &amp; keys</span><span class=ls>Charter</span></button>
+      <button class=tab role=tab aria-selected=false data-p=settings type=button><svg class=ico viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg><span class=lf>Settings</span><span class=ls>Settings</span></button>
     </div>
     <div class=grow></div>
     <div class=foot><a href="https://arxiv.org/abs/2603.14011">Paper</a><a href="https://github.com/Justin0504/Sovereign-OS">GitHub</a></div>
@@ -1223,17 +1271,17 @@ table.log tbody tr{animation:rise .4s var(--ease) both}
 
   <section class=main>
     <div class=topbar><div><h1 id=pTitle>Overview</h1><p id=pSub>Today's usage against your plan and your charter.</p></div>
-      <div class=row><div class=row id=meRow></div><button class="btn light mobonly" id=btn_signout2 type=button>Sign out</button></div></div>
+      <div class=row id=meRow></div></div>
 
     <div class=panel data-panel=overview>
       <div class=tiles>
         <div class=tile><div class=l><span>Missions today</span><span id=tMisPct></span></div><div class=n id=tMis>0</div><div class=meter><b id=mMis></b></div><div class=d id=tMisD></div></div>
         <div class=tile><div class=l><span>Spend today</span><span id=tSpPct></span></div><div class=n id=tSp>$0.00</div><div class=meter><b id=mSp></b></div><div class=d id=tSpD></div></div>
-        <div class=tile><div class=l><span>Daily burn cap</span></div><div class=n id=tCap>&ndash;</div><div class=d id=tCapD>from your charter</div></div>
-        <div class=tile><div class=l><span>Model keys</span></div><div class=n id=tKeys>0<small> / 2</small></div><div class=d id=tKeysD>configured</div></div>
+        <div class=tile><div class=l><span>Last mission</span></div><div class=n id=tLast>&ndash;</div><div class=d id=tLastD>no mission yet this session</div></div>
+        <div class=tile id=tKeysTile><div class=l><span>Model keys</span></div><div class=n id=tKeys>0<small> / 2</small></div><div class=d id=tKeysD>configured</div></div>
       </div>
       <div class=two>
-        <div class=card><div class=hdr><h4>Next step</h4></div><p class=lead id=nextLead>Add a model key and a charter, then run your first mission.</p>
+        <div class=card><div class=hdr><h4>Get set up</h4><span class=small id=stepsN></span></div><p class=lead id=nextLead>Add a model key and a charter, then run your first mission.</p><ol class=steps id=steps></ol>
           <div class=row><button class="btn dark" type=button data-go=config>Set charter &amp; keys</button><button class="btn light" type=button data-go=run>Run a mission</button></div></div>
         <div class=card><div class=hdr><h4>Effective limits</h4><span id=govSrc class="tag recorded">default</span></div>
           <div class=gov id=govBox></div></div>
@@ -1258,18 +1306,20 @@ table.log tbody tr{animation:rise .4s var(--ease) both}
           <label for=cfgCharter>charter.yaml</label><textarea id=cfgCharter rows=14 placeholder="mission: Ship weekly research briefs.&#10;fiscal_boundaries:&#10;  daily_burn_max_usd: 5.0&#10;  max_task_cost_usd: 0.50"></textarea>
           <div class=row><button class="btn dark" id=btn_saveCharter type=button>Save charter</button><span class=msg id=chMsg></span></div></div>
         <div class=card><h4>Model keys</h4><p class=lead>Encrypted at rest; used only for your missions. Leave blank to keep the current key.</p>
-          <label for=cfgAnthropic>Anthropic API key</label><input id=cfgAnthropic placeholder="sk-ant-&hellip;" autocomplete=off>
-          <label for=cfgOpenAI>OpenAI API key</label><input id=cfgOpenAI placeholder="sk-&hellip;" autocomplete=off>
+          <label for=cfgAnthropic class=keyst><span>Anthropic API key</span><span class=kv id=kvA>not set</span></label><input id=cfgAnthropic placeholder="sk-ant-&hellip;" autocomplete=off>
+          <label for=cfgOpenAI class=keyst><span>OpenAI API key</span><span class=kv id=kvO>not set</span></label><input id=cfgOpenAI placeholder="sk-&hellip;" autocomplete=off>
           <div class=row><button class="btn dark" id=btn_saveConfig type=button>Save changes</button><span class=msg id=cfgMsg></span></div></div>
       </div>
     </div>
 
     <div class="panel hide" data-panel=settings>
-      <div class="card danger">
+      <div class=card>
         <div class=dz><div><h5>Rotate workspace key</h5><p>The key is the only credential and is stored hashed. If it leaks, rotate &mdash; the old key stops working immediately.</p></div>
           <button class="btn light" id=btn_rotate type=button>Rotate key</button></div>
         <div class=row><span class=msg id=rotMsg></span></div>
         <div id=rotBox class=hide><div class=key id=rotKey></div></div>
+      </div>
+      <div class="card danger"><p class=zh>Danger zone</p>
         <div class=dz><div><h5>Delete workspace</h5><p>Removes this workspace, its stored provider keys, its ledger and its audit trail. It cannot be undone.</p></div>
           <button class="btn warn" id=btn_delete type=button>Delete workspace</button></div>
         <div class=row><span class=msg id=delMsg></span></div>
@@ -1281,6 +1331,7 @@ table.log tbody tr{animation:rise .4s var(--ease) both}
 <script nonce=__CSP_NONCE__>
 var KEY=localStorage.getItem("sov_key")||"";
 var CURRENT_ID="";
+var LAST=null;
 var SVG="http://www.w3.org/2000/svg";
 function h(){return KEY?{"X-Tenant-Key":KEY,"Content-Type":"application/json"}:{"Content-Type":"application/json"}}
 function el(id){return document.getElementById(id)}
@@ -1406,7 +1457,7 @@ document.querySelectorAll("#tabs .tab").forEach(function(t){t.addEventListener("
 document.querySelectorAll("[data-go]").forEach(function(b){b.addEventListener("click",function(){show(b.getAttribute("data-go"))})});
 function enterApp(){document.body.classList.add("authed");el("app").classList.remove("hide");window.scrollTo(0,0)}
 function leaveApp(){document.body.classList.remove("authed");el("app").classList.add("hide")}
-function signout(){localStorage.removeItem("sov_key");KEY="";leaveApp();el("inKey").value="";setMsg("siMsg","ok","Signed out.")}
+function signout(){localStorage.removeItem("sov_key");KEY="";LAST=null;leaveApp();el("inKey").value="";setMsg("siMsg","ok","Signed out.")}
 
 /* ---------- workspace ---------- */
 function signup(){
@@ -1448,8 +1499,17 @@ function renderMe(d){
   var keys=(c.anthropic_api_key?1:0)+(c.openai_api_key?1:0);
   el("tKeys").textContent=keys;el("tKeys").appendChild(mk("small",null," / 2"));
   el("tKeysD").textContent=[c.anthropic_api_key?"Anthropic":"",c.openai_api_key?"OpenAI":""].filter(Boolean).join(" · ")||"none configured";
-  el("tCap").textContent=g.daily_burn_max_usd?("$"+g.daily_burn_max_usd.toFixed(2)):"none";
-  el("tCapD").textContent=g.source==="charter"?"from your charter":"platform default";
+  el("tKeysTile").classList.toggle("warn",!keys);
+  if(!keys)el("tKeysD").textContent="missions are refused";
+  [["kvA",c.anthropic_api_key],["kvO",c.openai_api_key]].forEach(function(k){var v=el(k[0]);
+    v.className="kv"+(k[1]?" on":"");v.textContent=k[1]?("saved · "+k[1]):"not set"});
+  var steps=[[!!keys,"Add a model key","config",""],[!!c.charter_yaml,"Write a charter","config","optional"],
+             [!!LAST||(u.missions||0)>0,"Run your first mission","run",""]];
+  var ol=el("steps");ol.textContent="";var nd=0;
+  steps.forEach(function(st,i){var li=mk("li",st[0]?"done":"");if(st[0])nd++;
+    var ck=mk("span","ck");if(st[0])ck.appendChild(check());else ck.textContent=String(i+1);
+    li.appendChild(ck);li.appendChild(mk("span",null,st[1]));if(st[3])li.appendChild(mk("span","opt",st[3]));ol.appendChild(li)});
+  el("stepsN").textContent=nd+" of 3 done";
   el("nextLead").textContent=!keys?"Add a model key so missions can run. Without one, every mission is refused.":
     (!c.charter_yaml?"Write a charter to set your own budget and ceilings, or run on the platform defaults.":
      "Your workspace is configured. Run a mission and its audit verdicts land here.");
@@ -1479,37 +1539,63 @@ function saveConfig(ev){
      setMsg(mid,"ok","Saved.");el("cfgAnthropic").value="";el("cfgOpenAI").value="";refreshMe();
    }).catch(function(e){setMsg(mid,"err",String(e))})
 }
+var SKILLS={research:"Research",code_assistant:"Code assistant",code_review:"Code review",writing:"Writing",summarize:"Summary",analysis:"Analysis"};
+function taskName(id){var m=/^task-\d+-(.+)$/.exec(id||"");var k=m?m[1]:"";
+  return SKILLS[k]||(k?k.replace(/_/g," ").replace(/^./,function(c){return c.toUpperCase()}):id)}
+function summary(d,audits,withGoal){
+  var ts=d.tasks||[],n=ts.length,np=0,tot=0,ns=0,who={};
+  ts.forEach(function(t){var a=audits[t.task_id];if(a?a.passed:t.success)np++;
+    if(a&&a.score!=null){tot+=Number(a.score);ns++}if(a&&a.auditor)who[a.auditor]=1});
+  var box=mk("div"),sum=mk("div","sum");
+  sum.appendChild(mk("span","tag "+(d.all_passed?"pass":"fail"),d.all_passed?"audit passed":"audit flagged"));
+  sum.appendChild(mk("span","k",np+" of "+n+" tasks passed"));
+  if(ns)sum.appendChild(mk("span","m","avg score "+(tot/ns).toFixed(2)));
+  sum.appendChild(mk("span","sp"));
+  var w=Object.keys(who);if(w.length===1)sum.appendChild(mk("span","m mono",w[0]==="rule"?"rule check":w[0].replace(/^judge:/,"judged by ")));
+  box.appendChild(sum);if(withGoal&&d.goal)box.appendChild(mk("div","goalq","“"+d.goal+"”"));
+  return {el:box,np:np,n:n,avg:ns?tot/ns:null};
+}
 function renderResults(d){
   var out=el("runOut");out.textContent="";
   var audits={};(d.audits||[]).forEach(function(a){audits[a.task_id]=a});
-  var sum=mk("div","sum");sum.appendChild(mk("span","tag "+(d.all_passed?"pass":"fail"),d.all_passed?"audit passed":"audit flagged"));
-  sum.appendChild(document.createTextNode((d.tasks||[]).length+" tasks · "+(d.goal||"")));out.appendChild(sum);
+  out.appendChild(summary(d,audits,false).el);
   var list=mk("div","results");
   (d.tasks||[]).forEach(function(t){
-    var a=audits[t.task_id],r=mk("div","res"),hd=mk("div","rh");
-    hd.appendChild(mk("span","id",t.task_id));hd.appendChild(mk("span","sp"));
-    if(a&&a.auditor)hd.appendChild(mk("span","sc",a.auditor==="rule"?"rule check":a.auditor.replace(/^judge:/,"judged by ")));
-    if(a&&a.score!=null)hd.appendChild(mk("span","sc","score "+Number(a.score).toFixed(2)));
-    var ok=a?a.passed:t.success;hd.appendChild(mk("span","tag "+(ok?"pass":"fail"),ok?"pass":"fail"));
+    var a=audits[t.task_id],ok=a?a.passed:t.success,r=mk("div","res"+(ok?"":" bad")),hd=mk("div","rh");
+    var m=/^task-(\d+)/.exec(t.task_id||"");
+    hd.appendChild(mk("span","nm",taskName(t.task_id)));if(m)hd.appendChild(mk("span","id","#"+m[1]));
+    hd.appendChild(mk("span","sp"));
+    if(a&&a.score!=null){var bar=mk("span","sbar"),b=mk("b");b.style.width=Math.max(0,Math.min(100,a.score*100))+"%";
+      bar.appendChild(b);hd.appendChild(bar);hd.appendChild(mk("span","num",Number(a.score).toFixed(2)))}
+    hd.appendChild(mk("span","tag "+(ok?"pass":"fail"),ok?"pass":"fail"));
     r.appendChild(hd);
-    if(a&&a.reason)r.appendChild(mk("div","why",a.reason));
-    if(a&&a.proof_hash)r.appendChild(mk("div","sc","proof "+a.proof_hash.slice(0,16)+"…"));
-    r.appendChild(mk("pre",null,t.output||"(no output)"));list.appendChild(r);
+    if(a&&a.reason){var w=mk("div","why");w.appendChild(mk("b",null,ok?"Auditor:":"Why it failed:"));
+      w.appendChild(document.createTextNode(a.reason));r.appendChild(w)}
+    r.appendChild(mk("div","out",t.output||"(no output)"));
+    if(a&&(a.auditor||a.proof_hash)){var f=mk("div","rf");
+      f.appendChild(mk("span",null,t.task_id));
+      if(a.auditor)f.appendChild(mk("span",null,a.auditor==="rule"?"rule check":a.auditor.replace(/^judge:/,"judged by ")));
+      if(a.proof_hash){var ph=mk("span",null,"proof "+a.proof_hash.slice(0,16)+"…");ph.title=a.proof_hash;f.appendChild(ph)}
+      r.appendChild(f)}
+    list.appendChild(r);
   });
   out.appendChild(list);out.classList.remove("hide");el("runEmpty").classList.add("hide");
-  var lr=el("lastRun");lr.textContent="";lr.appendChild(sum.cloneNode(true));
-  var g=mk("div","gov");(d.tasks||[]).forEach(function(t){var a=audits[t.task_id],r=mk("div");
-    r.appendChild(mk("span",null,t.task_id));r.appendChild(mk("b",null,a&&a.score!=null?("score "+Number(a.score).toFixed(2)+(a.passed?" · pass":" · fail")):(t.success?"done":"failed")));g.appendChild(r)});
+  var s2=summary(d,audits,true);LAST=s2;
+  var lr=el("lastRun");lr.textContent="";lr.appendChild(s2.el);
+  var g=mk("div","gov");g.style.marginTop="8px";(d.tasks||[]).forEach(function(t){var a=audits[t.task_id],r=mk("div");
+    r.appendChild(mk("span",null,taskName(t.task_id)));r.appendChild(mk("b",null,a&&a.score!=null?(Number(a.score).toFixed(2)+(a.passed?" · pass":" · fail")):(t.success?"done":"failed")));g.appendChild(r)});
   lr.appendChild(g);
+  el("tLast").textContent=s2.np;el("tLast").appendChild(mk("small",null," / "+s2.n+" passed"));
+  el("tLastD").textContent=s2.avg!=null?("avg audit score "+s2.avg.toFixed(2)):"no audit scores";
 }
 function run(){
-  var b=el("btn_run");b.disabled=true;setMsg("runMsg","","Planning, pricing and running…");
+  var b=el("btn_run");b.disabled=true;b.classList.add("busy");setMsg("runMsg","","Planning, pricing and running… this takes a minute.");
   fetch("/saas/tenants/me/missions",{method:"POST",headers:h(),body:JSON.stringify({goal:el("goal").value})})
    .then(json).then(function(x){
-     b.disabled=false;
+     b.disabled=false;b.classList.remove("busy");
      if(!x.ok){setMsg("runMsg","err",x.d.detail||"Error");return}
      setMsg("runMsg","","");renderResults(x.d);refreshMe();
-   }).catch(function(e){b.disabled=false;setMsg("runMsg","err",String(e))})
+   }).catch(function(e){b.disabled=false;b.classList.remove("busy");setMsg("runMsg","err",String(e))})
 }
 function rotate(){
   if(!confirm("Rotate the workspace key? The current key stops working immediately."))return;
