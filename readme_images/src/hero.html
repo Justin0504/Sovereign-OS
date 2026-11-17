@@ -1,0 +1,44 @@
+<!doctype html><html><head><meta charset=utf-8><link rel=stylesheet href="base.css"><style>
+#fig{width:1280px;height:520px;background:
+  radial-gradient(900px 420px at 18% -10%,var(--sky-1),transparent 70%),
+  radial-gradient(700px 380px at 95% 110%,var(--sky-3),transparent 70%),
+  linear-gradient(180deg,var(--sky-2),var(--bg));display:grid;grid-template-columns:1fr 470px;gap:56px;padding:64px 72px;align-items:center}
+#fig::after{content:"";position:absolute;inset:0;background-image:radial-gradient(var(--line-2) 1px,transparent 1.2px);background-size:22px 22px;
+  -webkit-mask-image:linear-gradient(90deg,transparent 0,#000 55%,#000);mask-image:linear-gradient(90deg,transparent 0,#000 55%,#000);opacity:.55;pointer-events:none}
+.l,.card{position:relative;z-index:1}
+.brand{display:flex;align-items:center;gap:14px;font-weight:700;font-size:21px;letter-spacing:.06em;text-transform:uppercase}
+.brand svg{width:40px;height:40px}
+.mk-ink{fill:var(--ink)} .mk-pine{fill:var(--pine)} .mk-line{stroke:var(--ink)}
+h1{margin:28px 0 0;font-size:58px;line-height:1.02;letter-spacing:-.035em;font-weight:600}
+h1 em{font-family:var(--serif);font-style:italic;font-weight:400;letter-spacing:-.01em;color:var(--pine)}
+p.sub{margin:22px 0 0;font-size:19px;line-height:1.5;color:var(--soft);max-width:34em}
+.chips{display:flex;gap:10px;margin-top:28px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:12.5px;padding:7px 12px;border-radius:999px;border:1px solid var(--line-2);background:color-mix(in srgb,var(--paper) 70%,transparent);color:var(--ink-2)}
+.card{background:var(--paper);border:1px solid var(--line);border-radius:16px;box-shadow:0 1px 2px rgba(0,0,0,.04),0 40px 80px -36px rgba(18,20,23,.35);overflow:hidden;transform:rotate(1.2deg)}
+.ch{display:flex;align-items:center;gap:10px;padding:14px 18px;border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.ch .sp{flex:1}.ch .mono{font-weight:400;color:var(--mut);font-size:11.5px}
+.row{display:grid;grid-template-columns:58px 1fr auto;gap:12px;align-items:center;padding:11px 18px;border-bottom:1px solid var(--line);font-size:13.5px}
+.row:last-child{border-bottom:none}
+.who{font-family:var(--mono);font-size:10.5px;letter-spacing:.06em;color:var(--mut);text-transform:uppercase}
+.what{color:var(--ink-2)}.what b{font-weight:600;color:var(--ink)}
+.tag{font-family:var(--mono);font-size:10.5px;letter-spacing:.05em;padding:3px 9px;border-radius:999px;text-transform:uppercase;white-space:nowrap}
+.ok{background:var(--ok-soft);color:var(--ok)}.no{background:var(--bad-soft);color:var(--bad)}.n{background:var(--tint);color:var(--soft)}
+.foot{padding:12px 18px;background:var(--tint);font-family:var(--mono);font-size:11px;color:var(--mut);display:flex;justify-content:space-between}
+</style></head><body><div id=fig>
+<div class=l>
+  <div class=brand><svg viewBox="0 0 24 24"><rect class=mk-ink x="2" y="2" width="20" height="5" rx="1.5"/><rect class=mk-ink x="2" y="9.5" width="5.5" height="5" rx="1.2"/><rect class=mk-pine x="9.25" y="9.5" width="5.5" height="5" rx="1.2"/><rect class=mk-ink x="16.5" y="9.5" width="5.5" height="5" rx="1.2"/><rect class=mk-line x="2.75" y="17.75" width="18.5" height="3.5" rx="1.2" fill="none" stroke-width="1.5"/></svg>Sovereign-OS</div>
+  <h1>Governance for an<br><em>autonomous</em> AI workforce.</h1>
+  <p class=sub>Every mission is planned, priced against a charter, run on your own keys, and audited, before a cent is spent and before an agent earns more authority.</p>
+  <div class=chips><span class=chip>self-hosted</span><span class=chip>bring your own keys</span><span class=chip>no fund custody</span></div>
+</div>
+<div class=card>
+  <div class=ch>Governed run<span class=sp></span><span class=mono>charter.yaml · cap $5.00/day</span></div>
+  <div class=row><span class=who>CEO</span><span class=what>Plan: <b>3 tasks</b> from the goal</span><span class="tag n">planned</span></div>
+  <div class=row><span class=who>CFO</span><span class=what>research · est. <b>$0.04</b></span><span class="tag ok">approved</span></div>
+  <div class=row><span class=who>CFO</span><span class=what>bulk scrape · est. <b>$6.10</b> &gt; cap</span><span class="tag no">refused</span></div>
+  <div class=row><span class=who>Trust</span><span class=what>SPEND_USD needs score 80 · has 55</span><span class="tag no">blocked</span></div>
+  <div class=row><span class=who>Judge</span><span class=what>research · score <b>0.85</b></span><span class="tag ok">pass</span></div>
+  <div class=row><span class=who>Judge</span><span class=what>summary · no usable verdict</span><span class="tag no">fail closed</span></div>
+  <div class=foot><span>ledger seq 1042 · append-only</span><span>proof 9f2c41ab…</span></div>
+</div>
+</div></body></html>

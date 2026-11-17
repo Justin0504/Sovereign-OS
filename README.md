@@ -6,16 +6,15 @@
 </p>
 
 <p align="center">
-  <img src="readme_images/sovereign_logo.png" alt="Sovereign-OS" width="720" style="max-width:100%"/>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme_images/hero-dark.png">
+    <img src="readme_images/hero-light.png" alt="Sovereign-OS: governance for an autonomous AI workforce. A governed run approves a $0.04 task, refuses a $6.10 task over the daily cap, blocks a capability the agent has not earned, and fails closed on an audit with no usable verdict." width="100%">
+  </picture>
 </p>
 
 <p align="center">
-  <strong>Governance for an autonomous AI workforce — runs on your machine, on your keys.<br>
-  Submit a goal: Sovereign-OS plans it, checks the budget, executes with built-in workers, and delivers a cryptographically verified result.</strong>
-</p>
-
-<p align="center">
-  <em>Open source &bull; self-hosted &bull; bring your own keys &bull; no fund custody</em>
+  Submit a goal: Sovereign-OS plans it, prices it against your charter, runs it on your keys,<br>
+  and audits every deliverable, with a SHA-256 proof on each verdict.
 </p>
 
 <p align="center">
@@ -28,10 +27,6 @@
   <a href="#docs">Docs</a>
 </p>
 
-<p align="center">
-  <img src="readme_images/demo1.gif" alt="Sovereign-OS dashboard demo" width="760" style="max-width:100%"/>
-</p>
-
 ---
 
 ## Overview
@@ -40,11 +35,14 @@ Sovereign-OS is not another chatbot wrapper or agent framework. It is an **opera
 
 The core contract is simple. One YAML file — the **Charter** — declares the agent's mission, spending limits, KPIs, and allowed capabilities. Everything else — planning, approval, execution, auditing, payment — flows from that file.
 
-```
-Charter → CEO (plan) → CFO (approve budget) → Workers (execute) → Auditor (verify) → Ledger (record)
-```
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme_images/pipeline-dark.png">
+    <img src="readme_images/pipeline-light.png" alt="Figure 1. Charter, CEO plan, CFO price and gate, Workers execute, Judge audit, Ledger record. The CFO refuses spend over the cap before any token is spent; workers are blocked from capabilities they have not earned; the Judge fails closed on a low score or no usable verdict; each audit carries a SHA-256 proof. Audit verdicts feed TrustScore, which unlocks or revokes capabilities." width="100%">
+  </picture>
+</p>
 
-The Ledger is append-only. The Auditor is cryptographically bound. Neither can be overridden at runtime.
+The Ledger is append-only. Every audit verdict carries a proof hash that names who judged it. Neither can be overridden at runtime.
 
 ---
 
@@ -69,6 +67,21 @@ python -m sovereign_os.bench.governance_eval    # fiscal · permission · audit 
 python -m sovereign_os.bench.calibration_run    # does it know what its own work costs?
 python -m sovereign_os.bench.ruin               # does being wrong about that bankrupt it?
 ```
+
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme_images/measured-dark.png">
+    <img src="readme_images/measured-light.png" alt="Figure 2. Left: realized over estimated cost is 0.55x for small tasks, 0.97x for medium and 1.66x for large (mean of 3 runs). Right: ruin rate by horizon 250 to 4,000 for the EV rule with measured bias rises 4.1%, 9.9%, 16.7%, 23.7%, 28.2%; with the bias ablated it stays 0.1 to 0.3%; risk-adjusted sizing stays 0.1 to 0.3%. Estimates within 2x go from 62% to 94%; median final wealth 15,662 to 26,599." width="100%">
+  </picture>
+</p>
+
+| Horizon | EV, measured bias | EV, bias ablated | Risk-adjusted |
+|---:|---:|---:|---:|
+| 250 | 4.1% | 0.1% | 0.1% |
+| 500 | 9.9% | 0.3% | 0.2% |
+| 1,000 | 16.7% | 0.1% | 0.3% |
+| 2,000 | 23.7% | 0.2% | 0.3% |
+| 4,000 | 28.2% | 0.2% | 0.2% |
 
 **The cost estimator is tilted, not noisy.** Across 49 governed runs on a live model, small
 tasks are over-estimated ~2.1× and large ones under-estimated ~1.7× — monotonically and
@@ -134,6 +147,13 @@ curl -sX POST https://sovereign-saas-production.up.railway.app/saas/tenants/me/m
 
 Console: **https://sovereign-saas-production.up.railway.app** · API: [docs/SAAS.md](docs/SAAS.md)
 
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="readme_images/console-dark.png">
+    <img src="readme_images/console-light.png" alt="Figure 3. The hosted console: a mission's results, 2 of 3 tasks passed, each with a score bar, the auditor's reason, who judged it and a proof hash; one task failed because it asked the client for content already provided. On the right, the mobile overview with usage tiles and a setup checklist." width="100%">
+  </picture>
+</p>
+
 You supply your own Anthropic/OpenAI key per workspace; it is encrypted at rest (AES-GCM)
 and masked in every API response. Tenant API keys are stored hashed, so they are not
 recoverable — losing one means rotating it, by design. No funds are ever custodied.
@@ -166,7 +186,13 @@ python -m sovereign_os.web.app
 # Open http://localhost:8000
 ```
 
-From the dashboard you can submit missions, inspect the job queue, retry jobs, and monitor token usage and the audit trail in real time. Deploying to a server or a custom domain? See **[docs/DEPLOY.md](docs/DEPLOY.md)**.
+From the dashboard you can submit missions, inspect the job queue, retry jobs, and monitor token usage and the audit trail in real time.
+
+<details>
+<summary>Self-hosted dashboard in action (GIF)</summary>
+<p align="center"><img src="readme_images/demo1.gif" alt="Self-hosted Sovereign-OS dashboard: submitting a mission and watching the decision stream" width="760"></p>
+</details>
+ Deploying to a server or a custom domain? See **[docs/DEPLOY.md](docs/DEPLOY.md)**.
 
 ---
 
@@ -186,7 +212,7 @@ Charter (YAML)
 ```
 
 <p align="center">
-  <img src="readme_images/overview.png" alt="System overview" width="720" style="max-width:100%"/>
+  <img src="readme_images/overview.png" alt="Self-hosted dashboard: mission input, task DAG, decision stream, token usage and job queue" width="720" style="max-width:100%"/>
 </p>
 
 <details>

@@ -1,0 +1,68 @@
+<!doctype html><html><head><meta charset=utf-8><link rel=stylesheet href="base.css"><style>
+#fig{width:1280px;padding:44px 48px 40px}
+.cap{display:flex;align-items:baseline;gap:14px;margin-bottom:30px}
+.cap .no{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--pine)}
+.cap h2{margin:0;font-size:24px;letter-spacing:-.02em;font-weight:600}
+.cap p{margin:0 0 0 auto;font-size:15px;color:var(--soft)}
+.flow{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:30px;position:relative;z-index:1}
+.node{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 16px 18px;min-height:150px;position:relative}
+.node .k{font-family:var(--mono);font-size:11.5px;letter-spacing:.1em;text-transform:uppercase;color:var(--mut)}
+.node h3{margin:6px 0 8px;font-size:19px;letter-spacing:-.01em;font-weight:600}
+.node p{margin:0;font-size:14.5px;line-height:1.5;color:var(--soft)}
+.node.src{background:var(--pine-soft);border-color:color-mix(in srgb,var(--pine) 35%,var(--line))}
+.node.src .k{color:var(--pine)}
+.stops{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:30px;margin-top:46px;position:relative;z-index:1}
+.stop{background:var(--bad-soft);border:1px solid color-mix(in srgb,var(--bad) 28%,transparent);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.45;color:var(--ink-2)}
+.stop b{display:flex;align-items:center;gap:7px;font-family:var(--mono);font-size:11.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--bad);font-weight:500;margin-bottom:5px}
+.stop b svg{width:13px;height:13px;stroke:var(--bad);fill:none;stroke-width:2.4;stroke-linecap:round}
+.keep{grid-column:6;background:var(--tint);border:1px solid var(--line);border-radius:10px;padding:12px 14px;font-size:14px;line-height:1.45;color:var(--ink-2)}
+.keep b{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--pine);font-weight:500;margin-bottom:5px}
+.loop{margin-top:30px;display:flex;justify-content:flex-start;position:relative;z-index:1}
+.loop span{font-size:14.5px;color:var(--soft);background:var(--bg);padding:0 10px}
+.loop span b{color:var(--ink);font-weight:600}
+svg#wires{position:absolute;inset:0;width:100%;height:100%;z-index:0;overflow:visible}
+.w{stroke:var(--line-2);stroke-width:1.6;fill:none}
+.w.main{stroke:var(--pine);stroke-width:1.8}
+.w.bad{stroke:var(--bad);stroke-dasharray:4 4;opacity:.75}
+.w.fb{stroke:var(--pine);stroke-dasharray:5 5;opacity:.8}
+.legend{display:flex;gap:22px;margin-top:26px;font-size:13.5px;color:var(--mut);position:relative;z-index:1}
+.legend i{display:inline-block;width:22px;height:0;border-top:2px solid var(--pine);vertical-align:middle;margin-right:7px}
+.legend i.b{border-top:2px dashed var(--bad)}.legend i.f{border-top:2px dashed var(--pine)}
+</style></head><body><div id=fig>
+<svg id=wires><defs>
+<marker id=ah viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="var(--pine)"/></marker>
+<marker id=ahb viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto"><path d="M0 0L10 5L0 10z" fill="var(--bad)"/></marker>
+</defs></svg>
+<div class=cap><span class=no>Figure 1</span><h2>How a mission is governed</h2><p>Every stage can say no. Nothing downstream runs until the stage above it approves.</p></div>
+<div class=flow>
+  <div class="node src" id=n1><div class=k>01 · Charter</div><h3>charter.yaml</h3><p>Mission, budget, KPIs and which capabilities exist. The single source of truth.</p></div>
+  <div class=node id=n2><div class=k>02 · CEO</div><h3>Plan</h3><p>Decomposes the goal into a task graph; prunes to budget, re-plans on failure.</p></div>
+  <div class=node id=n3><div class=k>03 · CFO</div><h3>Price &amp; gate</h3><p>Prices every task. Daily cap, runway, margin floor, session circuit breaker.</p></div>
+  <div class=node id=n4><div class=k>04 · Workers</div><h3>Execute</h3><p>Run on your keys. High-risk capabilities are leased per task, then revoked.</p></div>
+  <div class=node id=n5><div class=k>05 · Judge</div><h3>Audit</h3><p>Scores each deliverable against the charter's KPIs with a category rubric.</p></div>
+  <div class=node id=n6><div class=k>06 · Ledger</div><h3>Record</h3><p>Append-only USD and token accounting, sequence-numbered.</p></div>
+</div>
+<div class=stops>
+  <div></div><div></div>
+  <div class=stop id=s3><b><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Refused</b>Over the cap or the budget: stopped before a token is spent.</div>
+  <div class=stop id=s4><b><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Blocked</b>Capability not yet earned: TrustScore below its threshold.</div>
+  <div class=stop id=s5><b><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg>Fail closed</b>Low score, or no usable verdict: repaired or rejected, never passed.</div>
+  <div class=keep id=s6><b>Proof</b>Each audit carries a SHA-256 proof hash, including who judged it.</div>
+</div>
+<div class=loop id=loop><span id=loopT>Verdicts update <b>TrustScore</b> &rarr; unlocks or revokes capabilities</span></div>
+<div class=legend><span><i></i>approved path</span><span><i class=b></i>where a mission stops</span><span><i class=f></i>feedback</span></div>
+<script>
+window.draw=function(){
+  var fig=document.getElementById('fig').getBoundingClientRect(),svg=document.getElementById('wires');
+  function r(id){var b=document.getElementById(id).getBoundingClientRect();return{l:b.left-fig.left,r:b.right-fig.left,t:b.top-fig.top,b:b.bottom-fig.top,cx:(b.left+b.right)/2-fig.left,cy:(b.top+b.bottom)/2-fig.top}}
+  function p(d,cls,m){var e=document.createElementNS('http://www.w3.org/2000/svg','path');e.setAttribute('d',d);e.setAttribute('class','w '+cls);if(m)e.setAttribute('marker-end','url(#'+m+')');svg.appendChild(e)}
+  for(var i=1;i<6;i++){var a=r('n'+i),b=r('n'+(i+1));p('M'+(a.r+4)+' '+a.cy+' L'+(b.l-5)+' '+a.cy,'main','ah')}
+  [3,4,5].forEach(function(i){var a=r('n'+i),s=r('s'+i);p('M'+a.cx+' '+(a.b+3)+' L'+a.cx+' '+(s.t-5),'bad','ahb')});
+  var a6=r('n6'),s6=r('s6');p('M'+a6.cx+' '+(a6.b+3)+' L'+a6.cx+' '+(s6.t-4),'main','');
+  // feedback: from under the Judge stop, round the bottom, back up into Workers' stop column
+  var s5=r('s5'),s4=r('s4'),L=r('loop'),y=L.cy,T=document.getElementById('loopT');
+  T.style.marginLeft=Math.max(0,(s4.cx-22)-T.getBoundingClientRect().width-L.l)+'px';
+  p('M'+s5.cx+' '+(s5.b+3)+' L'+s5.cx+' '+(y-10)+' Q'+s5.cx+' '+y+' '+(s5.cx-10)+' '+y+' L'+(s4.cx+10)+' '+y+' Q'+s4.cx+' '+y+' '+s4.cx+' '+(y-10)+' L'+s4.cx+' '+(s4.b+6),'fb','ah');
+};
+</script>
+</div></body></html>

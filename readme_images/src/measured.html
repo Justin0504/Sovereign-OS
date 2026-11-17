@@ -1,0 +1,82 @@
+<!doctype html><html><head><meta charset=utf-8><link rel=stylesheet href="base.css"><style>
+#fig{width:1280px;padding:44px 48px 40px}
+.cap{display:flex;align-items:baseline;gap:14px;margin-bottom:26px}
+.cap .no{font-family:var(--mono);font-size:12px;letter-spacing:.12em;text-transform:uppercase;color:var(--pine)}
+.cap h2{margin:0;font-size:24px;letter-spacing:-.02em;font-weight:600}
+.cap p{margin:0 0 0 auto;font-size:14px;color:var(--soft)}
+.panels{display:grid;grid-template-columns:minmax(0,5fr) minmax(0,7fr);gap:20px}
+.panel{background:var(--chart);border:1px solid var(--line);border-radius:12px;padding:20px 22px 14px}
+.panel .t{font-size:16px;font-weight:600;letter-spacing:-.01em}
+.panel .s{font-size:14.5px;color:var(--soft);margin-top:3px}
+.panel svg{display:block;width:100%;margin-top:10px}
+.lg{display:flex;gap:18px;margin-top:12px;font-size:14px;color:var(--soft)}
+.lg span{display:inline-flex;align-items:center;gap:7px}
+.lg i{width:16px;height:2px;border-radius:2px;display:inline-block}
+.src{font-family:var(--mono);font-size:12px;color:var(--mut);margin-top:10px}
+.stats{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:20px}
+.stat{background:var(--paper);border:1px solid var(--line);border-radius:12px;padding:16px 20px}
+.stat .l{font-size:14.5px;color:var(--soft)}
+.stat .v{font-size:30px;font-weight:600;letter-spacing:-.025em;margin-top:4px;font-variant-numeric:tabular-nums}
+.stat .v small{font-size:15px;font-weight:500;color:var(--mut);letter-spacing:0;margin:0 6px}
+.stat .d{font-size:13.5px;color:var(--mut);margin-top:4px}
+text{font-family:var(--sans)}
+.ax{font-family:var(--mono);font-size:13px;fill:var(--mut)}
+.gl{stroke:var(--grid);stroke-width:1}
+.base{stroke:var(--line-2);stroke-width:1}
+.ref{stroke:var(--ink-2);stroke-width:1.2;stroke-dasharray:4 4;opacity:.7}
+.lab{font-size:14.5px;fill:var(--ink-2)}
+.val{font-family:var(--mono);font-size:14px;fill:var(--ink);font-weight:500}
+</style></head><body><div id=fig>
+<div class=cap><span class=no>Figure 2</span><h2>What we measured, including what we did not like</h2><p>Reproduce: <span class=mono>python -m sovereign_os.bench.ruin --paper</span></p></div>
+<div class=panels>
+  <div class=panel><div class=t>The cost estimator is tilted, not noisy</div><div class=s>Realized ÷ estimated cost, by task size. 1.0 is a perfect estimate.</div>
+    <svg id=ca viewBox="0 0 470 300"></svg>
+    <div class=src>mean of 3 independent runs · 14 goals · live model</div></div>
+  <div class=panel><div class=t>…and the tilt bankrupts an expected-value agent</div><div class=s>Share of 4,000 simulated lifetimes that reach zero, by horizon (thin margins).</div>
+    <div class=lg><span><i style="background:var(--s1)"></i>EV rule, measured bias</span><span><i style="background:var(--s2)"></i>EV rule, bias ablated</span><span><i style="background:var(--s3)"></i>Risk-adjusted sizing</span></div>
+    <svg id=cb viewBox="0 0 680 278"></svg>
+    <div class=src>same noise in all three; only the direction of the error differs</div></div>
+</div>
+<div class=stats>
+  <div class=stat><div class=l>Estimates within 2× of realized cost</div><div class=v>62%<small>→</small>94%</div><div class=d>price from the task graph, then correct its level bias</div></div>
+  <div class=stat><div class=l>Median final wealth at horizon 1,000</div><div class=v>15,662<small>→</small>26,599</div><div class=d>simulated cents · on a quarter of the jobs</div></div>
+  <div class=stat><div class=l>Ruin at horizon 4,000</div><div class=v>28.2%<small>vs</small>0.2%</div><div class=d>directional bias vs the same noise with no direction</div></div>
+</div>
+<script>
+var NS='http://www.w3.org/2000/svg';
+function E(svg,tag,a,txt){var e=document.createElementNS(NS,tag);for(var k in a)e.setAttribute(k,a[k]);if(txt!=null)e.textContent=txt;svg.appendChild(e);return e}
+function bar(svg,x,y0,w,y1,fill){ // 4px rounded data end, square at the baseline
+  var r=4,h=y0-y1;E(svg,'path',{d:'M'+x+' '+y0+'V'+(y1+r)+'Q'+x+' '+y1+' '+(x+r)+' '+y1+'H'+(x+w-r)+'Q'+(x+w)+' '+y1+' '+(x+w)+' '+(y1+r)+'V'+y0+'Z',fill:fill})}
+window.draw=function(){
+  var cs=getComputedStyle(document.documentElement),c=function(v){return cs.getPropertyValue(v).trim()};
+  // ---- A: tilt
+  var a=document.getElementById('ca'),L=44,R=456,T=16,B=262,ymax=2.0,Y=function(v){return B-(B-T)*v/ymax};
+  [0,0.5,1,1.5,2].forEach(function(v){E(a,'line',{x1:L,x2:R,y1:Y(v),y2:Y(v),class:v?'gl':'base'});E(a,'text',{x:L-10,y:Y(v)+4,'text-anchor':'end',class:'ax'},v.toFixed(1)+'×')});
+  var d=[['small',0.55,'over-estimated'],['medium',0.97,''],['large',1.66,'under-estimated']],bw=74,gap=(R-L-3*bw)/3;
+  d.forEach(function(r,i){var x=L+gap/2+i*(bw+gap);bar(a,x,B,bw,Y(r[1]),c('--s1'));
+    E(a,'text',{x:x+bw/2,y:Y(r[1])-9,'text-anchor':'middle',class:'val'},r[1].toFixed(2)+'×');
+    E(a,'text',{x:x+bw/2,y:B+18,'text-anchor':'middle',class:'lab'},r[0]);
+    if(r[2])E(a,'text',{x:x+bw/2,y:B+35,'text-anchor':'middle',class:'ax'},r[2]);});
+  E(a,'line',{x1:L,x2:R,y1:Y(1),y2:Y(1),class:'ref'});
+  E(a,'text',{x:L+6,y:Y(1)-7,'text-anchor':'start',class:'ax'},'perfect estimate');
+  a.setAttribute('viewBox','0 0 470 300');
+  // ---- B: ruin vs horizon (doubling horizons, evenly spaced)
+  var b=document.getElementById('cb'),bL=50,bR=530,bT=14,bB=238,ym=30,BY=function(v){return bB-(bB-bT)*v/ym};
+  var H=[250,500,1000,2000,4000],X=function(i){return bL+(bR-bL)*i/(H.length-1)};
+  [0,10,20,30].forEach(function(v){E(b,'line',{x1:bL,x2:bR,y1:BY(v),y2:BY(v),class:v?'gl':'base'});E(b,'text',{x:bL-10,y:BY(v)+4,'text-anchor':'end',class:'ax'},v+'%')});
+  H.forEach(function(h,i){E(b,'text',{x:X(i),y:bB+20,'text-anchor':'middle',class:'ax'},h.toLocaleString())});
+  E(b,'text',{x:(bL+bR)/2,y:bB+40,'text-anchor':'middle',class:'ax'},'horizon (tasks)');
+  var S=[['--s1',[4.1,9.9,16.7,23.7,28.2],'measured bias'],['--s2',[0.1,0.3,0.1,0.2,0.2],'bias ablated'],['--s3',[0.1,0.2,0.3,0.3,0.2],'risk-adjusted']];
+  // draw the near-zero pair first so the headline series sits on top; 2px surface ring on markers
+  S.slice().reverse().forEach(function(s){var col=c(s[0]),pts=s[1].map(function(v,i){return X(i)+','+BY(v)});
+    E(b,'polyline',{points:pts.join(' '),fill:'none',stroke:col,'stroke-width':2,'stroke-linejoin':'round'});
+    s[1].forEach(function(v,i){E(b,'circle',{cx:X(i),cy:BY(v),r:4.5,fill:col,stroke:c('--chart'),'stroke-width':2})});});
+  // selective direct labels at the end of each line
+  E(b,'text',{x:bR+12,y:BY(28.2)+4,class:'lab'},'measured bias');E(b,'text',{x:bR+12,y:BY(28.2)+21,class:'val'},'28.2%');
+  E(b,'text',{x:bR+12,y:BY(0.2)-16,class:'lab'},'ablated 0.2%');
+  E(b,'text',{x:bR+12,y:BY(0.2)+4,class:'lab'},'risk-adj. 0.2%');
+  // annotate the climb
+  E(b,'text',{x:X(0)+10,y:BY(4.1)+20,class:'val'},'4.1%');
+};
+</script>
+</div></body></html>

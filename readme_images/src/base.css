@@ -1,0 +1,22 @@
+@import url('https://fonts.googleapis.com/css2?family=Hanken+Grotesk:wght@400;500;600;700&family=Instrument+Serif:ital@0;1&family=JetBrains+Mono:wght@400;500&display=block');
+:root{
+  --bg:#f4f4f2; --paper:#fff; --tint:#f7f7f5; --line:#e7e7e3; --line-2:#d8d8d3;
+  --ink:#121417; --ink-2:#2a2e35; --soft:#555b64; --mut:#8a9098;
+  --pine:#0c5c46; --pine-soft:#e6f1ec; --ok:#12805c; --ok-soft:#e5f3ec; --bad:#c8372a; --bad-soft:#fbe9e6;
+  --sky-1:#c6daf2; --sky-2:#e2ebf7; --sky-3:#f5eee2;
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --grid:#ecece8; --chart:#fcfcfb;
+  --sans:'Hanken Grotesk',-apple-system,sans-serif; --serif:'Instrument Serif',Georgia,serif; --mono:'JetBrains Mono',ui-monospace,monospace;
+}
+.dark{
+  --bg:#111315; --paper:#181b1e; --tint:#1d2024; --line:#2a2e33; --line-2:#363b41;
+  --ink:#eef0f2; --ink-2:#d3d7dc; --soft:#a4abb4; --mut:#7c838c;
+  --pine:#4fb08f; --pine-soft:#173229; --ok:#4fc08f; --ok-soft:#16302a; --bad:#ef6b5e; --bad-soft:#3a1f1c;
+  --sky-1:#16263a; --sky-2:#131c27; --sky-3:#1e1b17;
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --grid:#2a2e33; --chart:#1a1a19;
+}
+*{box-sizing:border-box}
+html,body{margin:0;background:transparent}
+body{font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased}
+#fig{background:var(--bg);overflow:hidden;position:relative}
+.mono{font-family:var(--mono)}
+.serif{font-family:var(--serif);font-weight:400}
