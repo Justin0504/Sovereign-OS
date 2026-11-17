@@ -25,7 +25,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -e ".[dev]"
+          pip install -e ".[dev,llm]"   # llm: the judge-wiring tests build real (unused) clients
           pip install "httpx>=0.24,<0.28"
 
       - name: Run pytest
